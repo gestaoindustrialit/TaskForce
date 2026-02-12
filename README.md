@@ -13,6 +13,7 @@ Aplicação de gestão de trabalho inspirada no ClickUp, desenvolvida em **PHP +
 - Envio de relatório diário para líder de projeto/equipa
 - **Pedidos diretos às equipas** (fora de projetos) em `requests.php`
 - **Formulários globais** criados apenas por admin e visíveis para todos os utilizadores
+- Admin define os **campos personalizados** de cada formulário (texto, número, data, seleção, textarea)
 
 ## Requisitos
 
