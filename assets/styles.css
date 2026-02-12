@@ -1,0 +1,7 @@
+.board-column {
+    min-height: 70vh;
+}
+
+.task-card {
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
