@@ -1,0 +1,57 @@
+body {
+    background: linear-gradient(180deg, #f2f5fb 0%, #eef2ff 100%);
+    min-height: 100vh;
+}
+
+.navbar {
+    background: linear-gradient(90deg, #111827 0%, #1f2937 100%) !important;
+}
+
+.hero-card {
+    background: linear-gradient(120deg, #2563eb 0%, #4f46e5 100%);
+    color: #fff;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(37, 99, 235, 0.25);
+}
+
+.hero-card-sm {
+    box-shadow: 0 16px 32px rgba(79, 70, 229, 0.24);
+}
+
+.soft-card {
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    border-radius: 14px;
+}
+
+.team-card {
+    border: 1px solid rgba(37, 99, 235, 0.15);
+    border-radius: 12px;
+    background: #fff;
+}
+
+.stat-pill {
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 12px;
+    padding: .55rem;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+}
+
+.stat-pill strong {
+    font-size: 1.2rem;
+}
+
+.stat-pill span {
+    font-size: .72rem;
+    opacity: .85;
+}
+
+.board-column {
+    min-height: 70vh;
+}
+
+.task-card {
+    box-shadow: 0 6px 18px rgba(2, 6, 23, 0.08);
+}
