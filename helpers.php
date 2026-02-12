@@ -66,7 +66,16 @@ function project_for_user(PDO $pdo, int $projectId, int $userId): ?array
 
 function h(?string $value): string
 {
-    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+    $text = (string) $value;
+
+    if (function_exists('mb_check_encoding') && !mb_check_encoding($text, 'UTF-8') && function_exists('mb_convert_encoding')) {
+        $converted = @mb_convert_encoding($text, 'UTF-8', 'ISO-8859-1,Windows-1252,UTF-8');
+        if ($converted !== false) {
+            $text = $converted;
+        }
+    }
+
+    return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
 }
 
 function task_badge_class(string $status): string
