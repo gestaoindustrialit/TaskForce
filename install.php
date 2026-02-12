@@ -13,13 +13,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasSqlite) {
     if ($name === '' || $email === '' || $password === '') {
         $error = 'Preencha todos os campos para criar o utilizador administrador.';
     } else {
-        $stmt = $pdo->prepare('SELECT COUNT(*) FROM users');
+        $stmt = $pdo->query('SELECT COUNT(*) FROM users');
         $usersCount = (int) $stmt->fetchColumn();
 
         if ($usersCount === 0) {
-            $insert = $pdo->prepare('INSERT INTO users(name, email, password) VALUES (?, ?, ?)');
+            $insert = $pdo->prepare('INSERT INTO users(name, email, password, is_admin) VALUES (?, ?, ?, 1)');
             $insert->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT)]);
-            $success = 'Instalação concluída. Já pode fazer login com o utilizador administrador.';
+            $success = 'Instalação concluída. Admin criado com sucesso.';
         } else {
             $error = 'A instalação já foi executada (já existem utilizadores criados).';
         }

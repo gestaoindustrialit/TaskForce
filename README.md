@@ -7,13 +7,12 @@ Aplicação de gestão de trabalho inspirada no ClickUp, desenvolvida em **PHP +
 - Autenticação (registo/login/logout)
 - Gestão de Equipas e Projetos
 - Membros por equipa (apenas membros acedem à equipa/projetos)
-- Gestão de utilizadores no dashboard (criar novos utilizadores)
-- Tarefas e Sub Tarefas
-- Checklist por tarefa
+- Gestão de utilizadores no dashboard (admin cria users)
+- Tarefas, Sub Tarefas e Checklist
 - Vista Lista e Vista Quadro (Kanban simples)
 - Envio de relatório diário para líder de projeto/equipa
-- Formulários internos por projeto (ex.: ticket de tornearia/manutenção/compras)
-- Controlo de visibilidade de formulários (`team` ou `leadership`)
+- **Pedidos diretos às equipas** (fora de projetos) em `requests.php`
+- **Formulários globais** criados apenas por admin e visíveis para todos os utilizadores
 
 ## Requisitos
 
@@ -35,6 +34,12 @@ php -S 0.0.0.0:8000
 3. Depois entrar em `http://localhost:8000/login.php`.
 
 > A base de dados `database.sqlite` é criada automaticamente no primeiro arranque.
+
+## Pedidos às equipas (global)
+
+- Ir a `Pedidos às equipas` no menu.
+- Admin cria formulários globais e define equipa de destino.
+- Qualquer utilizador autenticado pode submeter pedidos nesses formulários.
 
 ## Relatório diário
 

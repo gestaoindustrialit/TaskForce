@@ -12,11 +12,18 @@ function current_user(PDO $pdo): ?array
         return null;
     }
 
-    $stmt = $pdo->prepare('SELECT id, name, email FROM users WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, name, email, is_admin FROM users WHERE id = ?');
     $stmt->execute([$_SESSION['user_id']]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
     return $user ?: null;
+}
+
+function is_admin(PDO $pdo, int $userId): bool
+{
+    $stmt = $pdo->prepare('SELECT is_admin FROM users WHERE id = ?');
+    $stmt->execute([$userId]);
+    return (int) $stmt->fetchColumn() === 1;
 }
 
 function redirect(string $url): void

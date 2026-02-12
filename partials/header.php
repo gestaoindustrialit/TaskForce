@@ -15,9 +15,15 @@ $user = current_user($pdo);
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container">
         <a class="navbar-brand" href="dashboard.php">TaskForce</a>
+        <?php if ($user): ?>
+            <div class="navbar-nav me-auto ms-4">
+                <a class="nav-link" href="dashboard.php">Dashboard</a>
+                <a class="nav-link" href="requests.php">Pedidos às equipas</a>
+            </div>
+        <?php endif; ?>
         <div class="ms-auto d-flex align-items-center gap-3 text-white">
             <?php if ($user): ?>
-                <span class="small">Olá, <?= h($user['name']) ?></span>
+                <span class="small">Olá, <?= h($user['name']) ?><?= (int) $user['is_admin'] === 1 ? ' · Admin' : '' ?></span>
                 <a href="logout.php" class="btn btn-outline-light btn-sm">Sair</a>
             <?php endif; ?>
         </div>
