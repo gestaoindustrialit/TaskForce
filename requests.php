@@ -52,9 +52,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($teamId > 0 && $title !== '' && count($fields) > 0) {
             $stmt = $pdo->prepare('INSERT INTO team_forms(team_id, title, description, department, fields_json, created_by) VALUES (?, ?, ?, ?, ?, ?)');
             $stmt->execute([$teamId, $title, $description, $department, json_encode($fields, JSON_UNESCAPED_UNICODE), $userId]);
-            $_SESSION['flash_success'] = 'Formulário global criado. O botão de submissão já está disponível para todos os users.';
+            $_SESSION['flash_success'] = 'Formulário global criado com sucesso.';
         } else {
             $_SESSION['flash_error'] = 'Preencha equipa, título e pelo menos um campo do formulário.';
+        }
+
+        redirect('requests.php');
+    }
+
+    if ($action === 'update_team_form' && $isAdmin) {
+        $formId = (int) ($_POST['form_id'] ?? 0);
+        $teamId = (int) ($_POST['team_id'] ?? 0);
+        $title = trim($_POST['title'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $department = trim($_POST['department'] ?? '');
+
+        $fields = [];
+        $labels = $_POST['field_label'] ?? [];
+        $types = $_POST['field_type'] ?? [];
+        $requiredFlags = $_POST['field_required'] ?? [];
+        $optionsList = $_POST['field_options'] ?? [];
+
+        foreach ($labels as $idx => $label) {
+            $label = trim((string) $label);
+            if ($label === '') {
+                continue;
+            }
+
+            $type = (string) ($types[$idx] ?? 'text');
+            if (!in_array($type, ['text', 'number', 'date', 'textarea', 'select'], true)) {
+                $type = 'text';
+            }
+
+            $required = isset($requiredFlags[$idx]) && $requiredFlags[$idx] === '1';
+            $options = [];
+            if ($type === 'select') {
+                $raw = trim((string) ($optionsList[$idx] ?? ''));
+                if ($raw !== '') {
+                    $options = array_values(array_filter(array_map('trim', explode(',', $raw))));
+                }
+            }
+
+            $fields[] = [
+                'label' => $label,
+                'name' => 'field_' . ($idx + 1),
+                'type' => $type,
+                'required' => $required,
+                'options' => $options,
+            ];
+        }
+
+        if ($formId > 0 && $teamId > 0 && $title !== '' && count($fields) > 0) {
+            $stmt = $pdo->prepare('UPDATE team_forms SET team_id = ?, title = ?, description = ?, department = ?, fields_json = ? WHERE id = ?');
+            $stmt->execute([$teamId, $title, $description, $department, json_encode($fields, JSON_UNESCAPED_UNICODE), $formId]);
+            $_SESSION['flash_success'] = 'Formulário atualizado com sucesso.';
+        } else {
+            $_SESSION['flash_error'] = 'Para editar: preencha equipa, título e pelo menos um campo.';
+        }
+
+        redirect('requests.php');
+    }
+
+    if ($action === 'delete_team_form' && $isAdmin) {
+        $formId = (int) ($_POST['form_id'] ?? 0);
+        $stmt = $pdo->prepare('DELETE FROM team_forms WHERE id = ?');
+        $stmt->execute([$formId]);
+
+        if ($stmt->rowCount() > 0) {
+            $_SESSION['flash_success'] = 'Formulário eliminado com sucesso.';
+        } else {
+            $_SESSION['flash_error'] = 'Não foi possível eliminar o formulário selecionado.';
         }
 
         redirect('requests.php');
@@ -101,7 +168,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $teams = $pdo->query('SELECT id, name FROM teams ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
 $forms = $pdo->query('SELECT tf.*, t.name AS team_name, u.name AS creator_name FROM team_forms tf INNER JOIN teams t ON t.id = tf.team_id INNER JOIN users u ON u.id = tf.created_by WHERE tf.is_active = 1 ORDER BY tf.created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
-
 $entries = $pdo->query('SELECT e.*, f.title AS form_title, t.name AS team_name, u.name AS creator_name FROM team_form_entries e INNER JOIN team_forms f ON f.id = e.form_id INNER JOIN teams t ON t.id = f.team_id INNER JOIN users u ON u.id = e.created_by ORDER BY e.created_at DESC LIMIT 40')->fetchAll(PDO::FETCH_ASSOC);
 
 $pageTitle = 'Pedidos às equipas';
@@ -128,18 +194,35 @@ require __DIR__ . '/partials/header.php';
                 <?php foreach ($forms as $form): ?>
                     <?php $formFields = json_decode((string) $form['fields_json'], true) ?: []; ?>
                     <div class="list-group-item">
-                        <h4 class="h6 mb-1"><?= h($form['title']) ?></h4>
-                        <p class="small text-muted mb-1">Equipa destino: <strong><?= h($form['team_name']) ?></strong> · Departamento: <strong><?= h($form['department']) ?></strong></p>
-                        <p class="small mb-2"><?= h($form['description']) ?></p>
-                        <button class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#submit<?= (int) $form['id'] ?>">Abrir formulário</button>
+                        <div class="d-flex justify-content-between align-items-start gap-2">
+                            <div>
+                                <h4 class="h6 mb-1"><?= h($form['title']) ?></h4>
+                                <p class="small text-muted mb-2"><?= h($form['description']) ?: 'Sem descrição' ?></p>
+                                <small class="text-muted d-block">Equipa: <?= h($form['team_name']) ?> · Departamento: <?= h($form['department']) ?></small>
+                                <small class="text-muted d-block">Criado por <?= h($form['creator_name']) ?></small>
+                            </div>
+                            <?php if ($isAdmin): ?>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editFormModal<?= (int) $form['id'] ?>">Editar</button>
+                                    <form method="post" onsubmit="return confirm('Eliminar este formulário e todos os pedidos associados?');">
+                                        <input type="hidden" name="action" value="delete_team_form">
+                                        <input type="hidden" name="form_id" value="<?= (int) $form['id'] ?>">
+                                        <button class="btn btn-sm btn-outline-danger">Eliminar</button>
+                                    </form>
+                                </div>
+                            <?php endif; ?>
+                        </div>
 
-                        <div class="collapse mt-2" id="submit<?= (int) $form['id'] ?>">
-                            <form method="post" class="vstack gap-2 border rounded p-3 bg-light-subtle">
+                        <div class="border rounded p-3 mt-3 bg-light-subtle">
+                            <form method="post" class="vstack gap-2">
                                 <input type="hidden" name="action" value="submit_team_form">
                                 <input type="hidden" name="form_id" value="<?= (int) $form['id'] ?>">
 
                                 <?php foreach ($formFields as $field): ?>
-                                    <?php $fieldName = h($field['name']); $required = !empty($field['required']); ?>
+                                    <?php
+                                    $fieldName = (string) ($field['name'] ?? '');
+                                    $required = !empty($field['required']);
+                                    ?>
                                     <label class="form-label small mb-1"><?= h($field['label']) ?><?= $required ? ' *' : '' ?></label>
                                     <?php if (($field['type'] ?? 'text') === 'textarea'): ?>
                                         <textarea class="form-control form-control-sm" name="<?= $fieldName ?>" <?= $required ? 'required' : '' ?>></textarea>
@@ -201,10 +284,8 @@ require __DIR__ . '/partials/header.php';
                     <?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>"><?= h($team['name']) ?></option><?php endforeach; ?>
                 </select>
                 <input class="form-control" name="department" placeholder="Departamento (ex: Tornearia)">
-
                 <div class="border rounded p-3">
                     <h6>Campos personalizados</h6>
-                    <p class="small text-muted mb-2">Define os campos do formulário. Podes remover ou deixar opções vazias quando não for select.</p>
                     <?php for ($i = 0; $i < 6; $i++): ?>
                         <div class="row g-2 mb-2">
                             <div class="col-md-4"><input class="form-control form-control-sm" name="field_label[]" placeholder="Label do campo"></div>
@@ -232,6 +313,56 @@ require __DIR__ . '/partials/header.php';
         </form>
     </div>
 </div>
+
+<?php foreach ($forms as $form): ?>
+    <?php $formFields = json_decode((string) $form['fields_json'], true) ?: []; ?>
+    <div class="modal fade" id="editFormModal<?= (int) $form['id'] ?>" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <form class="modal-content" method="post">
+                <input type="hidden" name="action" value="update_team_form">
+                <input type="hidden" name="form_id" value="<?= (int) $form['id'] ?>">
+                <div class="modal-header"><h5 class="modal-title">Editar formulário</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body vstack gap-3">
+                    <input class="form-control" name="title" value="<?= h($form['title']) ?>" required>
+                    <textarea class="form-control" name="description" placeholder="Descrição"><?= h($form['description']) ?></textarea>
+                    <select class="form-select" name="team_id" required>
+                        <option value="">Selecionar equipa destino</option>
+                        <?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>" <?= (int) $team['id'] === (int) $form['team_id'] ? 'selected' : '' ?>><?= h($team['name']) ?></option><?php endforeach; ?>
+                    </select>
+                    <input class="form-control" name="department" value="<?= h($form['department']) ?>" placeholder="Departamento (ex: Tornearia)">
+
+                    <div class="border rounded p-3">
+                        <h6>Campos personalizados</h6>
+                        <?php for ($i = 0; $i < 6; $i++): ?>
+                            <?php $field = $formFields[$i] ?? []; ?>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-4"><input class="form-control form-control-sm" name="field_label[]" value="<?= h($field['label'] ?? '') ?>" placeholder="Label do campo"></div>
+                                <div class="col-md-3">
+                                    <?php $type = $field['type'] ?? 'text'; ?>
+                                    <select class="form-select form-select-sm" name="field_type[]">
+                                        <option value="text" <?= $type === 'text' ? 'selected' : '' ?>>Texto</option>
+                                        <option value="number" <?= $type === 'number' ? 'selected' : '' ?>>Número</option>
+                                        <option value="date" <?= $type === 'date' ? 'selected' : '' ?>>Data</option>
+                                        <option value="textarea" <?= $type === 'textarea' ? 'selected' : '' ?>>Área de texto</option>
+                                        <option value="select" <?= $type === 'select' ? 'selected' : '' ?>>Escolha</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <select class="form-select form-select-sm" name="field_required[]">
+                                        <option value="0" <?= empty($field['required']) ? 'selected' : '' ?>>Opcional</option>
+                                        <option value="1" <?= !empty($field['required']) ? 'selected' : '' ?>>Obrigatório</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3"><input class="form-control form-control-sm" name="field_options[]" value="<?= h(implode(',', $field['options'] ?? [])) ?>" placeholder="Opções (a,b,c)"></div>
+                            </div>
+                        <?php endfor; ?>
+                    </div>
+                </div>
+                <div class="modal-footer"><button class="btn btn-primary">Guardar alterações</button></div>
+            </form>
+        </div>
+    </div>
+<?php endforeach; ?>
 <?php endif; ?>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>
