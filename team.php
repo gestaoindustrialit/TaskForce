@@ -55,13 +55,7 @@ $teamStmt = $pdo->prepare('SELECT * FROM teams WHERE id = ?');
 $teamStmt->execute([$teamId]);
 $team = $teamStmt->fetch(PDO::FETCH_ASSOC);
 
-$projectsStmt = $pdo->prepare(
-    'SELECT p.*, u.name AS leader_name
-     FROM projects p
-     LEFT JOIN users u ON u.id = p.leader_user_id
-     WHERE p.team_id = ?
-     ORDER BY p.created_at DESC'
-);
+$projectsStmt = $pdo->prepare('SELECT p.*, u.name AS leader_name FROM projects p LEFT JOIN users u ON u.id = p.leader_user_id WHERE p.team_id = ? ORDER BY p.created_at DESC');
 $projectsStmt->execute([$teamId]);
 $projects = $projectsStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -72,18 +66,16 @@ $members = $membersStmt->fetchAll(PDO::FETCH_ASSOC);
 $pageTitle = 'Equipa ' . $team['name'];
 require __DIR__ . '/partials/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-start mb-4">
-    <div>
-        <a href="dashboard.php" class="small">← Voltar</a>
-        <h1 class="h3 mb-1"><?= h($team['name']) ?></h1>
-        <p class="text-muted mb-0"><?= h($team['description']) ?: 'Sem descrição' ?></p>
-    </div>
-</div>
+<section class="hero-card hero-card-sm mb-4 p-4">
+    <a href="dashboard.php" class="small text-white">← Voltar</a>
+    <h1 class="h2 mb-1 mt-2"><?= h($team['name']) ?></h1>
+    <p class="text-white-50 mb-0"><?= h($team['description']) ?: 'Sem descrição' ?></p>
+</section>
 
 <div class="row g-4">
     <div class="col-lg-8">
-        <div class="card shadow-sm">
-            <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card shadow-sm soft-card">
+            <div class="card-header d-flex justify-content-between align-items-center bg-white">
                 <h2 class="h5 mb-0">Projetos</h2>
                 <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#projectModal">Novo Projeto</button>
             </div>
@@ -101,28 +93,25 @@ require __DIR__ . '/partials/header.php';
     </div>
 
     <div class="col-lg-4">
-        <div class="card shadow-sm mb-3">
-            <div class="card-header"><h2 class="h6 mb-0">Membros da equipa</h2></div>
+        <div class="card shadow-sm soft-card mb-3">
+            <div class="card-header bg-white"><h2 class="h6 mb-0">Membros da equipa</h2></div>
             <ul class="list-group list-group-flush">
                 <?php foreach ($members as $member): ?>
                     <li class="list-group-item d-flex justify-content-between align-items-center">
                         <span><?= h($member['name']) ?><br><small class="text-muted"><?= h($member['email']) ?></small></span>
-                        <span class="badge bg-secondary"><?= h($member['role']) ?></span>
+                        <span class="badge text-bg-light border"><?= h($member['role']) ?></span>
                     </li>
                 <?php endforeach; ?>
             </ul>
         </div>
 
-        <div class="card shadow-sm">
-            <div class="card-header"><h2 class="h6 mb-0">Adicionar membro</h2></div>
+        <div class="card shadow-sm soft-card">
+            <div class="card-header bg-white"><h2 class="h6 mb-0">Adicionar membro</h2></div>
             <div class="card-body">
                 <form method="post" class="vstack gap-2">
                     <input type="hidden" name="action" value="invite_member">
                     <input class="form-control" type="email" name="email" placeholder="email@empresa.com" required>
-                    <select class="form-select" name="role">
-                        <option value="member" selected>Membro</option>
-                        <option value="leader">Líder</option>
-                    </select>
+                    <select class="form-select" name="role"><option value="member" selected>Membro</option><option value="leader">Líder</option></select>
                     <button class="btn btn-outline-primary">Adicionar</button>
                 </form>
             </div>
@@ -134,24 +123,17 @@ require __DIR__ . '/partials/header.php';
     <div class="modal-dialog">
         <form class="modal-content" method="post">
             <input type="hidden" name="action" value="create_project">
-            <div class="modal-header">
-                <h5 class="modal-title">Criar projeto</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
+            <div class="modal-header"><h5 class="modal-title">Criar projeto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body vstack gap-3">
                 <input class="form-control" name="name" placeholder="Nome" required>
                 <textarea class="form-control" name="description" placeholder="Descrição"></textarea>
                 <select class="form-select" name="leader_user_id">
                     <?php foreach ($members as $member): ?>
-                        <option value="<?= (int) $member['id'] ?>" <?= $member['id'] === $userId ? 'selected' : '' ?>>
-                            <?= h($member['name']) ?> (<?= h($member['role']) ?>)
-                        </option>
+                        <option value="<?= (int) $member['id'] ?>" <?= $member['id'] === $userId ? 'selected' : '' ?>><?= h($member['name']) ?> (<?= h($member['role']) ?>)</option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-primary">Criar</button>
-            </div>
+            <div class="modal-footer"><button class="btn btn-primary">Criar</button></div>
         </form>
     </div>
 </div>

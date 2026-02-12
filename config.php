@@ -92,3 +92,41 @@ $pdo->exec(
         FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
     )'
 );
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS forms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        department TEXT NOT NULL,
+        visibility TEXT NOT NULL DEFAULT "team",
+        created_by INTEGER NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS form_submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        form_id INTEGER NOT NULL,
+        requester_name TEXT NOT NULL,
+        responsible TEXT NOT NULL,
+        department_requested TEXT NOT NULL,
+        product TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        quantity TEXT NOT NULL,
+        urgency TEXT NOT NULL,
+        due_date DATE,
+        notes TEXT,
+        attachment_ref TEXT,
+        status TEXT DEFAULT "open",
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(form_id) REFERENCES forms(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);

@@ -5,13 +5,15 @@ Aplicação de gestão de trabalho inspirada no ClickUp, desenvolvida em **PHP +
 ## Funcionalidades
 
 - Autenticação (registo/login/logout)
-- Gestão de Equipas
+- Gestão de Equipas e Projetos
 - Membros por equipa (apenas membros acedem à equipa/projetos)
-- Projetos por equipa com definição de líder
+- Gestão de utilizadores no dashboard (criar novos utilizadores)
 - Tarefas e Sub Tarefas
 - Checklist por tarefa
 - Vista Lista e Vista Quadro (Kanban simples)
 - Envio de relatório diário para líder de projeto/equipa
+- Formulários internos por projeto (ex.: ticket de tornearia/manutenção/compras)
+- Controlo de visibilidade de formulários (`team` ou `leadership`)
 
 ## Requisitos
 
