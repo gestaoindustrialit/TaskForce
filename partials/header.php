@@ -23,6 +23,9 @@ header('Content-Type: text/html; charset=UTF-8');
             <span>TaskForce</span>
         </a>
         <?php if ($user): ?>
+            <?php
+            $navForms = $pdo->query('SELECT id, title FROM team_forms WHERE is_active = 1 ORDER BY created_at DESC LIMIT 12')->fetchAll(PDO::FETCH_ASSOC);
+            ?>
             <div class="navbar-nav me-auto ms-4">
                 <a class="nav-link" href="dashboard.php">Dashboard</a>
                 <a class="nav-link" href="requests.php">Pedidos &agrave;s equipas</a>

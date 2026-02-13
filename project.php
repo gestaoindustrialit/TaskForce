@@ -14,6 +14,10 @@ if (!$project) {
 $view = $_GET['view'] ?? 'list';
 $showDone = (int) ($_GET['show_done'] ?? 1) === 1;
 
+$accessibleTeamsStmt = $pdo->prepare('SELECT t.id, t.name FROM teams t INNER JOIN team_members tm ON tm.team_id = t.id WHERE tm.user_id = ? ORDER BY t.name ASC');
+$accessibleTeamsStmt->execute([$userId]);
+$accessibleTeams = $accessibleTeamsStmt->fetchAll(PDO::FETCH_ASSOC);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -76,6 +80,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $pdo->prepare('UPDATE checklist_items SET is_done = ? WHERE id = ? AND task_id IN (SELECT id FROM tasks WHERE project_id = ?)');
         $stmt->execute([$isDone, $itemId, $projectId]);
         $pdo->prepare('UPDATE tasks SET updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = (SELECT task_id FROM checklist_items WHERE id = ?)')->execute([$userId, $itemId]);
+    }
+
+    if ($action === 'create_general_ticket') {
+        $pedido = trim($_POST['pedido'] ?? '');
+        $urgencia = trim($_POST['urgencia'] ?? '');
+        $dataEntrega = trim($_POST['data_entrega'] ?? '');
+        $targetTeamId = (int) ($_POST['team_id'] ?? 0);
+
+        if ($pedido === '' || $urgencia === '' || $dataEntrega === '' || $targetTeamId <= 0) {
+            $_SESSION['flash_error'] = 'Preencha Pedido, Nível de urgência, Data de Entrega e Equipa.';
+        } elseif (!team_accessible($pdo, $targetTeamId, $userId)) {
+            $_SESSION['flash_error'] = 'Não tem acesso à equipa selecionada para criar ticket.';
+        } else {
+            $teamStmt = $pdo->prepare('SELECT name FROM teams WHERE id = ?');
+            $teamStmt->execute([$targetTeamId]);
+            $teamName = (string) ($teamStmt->fetchColumn() ?: 'Equipa');
+
+            $generalFormStmt = $pdo->prepare('SELECT id FROM team_forms WHERE team_id = ? AND title = ? AND is_active = 1 ORDER BY id ASC LIMIT 1');
+            $generalFormStmt->execute([$targetTeamId, 'Ticket Geral']);
+            $generalFormId = (int) ($generalFormStmt->fetchColumn() ?: 0);
+
+            if ($generalFormId === 0) {
+                $defaultFields = [
+                    ['label' => 'Pedido (Explique de forma clara a sua necessidade)', 'name' => 'pedido', 'type' => 'textarea', 'required' => true, 'options' => []],
+                    ['label' => 'Nível de urgência', 'name' => 'urgencia', 'type' => 'select', 'required' => true, 'options' => ['Baixa', 'Média', 'Alta', 'Crítica']],
+                    ['label' => 'Data de Entrega', 'name' => 'data_entrega', 'type' => 'date', 'required' => true, 'options' => []],
+                    ['label' => 'Equipa', 'name' => 'equipa', 'type' => 'text', 'required' => true, 'options' => []],
+                ];
+
+                $createGeneralForm = $pdo->prepare('INSERT INTO team_forms(team_id, title, description, department, fields_json, created_by) VALUES (?, ?, ?, ?, ?, ?)');
+                $createGeneralForm->execute([
+                    $targetTeamId,
+                    'Ticket Geral',
+                    'Formulário simplificado para tickets rápidos criados na dashboard do projeto.',
+                    'Pedidos gerais',
+                    json_encode($defaultFields, JSON_UNESCAPED_UNICODE),
+                    $userId,
+                ]);
+                $generalFormId = (int) $pdo->lastInsertId();
+            }
+
+            $payload = [
+                ['label' => 'Pedido (Explique de forma clara a sua necessidade)', 'name' => 'pedido', 'type' => 'textarea', 'value' => $pedido],
+                ['label' => 'Nível de urgência', 'name' => 'urgencia', 'type' => 'select', 'value' => $urgencia],
+                ['label' => 'Data de Entrega', 'name' => 'data_entrega', 'type' => 'date', 'value' => $dataEntrega],
+                ['label' => 'Equipa', 'name' => 'equipa', 'type' => 'text', 'value' => $teamName],
+            ];
+
+            $insertGeneralEntry = $pdo->prepare('INSERT INTO team_form_entries(form_id, payload_json, created_by, assignee_user_id, status) VALUES (?, ?, ?, NULL, "open")');
+            $insertGeneralEntry->execute([$generalFormId, json_encode($payload, JSON_UNESCAPED_UNICODE), $userId]);
+            $_SESSION['flash_success'] = 'Ticket geral submetido com sucesso.';
+        }
     }
 
     redirect('project.php?id=' . $projectId . '&view=' . $view . '&show_done=' . ($showDone ? '1' : '0'));
