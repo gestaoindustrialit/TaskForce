@@ -4,6 +4,7 @@ require_login();
 
 $userId = (int) $_SESSION['user_id'];
 $isAdmin = is_admin($pdo, $userId);
+$showCompleted = (int) ($_GET['show_completed'] ?? 0) === 1;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -27,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $type = (string) ($types[$idx] ?? 'text');
-            if (!in_array($type, ['text', 'number', 'date', 'textarea', 'select'], true)) {
+            if (!in_array($type, ['text', 'number', 'date', 'textarea', 'select', 'file'], true)) {
                 $type = 'text';
             }
 
@@ -57,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['flash_error'] = 'Preencha equipa, título e pelo menos um campo do formulário.';
         }
 
-        redirect('requests.php');
+        redirect('requests.php?show_completed=' . ($showCompleted ? '1' : '0'));
     }
 
     if ($action === 'update_team_form' && $isAdmin) {
@@ -80,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $type = (string) ($types[$idx] ?? 'text');
-            if (!in_array($type, ['text', 'number', 'date', 'textarea', 'select'], true)) {
+            if (!in_array($type, ['text', 'number', 'date', 'textarea', 'select', 'file'], true)) {
                 $type = 'text';
             }
 
@@ -110,7 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['flash_error'] = 'Para editar: preencha equipa, título e pelo menos um campo.';
         }
 
-        redirect('requests.php');
+        redirect('requests.php?show_completed=' . ($showCompleted ? '1' : '0'));
     }
 
     if ($action === 'delete_team_form' && $isAdmin) {
@@ -124,12 +125,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['flash_error'] = 'Não foi possível eliminar o formulário selecionado.';
         }
 
-        redirect('requests.php');
+        redirect('requests.php?show_completed=' . ($showCompleted ? '1' : '0'));
     }
 
     if ($action === 'submit_team_form') {
         $formId = (int) ($_POST['form_id'] ?? 0);
-        $formStmt = $pdo->prepare('SELECT id, fields_json, title FROM team_forms WHERE id = ? AND is_active = 1');
+        $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
+        $formStmt = $pdo->prepare('SELECT id, fields_json FROM team_forms WHERE id = ? AND is_active = 1');
         $formStmt->execute([$formId]);
         $form = $formStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -140,42 +142,109 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             foreach ($fields as $field) {
                 $name = (string) ($field['name'] ?? '');
+                $type = (string) ($field['type'] ?? 'text');
+                $required = !empty($field['required']);
+
+                if ($type === 'file') {
+                    $file = $_FILES[$name] ?? null;
+                    $hasFile = $file && is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK;
+                    if ($required && !$hasFile) {
+                        $valid = false;
+                        break;
+                    }
+
+                    $storedFile = null;
+                    if ($hasFile) {
+                        $uploadDir = __DIR__ . '/uploads/tickets';
+                        if (!is_dir($uploadDir)) {
+                            mkdir($uploadDir, 0775, true);
+                        }
+
+                        $ext = pathinfo((string) $file['name'], PATHINFO_EXTENSION);
+                        $safeName = uniqid('ticket_', true) . ($ext ? '.' . strtolower($ext) : '');
+                        $targetPath = $uploadDir . '/' . $safeName;
+                        if (move_uploaded_file((string) $file['tmp_name'], $targetPath)) {
+                            $storedFile = [
+                                'name' => (string) $file['name'],
+                                'path' => 'uploads/tickets/' . $safeName,
+                            ];
+                        } elseif ($required) {
+                            $valid = false;
+                            break;
+                        }
+                    }
+
+                    $payload[] = [
+                        'label' => $field['label'] ?? $name,
+                        'name' => $name,
+                        'type' => $type,
+                        'value' => $storedFile,
+                    ];
+                    continue;
+                }
+
                 $value = trim((string) ($_POST[$name] ?? ''));
-                if (($field['required'] ?? false) && $value === '') {
+                if ($required && $value === '') {
                     $valid = false;
                     break;
                 }
+
                 $payload[] = [
                     'label' => $field['label'] ?? $name,
                     'name' => $name,
+                    'type' => $type,
                     'value' => $value,
-                    'type' => $field['type'] ?? 'text',
                 ];
             }
 
             if ($valid) {
-                $insert = $pdo->prepare('INSERT INTO team_form_entries(form_id, payload_json, created_by) VALUES (?, ?, ?)');
-                $insert->execute([$formId, json_encode($payload, JSON_UNESCAPED_UNICODE), $userId]);
-                $_SESSION['flash_success'] = 'Pedido submetido com sucesso.';
+                $assignee = $assigneeUserId > 0 ? $assigneeUserId : null;
+                $insert = $pdo->prepare('INSERT INTO team_form_entries(form_id, payload_json, created_by, assignee_user_id, status) VALUES (?, ?, ?, ?, "open")');
+                $insert->execute([$formId, json_encode($payload, JSON_UNESCAPED_UNICODE), $userId, $assignee]);
+                $_SESSION['flash_success'] = 'Ticket submetido com sucesso.';
             } else {
                 $_SESSION['flash_error'] = 'Existem campos obrigatórios por preencher.';
             }
         }
 
-        redirect('requests.php');
+        redirect('requests.php?show_completed=' . ($showCompleted ? '1' : '0'));
+    }
+
+    if ($action === 'update_ticket' && $isAdmin) {
+        $entryId = (int) ($_POST['entry_id'] ?? 0);
+        $status = (string) ($_POST['status'] ?? 'open');
+        $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
+        if (in_array($status, ['open', 'done'], true) && $entryId > 0) {
+            $completedAt = $status === 'done' ? date('Y-m-d H:i:s') : null;
+            $stmt = $pdo->prepare('UPDATE team_form_entries SET status = ?, assignee_user_id = ?, completed_at = ? WHERE id = ?');
+            $stmt->execute([$status, $assigneeUserId > 0 ? $assigneeUserId : null, $completedAt, $entryId]);
+            $_SESSION['flash_success'] = 'Ticket atualizado.';
+        }
+
+        redirect('requests.php?show_completed=' . ($showCompleted ? '1' : '0'));
     }
 }
 
 $teams = $pdo->query('SELECT id, name FROM teams ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
+$users = $pdo->query('SELECT id, name, email FROM users ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
 $forms = $pdo->query('SELECT tf.*, t.name AS team_name, u.name AS creator_name FROM team_forms tf INNER JOIN teams t ON t.id = tf.team_id INNER JOIN users u ON u.id = tf.created_by WHERE tf.is_active = 1 ORDER BY tf.created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
-$entries = $pdo->query('SELECT e.*, f.title AS form_title, t.name AS team_name, u.name AS creator_name FROM team_form_entries e INNER JOIN team_forms f ON f.id = e.form_id INNER JOIN teams t ON t.id = f.team_id INNER JOIN users u ON u.id = e.created_by ORDER BY e.created_at DESC LIMIT 40')->fetchAll(PDO::FETCH_ASSOC);
+
+$entriesSql = 'SELECT e.*, f.title AS form_title, t.name AS team_name, u.name AS creator_name, a.name AS assignee_name
+FROM team_form_entries e
+INNER JOIN team_forms f ON f.id = e.form_id
+INNER JOIN teams t ON t.id = f.team_id
+INNER JOIN users u ON u.id = e.created_by
+LEFT JOIN users a ON a.id = e.assignee_user_id';
+$entriesWhere = $showCompleted ? '' : ' WHERE e.status != "done"';
+$entries = $pdo->query($entriesSql . $entriesWhere . ' ORDER BY e.created_at DESC LIMIT 80')->fetchAll(PDO::FETCH_ASSOC);
+$completedEntries = $pdo->query($entriesSql . ' WHERE e.status = "done" ORDER BY COALESCE(e.completed_at, e.created_at) DESC LIMIT 150')->fetchAll(PDO::FETCH_ASSOC);
 
 $pageTitle = 'Pedidos às equipas';
 require __DIR__ . '/partials/header.php';
 ?>
 <section class="hero-card mb-4 p-4">
-    <h1 class="h3 mb-1">Pedidos diretos às equipas</h1>
-    <p class="mb-0 text-white-50">Submete pedidos sem estar dentro de um projeto específico.</p>
+    <h1 class="h3 mb-1">Sistema de ticketing</h1>
+    <p class="mb-0 text-white-50">Submete pedidos simples, atribui a qualquer utilizador e acompanha histórico.</p>
 </section>
 
 <?php if (!empty($_SESSION['flash_success'])): ?><div class="alert alert-success"><?= h($_SESSION['flash_success']) ?></div><?php unset($_SESSION['flash_success']); endif; ?>
@@ -183,13 +252,20 @@ require __DIR__ . '/partials/header.php';
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h2 class="h4 mb-0">Formulários globais</h2>
-    <?php if ($isAdmin): ?><button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createTeamFormModal">Gerar formulário (admin)</button><?php endif; ?>
+    <div class="d-flex align-items-center gap-3">
+        <form method="get" class="form-check form-switch mb-0">
+            <input type="hidden" name="show_completed" value="0">
+            <input class="form-check-input" type="checkbox" id="showCompleted" name="show_completed" value="1" <?= $showCompleted ? 'checked' : '' ?> onchange="this.form.submit()">
+            <label class="form-check-label small" for="showCompleted">Mostrar concluídos na vista principal</label>
+        </form>
+        <?php if ($isAdmin): ?><button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createTeamFormModal">Gerar formulário (admin)</button><?php endif; ?>
+    </div>
 </div>
 
 <div class="row g-4">
     <div class="col-lg-7">
         <div class="card soft-card shadow-sm h-100">
-            <div class="card-header bg-white"><h3 class="h5 mb-0">Submeter pedido</h3></div>
+            <div class="card-header bg-white"><h3 class="h5 mb-0">Submeter ticket</h3></div>
             <div class="list-group list-group-flush">
                 <?php foreach ($forms as $form): ?>
                     <?php $formFields = json_decode((string) $form['fields_json'], true) ?: []; ?>
@@ -204,7 +280,7 @@ require __DIR__ . '/partials/header.php';
                             <?php if ($isAdmin): ?>
                                 <div class="d-flex gap-2">
                                     <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editFormModal<?= (int) $form['id'] ?>">Editar</button>
-                                    <form method="post" onsubmit="return confirm('Eliminar este formulário e todos os pedidos associados?');">
+                                    <form method="post" onsubmit="return confirm('Eliminar este formulário e todos os tickets associados?');">
                                         <input type="hidden" name="action" value="delete_team_form">
                                         <input type="hidden" name="form_id" value="<?= (int) $form['id'] ?>">
                                         <button class="btn btn-sm btn-outline-danger">Eliminar</button>
@@ -214,7 +290,7 @@ require __DIR__ . '/partials/header.php';
                         </div>
 
                         <div class="border rounded p-3 mt-3 bg-light-subtle">
-                            <form method="post" class="vstack gap-2">
+                            <form method="post" enctype="multipart/form-data" class="vstack gap-2">
                                 <input type="hidden" name="action" value="submit_team_form">
                                 <input type="hidden" name="form_id" value="<?= (int) $form['id'] ?>">
 
@@ -222,23 +298,34 @@ require __DIR__ . '/partials/header.php';
                                     <?php
                                     $fieldName = (string) ($field['name'] ?? '');
                                     $required = !empty($field['required']);
+                                    $fieldType = (string) ($field['type'] ?? 'text');
                                     ?>
                                     <label class="form-label small mb-1"><?= h($field['label']) ?><?= $required ? ' *' : '' ?></label>
-                                    <?php if (($field['type'] ?? 'text') === 'textarea'): ?>
+                                    <?php if ($fieldType === 'textarea'): ?>
                                         <textarea class="form-control form-control-sm" name="<?= $fieldName ?>" <?= $required ? 'required' : '' ?>></textarea>
-                                    <?php elseif (($field['type'] ?? 'text') === 'select'): ?>
+                                    <?php elseif ($fieldType === 'select'): ?>
                                         <select class="form-select form-select-sm" name="<?= $fieldName ?>" <?= $required ? 'required' : '' ?>>
                                             <option value="">Selecionar...</option>
                                             <?php foreach (($field['options'] ?? []) as $option): ?>
                                                 <option value="<?= h($option) ?>"><?= h($option) ?></option>
                                             <?php endforeach; ?>
                                         </select>
+                                    <?php elseif ($fieldType === 'file'): ?>
+                                        <input class="form-control form-control-sm" type="file" name="<?= $fieldName ?>" <?= $required ? 'required' : '' ?>>
                                     <?php else: ?>
-                                        <input class="form-control form-control-sm" type="<?= h(($field['type'] ?? 'text')) ?>" name="<?= $fieldName ?>" <?= $required ? 'required' : '' ?>>
+                                        <input class="form-control form-control-sm" type="<?= h($fieldType) ?>" name="<?= $fieldName ?>" <?= $required ? 'required' : '' ?>>
                                     <?php endif; ?>
                                 <?php endforeach; ?>
 
-                                <button class="btn btn-primary btn-sm mt-2">Submeter pedido</button>
+                                <label class="form-label small mb-1">Atribuir ticket a</label>
+                                <select class="form-select form-select-sm" name="assignee_user_id">
+                                    <option value="0">Sem atribuição</option>
+                                    <?php foreach ($users as $user): ?>
+                                        <option value="<?= (int) $user['id'] ?>"><?= h($user['name']) ?> (<?= h($user['email']) ?>)</option>
+                                    <?php endforeach; ?>
+                                </select>
+
+                                <button class="btn btn-primary btn-sm mt-2">Submeter ticket</button>
                             </form>
                         </div>
                     </div>
@@ -250,23 +337,68 @@ require __DIR__ . '/partials/header.php';
 
     <div class="col-lg-5">
         <div class="card soft-card shadow-sm h-100">
-            <div class="card-header bg-white"><h3 class="h5 mb-0">Últimos pedidos enviados</h3></div>
+            <div class="card-header bg-white"><h3 class="h5 mb-0">Tickets recentes<?= $showCompleted ? ' (inclui concluídos)' : '' ?></h3></div>
             <div class="table-responsive">
                 <table class="table align-middle mb-0">
-                    <thead><tr><th>Formulário</th><th>Equipa</th><th>Criado por</th></tr></thead>
+                    <thead><tr><th>Ticket</th><th>Atribuído</th><th>Estado</th></tr></thead>
                     <tbody>
                         <?php foreach ($entries as $entry): ?>
                             <tr>
-                                <td><?= h($entry['form_title']) ?><br><small class="text-muted"><?= h(date('d/m/Y H:i', strtotime($entry['created_at']))) ?></small></td>
-                                <td><?= h($entry['team_name']) ?></td>
-                                <td><?= h($entry['creator_name']) ?></td>
+                                <td>
+                                    <?= h($entry['form_title']) ?><br>
+                                    <small class="text-muted"><?= h(date('d/m/Y H:i', strtotime($entry['created_at']))) ?> · <?= h($entry['team_name']) ?></small>
+                                </td>
+                                <td>
+                                    <?= h($entry['assignee_name'] ?: 'Sem atribuição') ?><br>
+                                    <small class="text-muted">por <?= h($entry['creator_name']) ?></small>
+                                </td>
+                                <td>
+                                    <?php if ($isAdmin): ?>
+                                        <form method="post" class="vstack gap-1">
+                                            <input type="hidden" name="action" value="update_ticket">
+                                            <input type="hidden" name="entry_id" value="<?= (int) $entry['id'] ?>">
+                                            <select name="assignee_user_id" class="form-select form-select-sm">
+                                                <option value="0">Sem atribuição</option>
+                                                <?php foreach ($users as $user): ?>
+                                                    <option value="<?= (int) $user['id'] ?>" <?= (int) $entry['assignee_user_id'] === (int) $user['id'] ? 'selected' : '' ?>><?= h($user['name']) ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <select name="status" class="form-select form-select-sm">
+                                                <option value="open" <?= $entry['status'] === 'open' ? 'selected' : '' ?>>Aberto</option>
+                                                <option value="done" <?= $entry['status'] === 'done' ? 'selected' : '' ?>>Concluído</option>
+                                            </select>
+                                            <button class="btn btn-sm btn-outline-primary">Guardar</button>
+                                        </form>
+                                    <?php else: ?>
+                                        <span class="badge bg-<?= $entry['status'] === 'done' ? 'success' : 'secondary' ?>"><?= $entry['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
-                        <?php if (!$entries): ?><tr><td colspan="3" class="text-muted">Sem pedidos submetidos.</td></tr><?php endif; ?>
+                        <?php if (!$entries): ?><tr><td colspan="3" class="text-muted">Sem tickets para apresentar.</td></tr><?php endif; ?>
                     </tbody>
                 </table>
             </div>
         </div>
+    </div>
+</div>
+
+<div class="card soft-card shadow-sm mt-4">
+    <div class="card-header bg-white"><h3 class="h5 mb-0">Histórico de tickets concluídos</h3></div>
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead><tr><th>Ticket</th><th>Atribuído</th><th>Concluído em</th></tr></thead>
+            <tbody>
+                <?php foreach ($completedEntries as $entry): ?>
+                    <tr>
+                        <td><?= h($entry['form_title']) ?><br><small class="text-muted"><?= h($entry['team_name']) ?> · criado por <?= h($entry['creator_name']) ?></small></td>
+                        <td><?= h($entry['assignee_name'] ?: 'Sem atribuição') ?></td>
+                        <td><?= h(date('d/m/Y H:i', strtotime($entry['completed_at'] ?: $entry['created_at']))) ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$completedEntries): ?><tr><td colspan="3" class="text-muted">Sem histórico de tickets concluídos.</td></tr><?php endif; ?>
+            </tbody>
+        </table>
     </div>
 </div>
 
@@ -296,6 +428,7 @@ require __DIR__ . '/partials/header.php';
                                     <option value="date">Data</option>
                                     <option value="textarea">Área de texto</option>
                                     <option value="select">Escolha</option>
+                                    <option value="file">Ficheiros</option>
                                 </select>
                             </div>
                             <div class="col-md-2">
@@ -345,6 +478,7 @@ require __DIR__ . '/partials/header.php';
                                         <option value="date" <?= $type === 'date' ? 'selected' : '' ?>>Data</option>
                                         <option value="textarea" <?= $type === 'textarea' ? 'selected' : '' ?>>Área de texto</option>
                                         <option value="select" <?= $type === 'select' ? 'selected' : '' ?>>Escolha</option>
+                                        <option value="file" <?= $type === 'file' ? 'selected' : '' ?>>Ficheiros</option>
                                     </select>
                                 </div>
                                 <div class="col-md-2">
