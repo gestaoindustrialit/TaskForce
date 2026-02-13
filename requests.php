@@ -253,6 +253,7 @@ require __DIR__ . '/partials/header.php';
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h2 class="h4 mb-0">Formulários globais</h2>
     <div class="d-flex align-items-center gap-3">
+        <a href="#forms-list" class="btn btn-outline-secondary btn-sm">Visão dos formulários</a>
         <form method="get" class="form-check form-switch mb-0">
             <input type="hidden" name="show_completed" value="0">
             <input class="form-check-input" type="checkbox" id="showCompleted" name="show_completed" value="1" <?= $showCompleted ? 'checked' : '' ?> onchange="this.form.submit()">
@@ -266,10 +267,10 @@ require __DIR__ . '/partials/header.php';
     <div class="col-lg-7">
         <div class="card soft-card shadow-sm h-100">
             <div class="card-header bg-white"><h3 class="h5 mb-0">Submeter ticket</h3></div>
-            <div class="list-group list-group-flush">
+            <div class="list-group list-group-flush" id="forms-list">
                 <?php foreach ($forms as $form): ?>
                     <?php $formFields = json_decode((string) $form['fields_json'], true) ?: []; ?>
-                    <div class="list-group-item">
+                    <div class="list-group-item" id="form-<?= (int) $form['id'] ?>">
                         <div class="d-flex justify-content-between align-items-start gap-2">
                             <div>
                                 <h4 class="h6 mb-1"><?= h($form['title']) ?></h4>
@@ -277,6 +278,8 @@ require __DIR__ . '/partials/header.php';
                                 <small class="text-muted d-block">Equipa: <?= h($form['team_name']) ?> · Departamento: <?= h($form['department']) ?></small>
                                 <small class="text-muted d-block">Criado por <?= h($form['creator_name']) ?></small>
                             </div>
+                            <div class="d-flex gap-2 align-items-start">
+                                <a href="#forms-list" class="btn btn-sm btn-outline-primary">Visão dos formulários</a>
                             <?php if ($isAdmin): ?>
                                 <div class="d-flex gap-2">
                                     <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editFormModal<?= (int) $form['id'] ?>">Editar</button>
@@ -287,6 +290,7 @@ require __DIR__ . '/partials/header.php';
                                     </form>
                                 </div>
                             <?php endif; ?>
+                            </div>
                         </div>
 
                         <div class="border rounded p-3 mt-3 bg-light-subtle">
