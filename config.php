@@ -41,6 +41,10 @@ $pdo->exec(
         name TEXT NOT NULL,
         description TEXT,
         created_by INTEGER NOT NULL,
+        estimated_minutes INTEGER,
+        actual_minutes INTEGER,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_by INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
     )'
@@ -90,6 +94,10 @@ $pdo->exec(
         due_date DATE,
         position INTEGER DEFAULT 0,
         created_by INTEGER NOT NULL,
+        estimated_minutes INTEGER,
+        actual_minutes INTEGER,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_by INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
         FOREIGN KEY(parent_task_id) REFERENCES tasks(id) ON DELETE CASCADE,
@@ -97,6 +105,42 @@ $pdo->exec(
     )'
 );
 
+
+$taskColumns = $pdo->query('PRAGMA table_info(tasks)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('estimated_minutes', $taskColumns, true)) {
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN estimated_minutes INTEGER');
+}
+if (!in_array('actual_minutes', $taskColumns, true)) {
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN actual_minutes INTEGER');
+}
+if (!in_array('updated_at', $taskColumns, true)) {
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN updated_at DATETIME');
+    $pdo->exec('UPDATE tasks SET updated_at = created_at WHERE updated_at IS NULL');
+}
+if (!in_array('updated_by', $taskColumns, true)) {
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN updated_by INTEGER');
+    $pdo->exec('UPDATE tasks SET updated_by = created_by WHERE updated_by IS NULL');
+}
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS daily_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        report_date DATE NOT NULL,
+        summary TEXT,
+        html_content TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS app_settings (
+        setting_key TEXT PRIMARY KEY,
+        setting_value TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )'
+);
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS checklist_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

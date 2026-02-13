@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../helpers.php';
 $user = current_user($pdo);
+$navbarLogo = app_setting($pdo, 'logo_navbar_light');
 header('Content-Type: text/html; charset=UTF-8');
 ?>
 <!doctype html>
@@ -15,11 +16,17 @@ header('Content-Type: text/html; charset=UTF-8');
 <body class="bg-light">
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container">
-        <a class="navbar-brand" href="dashboard.php">TaskForce</a>
+        <a class="navbar-brand d-flex align-items-center gap-2" href="dashboard.php">
+            <?php if ($navbarLogo): ?>
+                <img src="<?= h($navbarLogo) ?>" alt="Logo empresa" class="brand-logo">
+            <?php endif; ?>
+            <span>TaskForce</span>
+        </a>
         <?php if ($user): ?>
             <div class="navbar-nav me-auto ms-4">
                 <a class="nav-link" href="dashboard.php">Dashboard</a>
                 <a class="nav-link" href="requests.php">Pedidos &agrave;s equipas</a>
+                <a class="nav-link" href="daily_report.php">Relat&oacute;rio di&aacute;rio</a>
             </div>
         <?php endif; ?>
         <div class="ms-auto d-flex align-items-center gap-3 text-white">
