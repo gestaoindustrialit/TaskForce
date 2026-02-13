@@ -19,12 +19,12 @@ header('Content-Type: text/html; charset=UTF-8');
         <?php if ($user): ?>
             <div class="navbar-nav me-auto ms-4">
                 <a class="nav-link" href="dashboard.php">Dashboard</a>
-                <a class="nav-link" href="requests.php">Pedidos às equipas</a>
+                <a class="nav-link" href="requests.php">Pedidos &agrave;s equipas</a>
             </div>
         <?php endif; ?>
         <div class="ms-auto d-flex align-items-center gap-3 text-white">
             <?php if ($user): ?>
-                <span class="small">Olá, <?= h($user['name']) ?><?= (int) $user['is_admin'] === 1 ? ' · Admin' : '' ?></span>
+                <span class="small">Ol&aacute;, <?= h($user['name']) ?><?= (int) $user['is_admin'] === 1 ? ' &middot; Admin' : '' ?></span>
                 <a href="logout.php" class="btn btn-outline-light btn-sm">Sair</a>
             <?php endif; ?>
         </div>
