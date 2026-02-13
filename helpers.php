@@ -130,7 +130,43 @@ function save_brand_logo(array $file, string $prefix): ?string
         return null;
     }
 
-    $mimeType = mime_content_type($file['tmp_name']) ?: '';
+    if (!isset($file['tmp_name']) || !is_string($file['tmp_name']) || !is_file($file['tmp_name'])) {
+        return null;
+    }
+
+    $tmpName = $file['tmp_name'];
+    $mimeType = '';
+
+    if (function_exists('finfo_open')) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo !== false) {
+            $detectedMime = finfo_file($finfo, $tmpName);
+            if (is_string($detectedMime)) {
+                $mimeType = $detectedMime;
+            }
+            finfo_close($finfo);
+        }
+    }
+
+    if ($mimeType === '' && function_exists('mime_content_type')) {
+        $detectedMime = mime_content_type($tmpName);
+        if (is_string($detectedMime)) {
+            $mimeType = $detectedMime;
+        }
+    }
+
+    if ($mimeType === '') {
+        $extension = strtolower((string) pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
+        $mimeFromExtension = [
+            'png' => 'image/png',
+            'jpg' => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'svg' => 'image/svg+xml',
+            'webp' => 'image/webp',
+        ];
+        $mimeType = $mimeFromExtension[$extension] ?? '';
+    }
+
     $allowed = [
         'image/png' => 'png',
         'image/jpeg' => 'jpg',
