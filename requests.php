@@ -5,9 +5,68 @@ require_login();
 $userId = (int) $_SESSION['user_id'];
 $isAdmin = is_admin($pdo, $userId);
 $showCompleted = (int) ($_GET['show_completed'] ?? 0) === 1;
+$teamRolesStmt = $pdo->prepare('SELECT team_id, role FROM team_members WHERE user_id = ?');
+$teamRolesStmt->execute([$userId]);
+$teamRoles = $teamRolesStmt->fetchAll(PDO::FETCH_ASSOC);
+$leaderTeamIds = [];
+$memberTeamIds = [];
+foreach ($teamRoles as $teamRole) {
+    $teamId = (int) $teamRole['team_id'];
+    $memberTeamIds[] = $teamId;
+    if (in_array((string) $teamRole['role'], ['leader', 'owner'], true)) {
+        $leaderTeamIds[] = $teamId;
+    }
+}
+$canManageTeamTickets = $isAdmin || !empty($leaderTeamIds);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
+
+
+    if ($action === 'create_team_ticket') {
+        $teamId = (int) ($_POST['team_id'] ?? 0);
+        $title = trim($_POST['title'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $urgency = trim($_POST['urgency'] ?? 'Média');
+        $dueDate = trim($_POST['due_date'] ?? '');
+
+        if ($teamId <= 0 || $title === '' || $description === '') {
+            $_SESSION['flash_error'] = 'Preencha equipa, assunto e detalhe do ticket.';
+        } elseif (!in_array($teamId, $memberTeamIds, true) && !$isAdmin) {
+            $_SESSION['flash_error'] = 'Sem permissão para abrir ticket para essa equipa.';
+        } else {
+            $ticketCode = generate_ticket_code($pdo);
+            $stmt = $pdo->prepare('INSERT INTO team_tickets(ticket_code, team_id, title, description, urgency, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, "open")');
+            $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate !== '' ? $dueDate : null, $userId]);
+            $_SESSION['flash_success'] = 'Ticket submetido com sucesso: ' . $ticketCode;
+        }
+
+        redirect('requests.php?show_completed=' . ($showCompleted ? '1' : '0'));
+    }
+
+    if ($action === 'update_team_ticket' && $canManageTeamTickets) {
+        $ticketId = (int) ($_POST['ticket_id'] ?? 0);
+        $status = (string) ($_POST['status'] ?? 'open');
+        $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
+
+        if (in_array($status, ['open', 'done'], true) && $ticketId > 0) {
+            $teamCheckSql = 'SELECT team_id FROM team_tickets WHERE id = ?';
+            $teamCheckStmt = $pdo->prepare($teamCheckSql);
+            $teamCheckStmt->execute([$ticketId]);
+            $ticketTeamId = (int) ($teamCheckStmt->fetchColumn() ?: 0);
+
+            if ($ticketTeamId > 0 && ($isAdmin || in_array($ticketTeamId, $leaderTeamIds, true))) {
+                $completedAt = $status === 'done' ? date('Y-m-d H:i:s') : null;
+                $stmt = $pdo->prepare('UPDATE team_tickets SET status = ?, assignee_user_id = ?, completed_at = ? WHERE id = ?');
+                $stmt->execute([$status, $assigneeUserId > 0 ? $assigneeUserId : null, $completedAt, $ticketId]);
+                $_SESSION['flash_success'] = 'Ticket atualizado.';
+            } else {
+                $_SESSION['flash_error'] = 'Sem permissão para atualizar este ticket.';
+            }
+        }
+
+        redirect('requests.php?show_completed=' . ($showCompleted ? '1' : '0'));
+    }
 
     if ($action === 'create_team_form' && $isAdmin) {
         $teamId = (int) ($_POST['team_id'] ?? 0);
@@ -229,6 +288,32 @@ $teams = $pdo->query('SELECT id, name FROM teams ORDER BY name ASC')->fetchAll(P
 $users = $pdo->query('SELECT id, name, email FROM users ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
 $forms = $pdo->query('SELECT tf.*, t.name AS team_name, u.name AS creator_name FROM team_forms tf INNER JOIN teams t ON t.id = tf.team_id INNER JOIN users u ON u.id = tf.created_by WHERE tf.is_active = 1 ORDER BY tf.created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
 
+$ticketSql = 'SELECT tt.*, t.name AS team_name, u.name AS creator_name, a.name AS assignee_name
+FROM team_tickets tt
+INNER JOIN teams t ON t.id = tt.team_id
+INNER JOIN users u ON u.id = tt.created_by
+LEFT JOIN users a ON a.id = tt.assignee_user_id';
+
+$openTicketConditions = ['tt.status = "open"'];
+if (!$isAdmin) {
+    if (!empty($leaderTeamIds)) {
+        $openTicketConditions[] = 'tt.team_id IN (' . implode(',', array_map('intval', $leaderTeamIds)) . ')';
+    } else {
+        $openTicketConditions[] = 'tt.created_by = ' . $userId;
+    }
+}
+$openTickets = $pdo->query($ticketSql . ' WHERE ' . implode(' AND ', $openTicketConditions) . ' ORDER BY tt.created_at DESC LIMIT 120')->fetchAll(PDO::FETCH_ASSOC);
+
+$completedTicketConditions = ['tt.status = "done"'];
+if (!$isAdmin) {
+    if (!empty($leaderTeamIds)) {
+        $completedTicketConditions[] = 'tt.team_id IN (' . implode(',', array_map('intval', $leaderTeamIds)) . ')';
+    } else {
+        $completedTicketConditions[] = 'tt.created_by = ' . $userId;
+    }
+}
+$completedTickets = $pdo->query($ticketSql . ' WHERE ' . implode(' AND ', $completedTicketConditions) . ' ORDER BY COALESCE(tt.completed_at, tt.created_at) DESC LIMIT 150')->fetchAll(PDO::FETCH_ASSOC);
+
 $entriesSql = 'SELECT e.*, f.title AS form_title, t.name AS team_name, u.name AS creator_name, a.name AS assignee_name
 FROM team_form_entries e
 INNER JOIN team_forms f ON f.id = e.form_id
@@ -251,7 +336,7 @@ require __DIR__ . '/partials/header.php';
 <?php if (!empty($_SESSION['flash_error'])): ?><div class="alert alert-danger"><?= h($_SESSION['flash_error']) ?></div><?php unset($_SESSION['flash_error']); endif; ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h2 class="h4 mb-0">Formulários globais</h2>
+    <h2 class="h4 mb-0">Pedidos e tickets</h2>
     <div class="d-flex align-items-center gap-3">
         <a href="#forms-list" class="btn btn-outline-secondary btn-sm">Visão dos formulários</a>
         <form method="get" class="form-check form-switch mb-0">
@@ -264,9 +349,28 @@ require __DIR__ . '/partials/header.php';
 </div>
 
 <div class="row g-4">
+    <div class="col-12">
+        <div class="card soft-card shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center"><h3 class="h5 mb-0">Submeter ticket</h3><button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#ticketFormCollapse" aria-expanded="false" aria-controls="ticketFormCollapse">Expandir</button></div>
+            <div class="collapse" id="ticketFormCollapse">
+                <div class="card-body">
+                    <form method="post" class="row g-2">
+                        <input type="hidden" name="action" value="create_team_ticket">
+                        <div class="col-md-3"><label class="form-label small">Equipa</label><select class="form-select" name="team_id" required><option value="">Selecionar...</option><?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>"><?= h($team['name']) ?></option><?php endforeach; ?></select></div>
+                        <div class="col-md-3"><label class="form-label small">Assunto</label><input class="form-control" name="title" required></div>
+                        <div class="col-md-2"><label class="form-label small">Urgência</label><select class="form-select" name="urgency"><option>Baixa</option><option selected>Média</option><option>Alta</option><option>Crítica</option></select></div>
+                        <div class="col-md-2"><label class="form-label small">Data entrega</label><input class="form-control" type="date" name="due_date"></div>
+                        <div class="col-md-12"><label class="form-label small">Detalhe do ticket</label><textarea class="form-control" name="description" rows="3" required></textarea></div>
+                        <div class="col-md-12"><button class="btn btn-primary">Submeter ticket</button></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="col-lg-7">
         <div class="card soft-card shadow-sm h-100">
-            <div class="card-header bg-white"><h3 class="h5 mb-0">Submeter ticket</h3></div>
+            <div class="card-header bg-white"><h3 class="h5 mb-0">Formulários de pedidos de tarefas (separado de tickets)</h3></div>
             <div class="list-group list-group-flush" id="forms-list">
                 <?php foreach ($forms as $form): ?>
                     <?php $formFields = json_decode((string) $form['fields_json'], true) ?: []; ?>
@@ -341,26 +445,26 @@ require __DIR__ . '/partials/header.php';
 
     <div class="col-lg-5">
         <div class="card soft-card shadow-sm h-100">
-            <div class="card-header bg-white"><h3 class="h5 mb-0">Tickets recentes<?= $showCompleted ? ' (inclui concluídos)' : '' ?></h3></div>
+            <div class="card-header bg-white"><h3 class="h5 mb-0">Tickets abertos por equipa</h3></div>
             <div class="table-responsive">
                 <table class="table align-middle mb-0">
                     <thead><tr><th>Ticket</th><th>Atribuído</th><th>Estado</th></tr></thead>
                     <tbody>
-                        <?php foreach ($entries as $entry): ?>
+                        <?php foreach ($openTickets as $entry): ?>
                             <tr>
                                 <td>
-                                    <?= h($entry['form_title']) ?><br>
-                                    <small class="text-muted"><?= h(date('d/m/Y H:i', strtotime($entry['created_at']))) ?> · <?= h($entry['team_name']) ?></small>
+                                    <?= h($entry['ticket_code']) ?> · <?= h($entry['title']) ?><br>
+                                    <small class="text-muted"><?= h(date('d/m/Y H:i', strtotime($entry['created_at']))) ?> · <?= h($entry['team_name']) ?> · Urgência: <?= h($entry['urgency']) ?></small>
                                 </td>
                                 <td>
                                     <?= h($entry['assignee_name'] ?: 'Sem atribuição') ?><br>
                                     <small class="text-muted">por <?= h($entry['creator_name']) ?></small>
                                 </td>
                                 <td>
-                                    <?php if ($isAdmin): ?>
+                                    <?php if ($isAdmin || in_array((int) $entry['team_id'], $leaderTeamIds, true)): ?>
                                         <form method="post" class="vstack gap-1">
-                                            <input type="hidden" name="action" value="update_ticket">
-                                            <input type="hidden" name="entry_id" value="<?= (int) $entry['id'] ?>">
+                                            <input type="hidden" name="action" value="update_team_ticket">
+                                            <input type="hidden" name="ticket_id" value="<?= (int) $entry['id'] ?>">
                                             <select name="assignee_user_id" class="form-select form-select-sm">
                                                 <option value="0">Sem atribuição</option>
                                                 <?php foreach ($users as $user): ?>
@@ -379,7 +483,7 @@ require __DIR__ . '/partials/header.php';
                                 </td>
                             </tr>
                         <?php endforeach; ?>
-                        <?php if (!$entries): ?><tr><td colspan="3" class="text-muted">Sem tickets para apresentar.</td></tr><?php endif; ?>
+                        <?php if (!$openTickets): ?><tr><td colspan="3" class="text-muted">Sem tickets abertos para apresentar.</td></tr><?php endif; ?>
                     </tbody>
                 </table>
             </div>
@@ -393,14 +497,14 @@ require __DIR__ . '/partials/header.php';
         <table class="table align-middle mb-0">
             <thead><tr><th>Ticket</th><th>Atribuído</th><th>Concluído em</th></tr></thead>
             <tbody>
-                <?php foreach ($completedEntries as $entry): ?>
+                <?php foreach ($completedTickets as $entry): ?>
                     <tr>
-                        <td><?= h($entry['form_title']) ?><br><small class="text-muted"><?= h($entry['team_name']) ?> · criado por <?= h($entry['creator_name']) ?></small></td>
+                        <td><?= h($entry['ticket_code']) ?> · <?= h($entry['title']) ?><br><small class="text-muted"><?= h($entry['team_name']) ?> · criado por <?= h($entry['creator_name']) ?></small></td>
                         <td><?= h($entry['assignee_name'] ?: 'Sem atribuição') ?></td>
                         <td><?= h(date('d/m/Y H:i', strtotime($entry['completed_at'] ?: $entry['created_at']))) ?></td>
                     </tr>
                 <?php endforeach; ?>
-                <?php if (!$completedEntries): ?><tr><td colspan="3" class="text-muted">Sem histórico de tickets concluídos.</td></tr><?php endif; ?>
+                <?php if (!$completedTickets): ?><tr><td colspan="3" class="text-muted">Sem histórico de tickets concluídos.</td></tr><?php endif; ?>
             </tbody>
         </table>
     </div>

@@ -14,10 +14,6 @@ if (!$project) {
 $view = $_GET['view'] ?? 'list';
 $showDone = (int) ($_GET['show_done'] ?? 1) === 1;
 
-$accessibleTeamsStmt = $pdo->prepare('SELECT t.id, t.name FROM teams t INNER JOIN team_members tm ON tm.team_id = t.id WHERE tm.user_id = ? ORDER BY t.name ASC');
-$accessibleTeamsStmt->execute([$userId]);
-$accessibleTeams = $accessibleTeamsStmt->fetchAll(PDO::FETCH_ASSOC);
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -27,11 +23,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $priority = $_POST['priority'] ?? 'normal';
         $dueDate = $_POST['due_date'] ?: null;
         $estimatedMinutes = ($_POST['estimated_minutes'] ?? '') !== '' ? max(0, (int) $_POST['estimated_minutes']) : null;
-        $actualMinutes = ($_POST['actual_minutes'] ?? '') !== '' ? max(0, (int) $_POST['actual_minutes']) : null;
 
         if ($title !== '') {
-            $stmt = $pdo->prepare('INSERT INTO tasks(project_id, parent_task_id, title, description, status, priority, due_date, created_by, estimated_minutes, actual_minutes, updated_at, updated_by) VALUES (?, NULL, ?, ?, "todo", ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)');
-            $stmt->execute([$projectId, $title, $description, $priority, $dueDate, $userId, $estimatedMinutes, $actualMinutes, $userId]);
+            $stmt = $pdo->prepare('INSERT INTO tasks(project_id, parent_task_id, title, description, status, priority, due_date, created_by, estimated_minutes, actual_minutes, updated_at, updated_by) VALUES (?, NULL, ?, ?, "todo", ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, ?)');
+            $stmt->execute([$projectId, $title, $description, $priority, $dueDate, $userId, $estimatedMinutes, $userId]);
         }
     }
 
@@ -59,6 +54,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $taskId = (int) ($_POST['task_id'] ?? 0);
         $estimatedMinutes = ($_POST['estimated_minutes'] ?? '') !== '' ? max(0, (int) $_POST['estimated_minutes']) : null;
         $actualMinutes = ($_POST['actual_minutes'] ?? '') !== '' ? max(0, (int) $_POST['actual_minutes']) : null;
+        $addActualMinutes = ($_POST['add_actual_minutes'] ?? '') !== '' ? max(0, (int) $_POST['add_actual_minutes']) : 0;
+
+        if ($addActualMinutes > 0) {
+            $currentStmt = $pdo->prepare('SELECT actual_minutes FROM tasks WHERE id = ? AND project_id = ?');
+            $currentStmt->execute([$taskId, $projectId]);
+            $currentActual = (int) ($currentStmt->fetchColumn() ?: 0);
+            $actualMinutes = $currentActual + $addActualMinutes;
+        }
+
         $stmt = $pdo->prepare('UPDATE tasks SET estimated_minutes = ?, actual_minutes = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = ? AND project_id = ?');
         $stmt->execute([$estimatedMinutes, $actualMinutes, $userId, $taskId, $projectId]);
     }
@@ -82,57 +86,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare('UPDATE tasks SET updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = (SELECT task_id FROM checklist_items WHERE id = ?)')->execute([$userId, $itemId]);
     }
 
-    if ($action === 'create_general_ticket') {
-        $pedido = trim($_POST['pedido'] ?? '');
-        $urgencia = trim($_POST['urgencia'] ?? '');
-        $dataEntrega = trim($_POST['data_entrega'] ?? '');
-        $targetTeamId = (int) ($_POST['team_id'] ?? 0);
-
-        if ($pedido === '' || $urgencia === '' || $dataEntrega === '' || $targetTeamId <= 0) {
-            $_SESSION['flash_error'] = 'Preencha Pedido, Nível de urgência, Data de Entrega e Equipa.';
-        } elseif (!team_accessible($pdo, $targetTeamId, $userId)) {
-            $_SESSION['flash_error'] = 'Não tem acesso à equipa selecionada para criar ticket.';
-        } else {
-            $teamStmt = $pdo->prepare('SELECT name FROM teams WHERE id = ?');
-            $teamStmt->execute([$targetTeamId]);
-            $teamName = (string) ($teamStmt->fetchColumn() ?: 'Equipa');
-
-            $generalFormStmt = $pdo->prepare('SELECT id FROM team_forms WHERE team_id = ? AND title = ? AND is_active = 1 ORDER BY id ASC LIMIT 1');
-            $generalFormStmt->execute([$targetTeamId, 'Ticket Geral']);
-            $generalFormId = (int) ($generalFormStmt->fetchColumn() ?: 0);
-
-            if ($generalFormId === 0) {
-                $defaultFields = [
-                    ['label' => 'Pedido (Explique de forma clara a sua necessidade)', 'name' => 'pedido', 'type' => 'textarea', 'required' => true, 'options' => []],
-                    ['label' => 'Nível de urgência', 'name' => 'urgencia', 'type' => 'select', 'required' => true, 'options' => ['Baixa', 'Média', 'Alta', 'Crítica']],
-                    ['label' => 'Data de Entrega', 'name' => 'data_entrega', 'type' => 'date', 'required' => true, 'options' => []],
-                    ['label' => 'Equipa', 'name' => 'equipa', 'type' => 'text', 'required' => true, 'options' => []],
-                ];
-
-                $createGeneralForm = $pdo->prepare('INSERT INTO team_forms(team_id, title, description, department, fields_json, created_by) VALUES (?, ?, ?, ?, ?, ?)');
-                $createGeneralForm->execute([
-                    $targetTeamId,
-                    'Ticket Geral',
-                    'Formulário simplificado para tickets rápidos criados na dashboard do projeto.',
-                    'Pedidos gerais',
-                    json_encode($defaultFields, JSON_UNESCAPED_UNICODE),
-                    $userId,
-                ]);
-                $generalFormId = (int) $pdo->lastInsertId();
-            }
-
-            $payload = [
-                ['label' => 'Pedido (Explique de forma clara a sua necessidade)', 'name' => 'pedido', 'type' => 'textarea', 'value' => $pedido],
-                ['label' => 'Nível de urgência', 'name' => 'urgencia', 'type' => 'select', 'value' => $urgencia],
-                ['label' => 'Data de Entrega', 'name' => 'data_entrega', 'type' => 'date', 'value' => $dataEntrega],
-                ['label' => 'Equipa', 'name' => 'equipa', 'type' => 'text', 'value' => $teamName],
-            ];
-
-            $insertGeneralEntry = $pdo->prepare('INSERT INTO team_form_entries(form_id, payload_json, created_by, assignee_user_id, status) VALUES (?, ?, ?, NULL, "open")');
-            $insertGeneralEntry->execute([$generalFormId, json_encode($payload, JSON_UNESCAPED_UNICODE), $userId]);
-            $_SESSION['flash_success'] = 'Ticket geral submetido com sucesso.';
-        }
-    }
 
     redirect('project.php?id=' . $projectId . '&view=' . $view . '&show_done=' . ($showDone ? '1' : '0'));
 }
@@ -169,6 +122,7 @@ foreach ($checklistItems as $item) {
 $pageTitle = 'Projeto ' . $project['name'];
 require __DIR__ . '/partials/header.php';
 ?>
+<script>window.taskPage = true;</script>
 <div class="d-flex flex-wrap justify-content-between align-items-start mb-3 gap-2">
     <div>
         <a href="team.php?id=<?= (int) $project['team_id'] ?>" class="btn btn-link px-0">&larr; Voltar à equipa</a>
@@ -185,12 +139,12 @@ require __DIR__ . '/partials/header.php';
 <div class="card shadow-sm soft-card mb-4">
     <div class="card-body">
         <h2 class="h5">Nova tarefa</h2>
+        <p class="small text-muted mb-2">Define o tempo previsto na criação. O tempo gasto é gerido depois em cada tarefa.</p>
         <form method="post" class="row g-2">
             <input type="hidden" name="action" value="create_task">
             <div class="col-md-3"><input class="form-control" name="title" placeholder="Título" required></div>
             <div class="col-md-3"><input class="form-control" name="description" placeholder="Descrição"></div>
             <div class="col-md-2"><input class="form-control" type="number" min="0" name="estimated_minutes" placeholder="Previsto (min)"></div>
-            <div class="col-md-2"><input class="form-control" type="number" min="0" name="actual_minutes" placeholder="Real (min)"></div>
             <div class="col-md-2"><button class="btn btn-primary w-100">Criar</button></div>
         </form>
     </div>
@@ -225,9 +179,10 @@ require __DIR__ . '/partials/header.php';
         <div class="d-flex gap-2 mb-3"><span class="time-chip">Tempo previsto: <?= h(format_minutes($estimated)) ?></span><span class="time-chip">Tempo real: <?= h(format_minutes($actual)) ?></span><?php if ($delta !== null): ?><span class="time-chip <?= $delta > 0 ? 'text-danger' : 'text-success' ?>">Discrepância: <?= $delta > 0 ? '+' : '-' ?><?= h(format_minutes(abs($delta))) ?></span><?php endif; ?></div>
         <div class="row g-2">
             <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="change_status"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><select name="status" class="form-select form-select-sm"><option value="todo" <?= $task['status']==='todo'?'selected':'' ?>>Por Fazer</option><option value="in_progress" <?= $task['status']==='in_progress'?'selected':'' ?>>Em Progresso</option><option value="done" <?= $task['status']==='done'?'selected':'' ?>>Concluída</option></select><button class="btn btn-sm btn-outline-primary">Estado</button></form></div>
-            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="update_time"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $estimated !== null ? $estimated : '' ?>" placeholder="Previsto"><input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $actual !== null ? $actual : '' ?>" placeholder="Real"><button class="btn btn-sm btn-outline-dark">Tempo</button></form></div>
+            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="update_time"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $estimated !== null ? $estimated : '' ?>" placeholder="Previsto"><input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $actual !== null ? $actual : '' ?>" placeholder="Real"><button class="btn btn-sm btn-outline-dark">Tempo</button></form><div class="d-flex gap-2 mt-2"><button type="button" class="btn btn-sm btn-outline-success js-start-timer" data-task-id="<?= (int) $task['id'] ?>">Iniciar contador</button><button type="button" class="btn btn-sm btn-outline-warning js-stop-timer" data-task-id="<?= (int) $task['id'] ?>">Parar + guardar</button></div></div>
             <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="create_subtask"><input type="hidden" name="parent_task_id" value="<?= (int) $task['id'] ?>"><input name="title" class="form-control form-control-sm" placeholder="Nova sub tarefa" required><button class="btn btn-sm btn-outline-secondary">+</button></form></div>
         </div>
+        <form method="post" class="d-none" id="timerForm<?= (int) $task['id'] ?>"><input type="hidden" name="action" value="update_time"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><input type="hidden" name="estimated_minutes" value="<?= $estimated !== null ? $estimated : "" ?>"><input type="hidden" name="add_actual_minutes" value="0" class="js-add-actual"></form>
     </div></div>
 <?php endforeach; ?>
 </div>

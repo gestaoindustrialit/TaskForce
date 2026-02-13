@@ -199,3 +199,34 @@ if (!in_array('status', $entryColumns, true)) {
 if (!in_array('completed_at', $entryColumns, true)) {
     $pdo->exec('ALTER TABLE team_form_entries ADD COLUMN completed_at DATETIME');
 }
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS team_tickets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_code TEXT NOT NULL UNIQUE,
+        team_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        urgency TEXT NOT NULL DEFAULT "Média",
+        due_date DATE,
+        created_by INTEGER NOT NULL,
+        assignee_user_id INTEGER,
+        status TEXT NOT NULL DEFAULT "open",
+        completed_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(assignee_user_id) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
+$ticketColumns = $pdo->query('PRAGMA table_info(team_tickets)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('assignee_user_id', $ticketColumns, true)) {
+    $pdo->exec('ALTER TABLE team_tickets ADD COLUMN assignee_user_id INTEGER');
+}
+if (!in_array('status', $ticketColumns, true)) {
+    $pdo->exec('ALTER TABLE team_tickets ADD COLUMN status TEXT NOT NULL DEFAULT "open"');
+}
+if (!in_array('completed_at', $ticketColumns, true)) {
+    $pdo->exec('ALTER TABLE team_tickets ADD COLUMN completed_at DATETIME');
+}
