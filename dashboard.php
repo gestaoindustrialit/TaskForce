@@ -44,6 +44,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+
+    if ($action === 'update_user' && $isAdmin) {
+        $targetUserId = (int) ($_POST['user_id'] ?? 0);
+        $name = trim($_POST['name'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $password = $_POST['password'] ?? '';
+        $isTargetAdmin = (int) ($_POST['is_admin'] ?? 0);
+
+        if ($targetUserId <= 0 || $name === '' || $email === '') {
+            $flashError = 'Preencha nome e email para editar utilizador.';
+        } else {
+            try {
+                if ($password !== '') {
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, email = ?, password = ?, is_admin = ? WHERE id = ?');
+                    $stmt->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $isTargetAdmin, $targetUserId]);
+                } else {
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, email = ?, is_admin = ? WHERE id = ?');
+                    $stmt->execute([$name, $email, $isTargetAdmin, $targetUserId]);
+                }
+                $flashSuccess = 'Utilizador atualizado com sucesso.';
+            } catch (PDOException $e) {
+                $flashError = 'Não foi possível atualizar utilizador (email duplicado).';
+            }
+        }
+    }
+
     if ($action === 'upload_branding' && $isAdmin) {
         $saved = 0;
         $lightPath = save_brand_logo($_FILES['logo_navbar_light'] ?? [], 'navbar_light');
@@ -73,7 +99,7 @@ $teams = $teamsStmt->fetchAll(PDO::FETCH_ASSOC);
 $statsStmt = $pdo->prepare('SELECT (SELECT COUNT(*) FROM team_members WHERE user_id = ?) AS total_teams, (SELECT COUNT(*) FROM users) AS total_users, (SELECT COUNT(*) FROM projects p INNER JOIN team_members tm ON tm.team_id = p.team_id WHERE tm.user_id = ?) AS total_projects');
 $statsStmt->execute([$userId, $userId]);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
-$users = $pdo->query('SELECT id, name, email, is_admin FROM users ORDER BY created_at DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC);
+$users = $pdo->query('SELECT id, name, email, is_admin FROM users ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
 $navbarLogo = app_setting($pdo, 'logo_navbar_light');
 $reportLogo = app_setting($pdo, 'logo_report_dark');
 
@@ -104,7 +130,7 @@ require __DIR__ . '/partials/header.php';
     <div class="col-lg-4">
         <div class="card shadow-sm soft-card mb-4">
             <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center"><h2 class="h5 mb-0">Gestão de utilizadores</h2><?php if ($isAdmin): ?><button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#userModal">Novo user</button><?php endif; ?></div>
-            <div class="card-body px-4"><?php foreach ($users as $user): ?><div class="d-flex justify-content-between align-items-center border rounded p-2 mb-2"><div><strong class="small"><?= h($user['name']) ?></strong> <?= (int) $user['is_admin'] === 1 ? '<span class="badge text-bg-dark">admin</span>' : '' ?><div class="small text-muted"><?= h($user['email']) ?></div></div><span class="small text-muted">#<?= (int) $user['id'] ?></span></div><?php endforeach; ?></div>
+            <div class="card-body px-4"><?php foreach ($users as $user): ?><div class="d-flex justify-content-between align-items-center border rounded p-2 mb-2"><div><strong class="small"><?= h($user['name']) ?></strong> <?= (int) $user['is_admin'] === 1 ? '<span class="badge text-bg-dark">admin</span>' : '' ?><div class="small text-muted"><?= h($user['email']) ?></div></div><div class="d-flex align-items-center gap-2"><span class="small text-muted">#<?= (int) $user['id'] ?></span><?php if ($isAdmin): ?><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editUserModal<?= (int) $user['id'] ?>">Editar</button><?php endif; ?></div></div><?php endforeach; ?></div>
         </div>
 
         <div class="card shadow-sm soft-card"><div class="card-body p-4"><h3 class="h5">Pedidos diretos às equipas</h3><p class="small text-muted">Fora de projetos: abre o módulo de pedidos e submete tickets às equipas.</p><a href="requests.php" class="btn btn-primary btn-sm">Abrir pedidos</a></div></div>
@@ -130,5 +156,11 @@ require __DIR__ . '/partials/header.php';
 
 <?php if ($isAdmin): ?>
 <div class="modal fade" id="userModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post"><input type="hidden" name="action" value="create_user"><div class="modal-header"><h5 class="modal-title">Novo utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body vstack gap-3"><input class="form-control" name="name" placeholder="Nome" required><input class="form-control" type="email" name="email" placeholder="Email" required><input class="form-control" type="password" name="password" placeholder="Password" required><div class="form-check"><input class="form-check-input" type="checkbox" name="is_admin" value="1" id="isAdmin"><label class="form-check-label" for="isAdmin">Administrador</label></div></div><div class="modal-footer"><button class="btn btn-primary">Criar utilizador</button></div></form></div></div>
+<?php endif; ?>
+
+<?php if ($isAdmin): ?>
+<?php foreach ($users as $user): ?>
+<div class="modal fade" id="editUserModal<?= (int) $user['id'] ?>" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post"><input type="hidden" name="action" value="update_user"><input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>"><div class="modal-header"><h5 class="modal-title">Editar utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body vstack gap-3"><input class="form-control" name="name" value="<?= h($user['name']) ?>" required><input class="form-control" type="email" name="email" value="<?= h($user['email']) ?>" required><input class="form-control" type="password" name="password" placeholder="Nova password (opcional)"><div class="form-check"><input class="form-check-input" type="checkbox" name="is_admin" value="1" id="isAdminEdit<?= (int) $user['id'] ?>" <?= (int) $user['is_admin'] === 1 ? 'checked' : '' ?>><label class="form-check-label" for="isAdminEdit<?= (int) $user['id'] ?>">Administrador</label></div></div><div class="modal-footer"><button class="btn btn-primary">Guardar utilizador</button></div></form></div></div>
+<?php endforeach; ?>
 <?php endif; ?>
 <?php require __DIR__ . '/partials/footer.php'; ?>

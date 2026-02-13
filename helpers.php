@@ -182,6 +182,18 @@ function format_minutes(?int $minutes): string
     return $rest > 0 ? sprintf('%dh %02dmin', $hours, $rest) : sprintf('%dh', $hours);
 }
 
+
+function generate_ticket_code(PDO $pdo): string
+{
+    do {
+        $code = 'TCK-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
+        $stmt = $pdo->prepare('SELECT 1 FROM team_tickets WHERE ticket_code = ?');
+        $stmt->execute([$code]);
+    } while ($stmt->fetchColumn());
+
+    return $code;
+}
+
 function app_base_url(): string
 {
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
