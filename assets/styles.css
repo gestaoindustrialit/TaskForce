@@ -55,3 +55,30 @@ body {
 .task-card {
     box-shadow: 0 6px 18px rgba(2, 6, 23, 0.08);
 }
+
+.brand-logo {
+    height: 30px;
+    width: auto;
+    object-fit: contain;
+}
+
+.time-chip {
+    font-size: .8rem;
+    border-radius: 999px;
+    padding: .25rem .6rem;
+    border: 1px solid rgba(15, 23, 42, 0.15);
+}
+
+.report-sheet {
+    background: white;
+    max-width: 210mm;
+    margin: 0 auto;
+    padding: 18mm 14mm;
+    box-shadow: 0 4px 24px rgba(15, 23, 42, 0.12);
+}
+
+@media print {
+    body { background: white !important; }
+    .no-print { display: none !important; }
+    .report-sheet { box-shadow: none; padding: 0; }
+}

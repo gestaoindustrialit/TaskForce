@@ -108,3 +108,88 @@ function deliver_report(string $email, string $subject, string $body): bool
 
     return $sent;
 }
+
+function app_setting(PDO $pdo, string $settingKey, ?string $default = null): ?string
+{
+    $stmt = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?');
+    $stmt->execute([$settingKey]);
+    $value = $stmt->fetchColumn();
+
+    return $value !== false ? (string) $value : $default;
+}
+
+function set_app_setting(PDO $pdo, string $settingKey, string $settingValue): void
+{
+    $stmt = $pdo->prepare('INSERT INTO app_settings(setting_key, setting_value) VALUES (?, ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value');
+    $stmt->execute([$settingKey, $settingValue]);
+}
+
+function save_brand_logo(array $file, string $prefix): ?string
+{
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        return null;
+    }
+
+    $mimeType = mime_content_type($file['tmp_name']) ?: '';
+    $allowed = [
+        'image/png' => 'png',
+        'image/jpeg' => 'jpg',
+        'image/svg+xml' => 'svg',
+        'image/webp' => 'webp',
+    ];
+
+    if (!isset($allowed[$mimeType])) {
+        return null;
+    }
+
+    $uploadDir = __DIR__ . '/assets/uploads';
+    if (!is_dir($uploadDir)) {
+        mkdir($uploadDir, 0775, true);
+    }
+
+    $filename = $prefix . '_' . time() . '.' . $allowed[$mimeType];
+    $targetPath = $uploadDir . '/' . $filename;
+
+    if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
+        return null;
+    }
+
+    return 'assets/uploads/' . $filename;
+}
+
+function task_time_delta(?int $estimatedMinutes, ?int $actualMinutes): ?int
+{
+    if ($estimatedMinutes === null || $actualMinutes === null) {
+        return null;
+    }
+
+    return $actualMinutes - $estimatedMinutes;
+}
+
+function format_minutes(?int $minutes): string
+{
+    if ($minutes === null) {
+        return '-';
+    }
+
+    if ($minutes < 60) {
+        return $minutes . ' min';
+    }
+
+    $hours = intdiv($minutes, 60);
+    $rest = $minutes % 60;
+
+    return $rest > 0 ? sprintf('%dh %02dmin', $hours, $rest) : sprintf('%dh', $hours);
+}
+
+function app_base_url(): string
+{
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8000';
+    $basePath = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
+    if ($basePath === '' || $basePath === '/') {
+        $basePath = '';
+    }
+
+    return $scheme . '://' . $host . $basePath;
+}
