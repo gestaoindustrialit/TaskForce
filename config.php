@@ -135,8 +135,23 @@ $pdo->exec(
         form_id INTEGER NOT NULL,
         payload_json TEXT NOT NULL,
         created_by INTEGER NOT NULL,
+        assignee_user_id INTEGER,
+        status TEXT NOT NULL DEFAULT "open",
+        completed_at DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(form_id) REFERENCES team_forms(id) ON DELETE CASCADE,
-        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(assignee_user_id) REFERENCES users(id) ON DELETE SET NULL
     )'
 );
+
+$entryColumns = $pdo->query('PRAGMA table_info(team_form_entries)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('assignee_user_id', $entryColumns, true)) {
+    $pdo->exec('ALTER TABLE team_form_entries ADD COLUMN assignee_user_id INTEGER');
+}
+if (!in_array('status', $entryColumns, true)) {
+    $pdo->exec('ALTER TABLE team_form_entries ADD COLUMN status TEXT NOT NULL DEFAULT "open"');
+}
+if (!in_array('completed_at', $entryColumns, true)) {
+    $pdo->exec('ALTER TABLE team_form_entries ADD COLUMN completed_at DATETIME');
+}
