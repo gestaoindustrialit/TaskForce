@@ -70,6 +70,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'upload_branding' && $isAdmin) {
+        $saved = 0;
+        $lightPath = save_brand_logo($_FILES['logo_navbar_light'] ?? [], 'navbar_light');
+        if ($lightPath) {
+            set_app_setting($pdo, 'logo_navbar_light', $lightPath);
+            $saved++;
+        }
+
+        $darkPath = save_brand_logo($_FILES['logo_report_dark'] ?? [], 'report_dark');
+        if ($darkPath) {
+            set_app_setting($pdo, 'logo_report_dark', $darkPath);
+            $saved++;
+        }
+
+        if ($saved > 0) {
+            $flashSuccess = 'Logotipos atualizados com sucesso.';
+        } else {
+            $flashError = 'Nenhum ficheiro válido enviado (PNG, JPG, SVG ou WEBP).';
+        }
+    }
+
+    if ($action === 'create_team_ticket') {
+        $teamId = (int) ($_POST['team_id'] ?? 0);
+        $title = trim($_POST['title'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $urgency = trim($_POST['urgency'] ?? 'Média');
+        $dueDate = trim($_POST['due_date'] ?? '');
+
+        $allowedTeamStmt = $pdo->prepare('SELECT team_id FROM team_members WHERE user_id = ?');
+        $allowedTeamStmt->execute([$userId]);
+        $allowedTeamIds = array_map('intval', $allowedTeamStmt->fetchAll(PDO::FETCH_COLUMN));
+
+        if ($teamId <= 0 || $title === '' || $description === '') {
+            $flashError = 'Preencha equipa, nome do pedido e descrição do ticket.';
+        } elseif (!in_array($teamId, $allowedTeamIds, true) && !$isAdmin) {
+            $flashError = 'Sem permissão para abrir ticket para essa equipa.';
+        } else {
+            $ticketCode = generate_ticket_code($pdo);
+            $stmt = $pdo->prepare('INSERT INTO team_tickets(ticket_code, team_id, title, description, urgency, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, "open")');
+            $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate !== '' ? $dueDate : null, $userId]);
+            $flashSuccess = 'Ticket criado com sucesso: ' . $ticketCode;
+        }
+    }
 }
 
 $teamsStmt = $pdo->prepare('SELECT t.*, tm.role, (SELECT COUNT(*) FROM projects p WHERE p.team_id = t.id) AS total_projects FROM teams t INNER JOIN team_members tm ON tm.team_id = t.id WHERE tm.user_id = ? ORDER BY t.created_at DESC');
@@ -100,8 +143,51 @@ require __DIR__ . '/partials/header.php';
 <div class="row g-4">
     <div class="col-lg-8">
         <div class="card shadow-sm soft-card h-100">
-            <div class="card-header d-flex justify-content-between align-items-center bg-white border-0 pt-4 px-4"><h2 class="h4 mb-0">As tuas equipas</h2><button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#teamModal">Nova Equipa</button></div>
-            <div class="card-body px-4 pb-4"><div class="row g-3"><?php foreach ($teams as $team): ?><div class="col-md-6"><div class="team-card h-100 p-3"><h3 class="h5 mb-1"><?= h($team['name']) ?></h3><p class="text-muted small mb-2"><?= h($team['description']) ?: 'Sem descrição' ?></p><p class="small mb-3">Projetos: <strong><?= (int) $team['total_projects'] ?></strong> · Papel: <span class="badge text-bg-light border"><?= h($team['role']) ?></span></p><a class="btn btn-outline-primary btn-sm" href="team.php?id=<?= (int) $team['id'] ?>">Abrir equipa</a></div></div><?php endforeach; ?><?php if (!$teams): ?><p class="text-muted mb-0">Ainda não fazes parte de equipas.</p><?php endif; ?></div></div>
+            <div class="card-header bg-white border-0 pt-4 px-4"><h2 class="h4 mb-0">Novo ticket de equipa</h2></div>
+            <div class="card-body p-4">
+                <p class="small text-muted">Cria tarefas para equipas fora de qualquer projeto. O ID é gerado automaticamente.</p>
+                <form method="post" class="vstack gap-2">
+                    <input type="hidden" name="action" value="create_team_ticket">
+                    <div>
+                        <label class="form-label mb-1">ID do ticket</label>
+                        <input type="text" class="form-control" value="Automático ao guardar" disabled>
+                    </div>
+                    <div>
+                        <label class="form-label mb-1">Equipa responsável</label>
+                        <select class="form-select" name="team_id" required>
+                            <option value="">Selecionar equipa</option>
+                            <?php foreach ($teams as $team): ?>
+                                <option value="<?= (int) $team['id'] ?>"><?= h($team['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label mb-1">Nome do pedido</label>
+                        <input class="form-control" name="title" placeholder="Ex.: Corrigir integração com faturação" required>
+                    </div>
+                    <div>
+                        <label class="form-label mb-1">Descrição do ticket</label>
+                        <textarea class="form-control" name="description" rows="5" placeholder="Descreve o pedido com contexto e impacto" required></textarea>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label mb-1">Nível de urgência</label>
+                            <select class="form-select" name="urgency">
+                                <option value="Baixa">Baixa</option>
+                                <option value="Média" selected>Média</option>
+                                <option value="Alta">Alta</option>
+                                <option value="Crítica">Crítica</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label mb-1">Data limite</label>
+                            <input class="form-control" type="date" name="due_date">
+                        </div>
+                    </div>
+                    <button class="btn btn-primary">Criar ticket</button>
+                </form>
+                <a href="requests.php" class="btn btn-link px-0 mt-2">Ver todos os pedidos</a>
+            </div>
         </div>
     </div>
 
@@ -111,7 +197,23 @@ require __DIR__ . '/partials/header.php';
             <div class="card-body px-4"><?php foreach ($users as $user): ?><div class="d-flex justify-content-between align-items-center border rounded p-2 mb-2"><div><strong class="small"><?= h($user['name']) ?></strong> <?= (int) $user['is_admin'] === 1 ? '<span class="badge text-bg-dark">admin</span>' : '' ?><div class="small text-muted"><?= h($user['email']) ?></div></div><div class="d-flex align-items-center gap-2"><span class="small text-muted">#<?= (int) $user['id'] ?></span><?php if ($isAdmin): ?><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editUserModal<?= (int) $user['id'] ?>">Editar</button><?php endif; ?></div></div><?php endforeach; ?></div>
         </div>
 
-        <div class="card shadow-sm soft-card"><div class="card-body p-4"><h3 class="h5">Pedidos diretos às equipas</h3><p class="small text-muted">Fora de projetos: abre o módulo de pedidos e submete tickets às equipas.</p><a href="requests.php" class="btn btn-primary btn-sm">Abrir pedidos</a></div></div>
+        <div class="card shadow-sm soft-card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center bg-white border-0 pt-4 px-4"><h2 class="h5 mb-0">As tuas equipas</h2><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#teamModal">Nova Equipa</button></div>
+            <div class="card-body px-4 pb-4">
+                <div class="vstack gap-2">
+                    <?php foreach ($teams as $team): ?>
+                        <div class="team-card p-3">
+                            <h3 class="h6 mb-1"><?= h($team['name']) ?></h3>
+                            <p class="text-muted small mb-2"><?= h($team['description']) ?: 'Sem descrição' ?></p>
+                            <p class="small mb-2">Projetos: <strong><?= (int) $team['total_projects'] ?></strong> · Papel: <span class="badge text-bg-light border"><?= h($team['role']) ?></span></p>
+                            <a class="btn btn-outline-primary btn-sm" href="team.php?id=<?= (int) $team['id'] ?>">Abrir equipa</a>
+                        </div>
+                    <?php endforeach; ?>
+                    <?php if (!$teams): ?><p class="text-muted mb-0">Ainda não fazes parte de equipas.</p><?php endif; ?>
+                </div>
+            </div>
+        </div>
+
         <?php if ($isAdmin): ?>
             <div class="card shadow-sm soft-card mt-4"><div class="card-body p-4"><h3 class="h5">Empresa & Branding</h3><p class="small text-muted">Configure nome, morada, email, telefone e os dois logotipos numa página dedicada.</p><a class="btn btn-outline-primary btn-sm" href="company_profile.php">Abrir configurações da empresa</a></div></div>
         <?php endif; ?>
