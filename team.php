@@ -94,6 +94,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'create_recurring_task' && $canManageProjects) {
+        $title = trim($_POST['title'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $recurrenceType = (string) ($_POST['recurrence_type'] ?? 'weekly');
+        $startDate = trim($_POST['start_date'] ?? date('Y-m-d'));
+        $timeOfDay = trim($_POST['time_of_day'] ?? '');
+
+        if (!array_key_exists($recurrenceType, recurring_task_recurrence_options())) {
+            $recurrenceType = 'weekly';
+        }
+
+        if ($title === '') {
+            $flashError = 'A tarefa recorrente deve ter um título.';
+        } else {
+            $startDateObj = DateTimeImmutable::createFromFormat('Y-m-d', $startDate);
+            if (!$startDateObj || $startDateObj->format('Y-m-d') !== $startDate) {
+                $flashError = 'Data de início inválida para a tarefa recorrente.';
+            } else {
+                if ($timeOfDay !== '' && !preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $timeOfDay)) {
+                    $timeOfDay = '';
+                }
+
+                $weekday = (int) $startDateObj->format('N');
+                $stmt = $pdo->prepare('INSERT INTO team_recurring_tasks(team_id, title, description, weekday, recurrence_type, start_date, time_of_day, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+                $stmt->execute([$teamId, $title, $description, $weekday, $recurrenceType, $startDateObj->format('Y-m-d'), $timeOfDay !== '' ? $timeOfDay : null, $userId]);
+                $flashSuccess = 'Tarefa recorrente adicionada ao calendário da equipa.';
+            }
+        }
+    }
+
+    if ($action === 'delete_recurring_task' && $canManageProjects) {
+        $recurringTaskId = (int) ($_POST['recurring_task_id'] ?? 0);
+        $stmt = $pdo->prepare('DELETE FROM team_recurring_tasks WHERE id = ? AND team_id = ?');
+        $stmt->execute([$recurringTaskId, $teamId]);
+
+        if ($stmt->rowCount() > 0) {
+            $flashSuccess = 'Tarefa recorrente removida com sucesso.';
+        } else {
+            $flashError = 'Não foi possível remover a tarefa recorrente selecionada.';
+        }
+    }
+
     if ($action === 'save_team_ticket_details' && $canManageProjects) {
         $ticketId = (int) ($_POST['ticket_id'] ?? 0);
         $status = (string) ($_POST['status'] ?? 'open');
@@ -190,6 +232,101 @@ $membersStmt = $pdo->prepare('SELECT u.id, u.name, u.email, tm.role FROM team_me
 $membersStmt->execute([$teamId]);
 $members = $membersStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$weekdayNames = [
+    1 => 'Segunda-feira',
+    2 => 'Terça-feira',
+    3 => 'Quarta-feira',
+    4 => 'Quinta-feira',
+    5 => 'Sexta-feira',
+    6 => 'Sábado',
+    7 => 'Domingo',
+];
+$recurrenceOptions = recurring_task_recurrence_options();
+
+$calendarViewLabels = [
+    'day' => 'Dia',
+    'week' => 'Semanal',
+    'month' => 'Mensal',
+    'year' => 'Anual',
+];
+$calendarView = (string) ($_GET['calendar_view'] ?? 'week');
+if (!isset($calendarViewLabels[$calendarView])) {
+    $calendarView = 'week';
+}
+
+$referenceDateInput = (string) ($_GET['reference_date'] ?? date('Y-m-d'));
+$referenceDate = DateTimeImmutable::createFromFormat('Y-m-d', $referenceDateInput);
+if (!$referenceDate || $referenceDate->format('Y-m-d') !== $referenceDateInput) {
+    $referenceDate = new DateTimeImmutable('today');
+}
+$referenceDate = $referenceDate->setTime(0, 0);
+
+$calendarPeriodStart = $referenceDate;
+$calendarPeriodEnd = $referenceDate;
+$calendarPeriodLabel = $referenceDate->format('d/m/Y');
+
+if ($calendarView === 'week') {
+    $calendarPeriodStart = $referenceDate->modify('monday this week');
+    $calendarPeriodEnd = $calendarPeriodStart->modify('+6 day');
+    $calendarPeriodLabel = $calendarPeriodStart->format('d/m/Y') . ' - ' . $calendarPeriodEnd->format('d/m/Y');
+} elseif ($calendarView === 'month') {
+    $calendarPeriodStart = $referenceDate->modify('first day of this month');
+    $calendarPeriodEnd = $referenceDate->modify('last day of this month');
+    $monthNames = [1 => 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    $calendarPeriodLabel = $monthNames[(int) $referenceDate->format('n')] . ' de ' . $referenceDate->format('Y');
+} elseif ($calendarView === 'year') {
+    $calendarPeriodStart = $referenceDate->setDate((int) $referenceDate->format('Y'), 1, 1);
+    $calendarPeriodEnd = $referenceDate->setDate((int) $referenceDate->format('Y'), 12, 31);
+    $calendarPeriodLabel = $referenceDate->format('Y');
+}
+
+$recurringTasksStmt = $pdo->prepare('SELECT rt.*, u.name AS creator_name FROM team_recurring_tasks rt INNER JOIN users u ON u.id = rt.created_by WHERE rt.team_id = ? ORDER BY rt.created_at ASC');
+$recurringTasksStmt->execute([$teamId]);
+$recurringTasks = $recurringTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$calendarOccurrences = [];
+foreach ($recurringTasks as $recurringTask) {
+    $occurrenceDates = recurring_task_occurrences($recurringTask, $calendarPeriodStart, $calendarPeriodEnd);
+    foreach ($occurrenceDates as $occurrenceDate) {
+        $dateKey = $occurrenceDate->format('Y-m-d');
+        if (!isset($calendarOccurrences[$dateKey])) {
+            $calendarOccurrences[$dateKey] = [];
+        }
+
+        $calendarOccurrences[$dateKey][] = [
+            'id' => (int) $recurringTask['id'],
+            'title' => (string) $recurringTask['title'],
+            'description' => (string) ($recurringTask['description'] ?? ''),
+            'time_of_day' => (string) ($recurringTask['time_of_day'] ?? ''),
+            'creator_name' => (string) $recurringTask['creator_name'],
+            'recurrence_label' => recurring_task_recurrence_label((string) ($recurringTask['recurrence_type'] ?? 'weekly')),
+            'start_date' => (string) ($recurringTask['start_date'] ?? ''),
+        ];
+    }
+}
+
+ksort($calendarOccurrences);
+foreach ($calendarOccurrences as $dateKey => $items) {
+    usort($items, static function (array $left, array $right): int {
+        $leftTime = $left['time_of_day'] !== '' ? $left['time_of_day'] : '23:59';
+        $rightTime = $right['time_of_day'] !== '' ? $right['time_of_day'] : '23:59';
+        return strcmp($leftTime, $rightTime);
+    });
+    $calendarOccurrences[$dateKey] = $items;
+}
+
+$weekDates = [];
+if ($calendarView === 'week') {
+    for ($dayOffset = 0; $dayOffset < 7; $dayOffset++) {
+        $day = $calendarPeriodStart->modify('+' . $dayOffset . ' day');
+        $weekDates[] = [
+            'key' => $day->format('Y-m-d'),
+            'date' => $day,
+            'label' => $weekdayNames[(int) $day->format('N')],
+        ];
+    }
+}
+
 $teamTasksStmt = $pdo->prepare('SELECT tt.*, u.name AS creator_name, a.name AS assignee_name FROM team_tickets tt INNER JOIN users u ON u.id = tt.created_by LEFT JOIN users a ON a.id = tt.assignee_user_id WHERE tt.team_id = ? ORDER BY CASE WHEN tt.completed_at IS NULL THEN 0 ELSE 1 END, tt.created_at DESC');
 $teamTasksStmt->execute([$teamId]);
 $teamTasks = $teamTasksStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -264,6 +401,108 @@ require __DIR__ . '/partials/header.php';
                 </div>
             <?php endforeach; ?>
             <?php if (!$projects): ?><div class="p-3 text-muted">Ainda não existem projetos.</div><?php endif; ?>
+        </div>
+    </div>
+
+    <div class="card shadow-sm soft-card">
+        <div class="card-header d-flex justify-content-between align-items-center bg-white flex-wrap gap-2">
+            <h2 class="h5 mb-0">Calendário da equipa</h2>
+            <?php if ($canManageProjects): ?>
+                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#recurringTaskModal">Nova tarefa recorrente</button>
+            <?php endif; ?>
+        </div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Vistas do calendário">
+                    <?php foreach ($calendarViewLabels as $viewKey => $viewLabel): ?>
+                        <a class="btn <?= $calendarView === $viewKey ? 'btn-primary' : 'btn-outline-primary' ?>" href="team.php?id=<?= (int) $teamId ?>&calendar_view=<?= h($viewKey) ?>&reference_date=<?= h($referenceDate->format('Y-m-d')) ?>"><?= h($viewLabel) ?></a>
+                    <?php endforeach; ?>
+                </div>
+                <div class="d-flex gap-2 align-items-center">
+                    <form method="get" class="d-flex gap-2 align-items-center">
+                        <input type="hidden" name="id" value="<?= (int) $teamId ?>">
+                        <input type="hidden" name="calendar_view" value="<?= h($calendarView) ?>">
+                        <input class="form-control form-control-sm" type="date" name="reference_date" value="<?= h($referenceDate->format('Y-m-d')) ?>">
+                        <button class="btn btn-sm btn-outline-secondary">Ir</button>
+                    </form>
+                </div>
+            </div>
+
+            <p class="text-muted small mb-3">Vista atual: <strong><?= h($calendarViewLabels[$calendarView]) ?></strong> · Período: <?= h($calendarPeriodLabel) ?></p>
+
+            <?php if ($calendarView === 'week'): ?>
+                <div class="row g-3">
+                    <?php foreach ($weekDates as $weekDate): ?>
+                        <div class="col-12 col-md-6 col-xl-4">
+                            <div class="border rounded p-3 h-100 bg-light-subtle">
+                                <h3 class="h6 mb-1"><?= h($weekDate['label']) ?></h3>
+                                <div class="small text-muted mb-2"><?= h($weekDate['date']->format('d/m/Y')) ?></div>
+                                <?php if (!empty($calendarOccurrences[$weekDate['key']])): ?>
+                                    <div class="vstack gap-2">
+                                        <?php foreach ($calendarOccurrences[$weekDate['key']] as $occurrence): ?>
+                                            <div class="border rounded p-2 bg-white">
+                                                <div class="d-flex justify-content-between gap-2">
+                                                    <strong class="small"><?= h($occurrence['title']) ?></strong>
+                                                    <span class="text-muted small"><?= h($occurrence['time_of_day'] !== '' ? $occurrence['time_of_day'] : 'Sem hora') ?></span>
+                                                </div>
+                                                <div class="small text-muted"><?= h($occurrence['recurrence_label']) ?></div>
+                                                <?php if ($occurrence['description'] !== ''): ?><p class="mb-1 small text-muted"><?= h($occurrence['description']) ?></p><?php endif; ?>
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <small class="text-muted">Criado por <?= h($occurrence['creator_name']) ?></small>
+                                                    <?php if ($canManageProjects): ?>
+                                                        <form method="post" onsubmit="return confirm('Remover esta tarefa recorrente?');">
+                                                            <input type="hidden" name="action" value="delete_recurring_task">
+                                                            <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
+                                                            <button class="btn btn-sm btn-outline-danger py-0 px-2">Remover</button>
+                                                        </form>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php else: ?>
+                                    <div class="small text-muted">Sem tarefas recorrentes.</div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <?php if (!empty($calendarOccurrences)): ?>
+                    <div class="vstack gap-2">
+                        <?php foreach ($calendarOccurrences as $occurrenceDate => $occurrences): ?>
+                            <?php $dateObj = new DateTimeImmutable($occurrenceDate); ?>
+                            <div class="border rounded p-3 bg-light-subtle">
+                                <h3 class="h6 mb-2"><?= h($weekdayNames[(int) $dateObj->format('N')] . ', ' . $dateObj->format('d/m/Y')) ?></h3>
+                                <div class="vstack gap-2">
+                                    <?php foreach ($occurrences as $occurrence): ?>
+                                        <div class="border rounded p-2 bg-white">
+                                            <div class="d-flex justify-content-between gap-2">
+                                                <strong class="small"><?= h($occurrence['title']) ?></strong>
+                                                <span class="text-muted small"><?= h($occurrence['time_of_day'] !== '' ? $occurrence['time_of_day'] : 'Sem hora') ?></span>
+                                            </div>
+                                            <div class="small text-muted"><?= h($occurrence['recurrence_label']) ?></div>
+                                            <?php if ($occurrence['description'] !== ''): ?><p class="mb-1 small text-muted"><?= h($occurrence['description']) ?></p><?php endif; ?>
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <small class="text-muted">Criado por <?= h($occurrence['creator_name']) ?></small>
+                                                <?php if ($canManageProjects): ?>
+                                                    <form method="post" onsubmit="return confirm('Remover esta tarefa recorrente?');">
+                                                        <input type="hidden" name="action" value="delete_recurring_task">
+                                                        <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
+                                                        <button class="btn btn-sm btn-outline-danger py-0 px-2">Remover</button>
+                                                    </form>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <div class="small text-muted">Sem tarefas recorrentes para o período selecionado.</div>
+                <?php endif; ?>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -402,6 +641,38 @@ require __DIR__ . '/partials/header.php';
         </div>
     <?php endforeach; ?>
 <?php endif; ?>
+
+<div class="modal fade" id="recurringTaskModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form class="modal-content" method="post">
+            <input type="hidden" name="action" value="create_recurring_task">
+            <div class="modal-header"><h5 class="modal-title">Nova tarefa recorrente</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body vstack gap-3">
+                <input class="form-control" name="title" placeholder="Título da tarefa" required>
+                <textarea class="form-control" name="description" placeholder="Descrição (opcional)"></textarea>
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted mb-1">Recorrência</label>
+                        <select class="form-select" name="recurrence_type" required>
+                            <?php foreach ($recurrenceOptions as $recurrenceValue => $recurrenceLabel): ?>
+                                <option value="<?= h($recurrenceValue) ?>" <?= $recurrenceValue === 'weekly' ? 'selected' : '' ?>><?= h($recurrenceLabel) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small text-muted mb-1">Início</label>
+                        <input class="form-control" type="date" name="start_date" value="<?= h(date('Y-m-d')) ?>" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small text-muted mb-1">Hora</label>
+                        <input class="form-control" type="time" name="time_of_day">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-primary">Guardar</button></div>
+        </form>
+    </div>
+</div>
 
 <div class="modal fade" id="projectModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
