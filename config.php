@@ -230,3 +230,91 @@ if (!in_array('status', $ticketColumns, true)) {
 if (!in_array('completed_at', $ticketColumns, true)) {
     $pdo->exec('ALTER TABLE team_tickets ADD COLUMN completed_at DATETIME');
 }
+if (!in_array('estimated_minutes', $ticketColumns, true)) {
+    $pdo->exec('ALTER TABLE team_tickets ADD COLUMN estimated_minutes INTEGER');
+}
+if (!in_array('actual_minutes', $ticketColumns, true)) {
+    $pdo->exec('ALTER TABLE team_tickets ADD COLUMN actual_minutes INTEGER');
+}
+
+if (!in_array('estimated_minutes', $entryColumns, true)) {
+    $pdo->exec('ALTER TABLE team_form_entries ADD COLUMN estimated_minutes INTEGER');
+}
+if (!in_array('actual_minutes', $entryColumns, true)) {
+    $pdo->exec('ALTER TABLE team_form_entries ADD COLUMN actual_minutes INTEGER');
+}
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS task_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL,
+        note TEXT NOT NULL,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS task_attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL,
+        original_name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        uploaded_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY(uploaded_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS team_ticket_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL,
+        note TEXT NOT NULL,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(ticket_id) REFERENCES team_tickets(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS team_ticket_attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL,
+        original_name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        uploaded_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(ticket_id) REFERENCES team_tickets(id) ON DELETE CASCADE,
+        FOREIGN KEY(uploaded_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS team_form_entry_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entry_id INTEGER NOT NULL,
+        note TEXT NOT NULL,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(entry_id) REFERENCES team_form_entries(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS team_form_entry_attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entry_id INTEGER NOT NULL,
+        original_name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        uploaded_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(entry_id) REFERENCES team_form_entries(id) ON DELETE CASCADE,
+        FOREIGN KEY(uploaded_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);

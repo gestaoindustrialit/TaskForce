@@ -93,6 +93,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'update_team_ticket' && $canManageProjects) {
+        $ticketId = (int) ($_POST['ticket_id'] ?? 0);
+        $status = (string) ($_POST['status'] ?? 'open');
+        $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
+        $estimatedMinutes = ($_POST['estimated_minutes'] ?? '') !== '' ? max(0, (int) $_POST['estimated_minutes']) : null;
+        $actualMinutes = ($_POST['actual_minutes'] ?? '') !== '' ? max(0, (int) $_POST['actual_minutes']) : null;
+
+        $assignee = null;
+        if ($assigneeUserId > 0) {
+            $memberStmt = $pdo->prepare('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?');
+            $memberStmt->execute([$teamId, $assigneeUserId]);
+            if ($memberStmt->fetchColumn()) {
+                $assignee = $assigneeUserId;
+            }
+        }
+
+        if ($ticketId > 0 && in_array($status, ['open', 'done'], true)) {
+            $completedAt = $status === 'done' ? date('Y-m-d H:i:s') : null;
+            $stmt = $pdo->prepare('UPDATE team_tickets SET status = ?, assignee_user_id = ?, estimated_minutes = ?, actual_minutes = ?, completed_at = ? WHERE id = ? AND team_id = ?');
+            $stmt->execute([$status, $assignee, $estimatedMinutes, $actualMinutes, $completedAt, $ticketId, $teamId]);
+            $flashSuccess = 'Ticket atualizado com sucesso.';
+        }
+    }
+
+    if ($action === 'add_team_ticket_note' && $canManageProjects) {
+        $ticketId = (int) ($_POST['ticket_id'] ?? 0);
+        $note = trim($_POST['note'] ?? '');
+        if ($ticketId > 0 && $note !== '') {
+            $stmt = $pdo->prepare('INSERT INTO team_ticket_notes(ticket_id, note, created_by) SELECT id, ?, ? FROM team_tickets WHERE id = ? AND team_id = ?');
+            $stmt->execute([$note, $userId, $ticketId, $teamId]);
+            $flashSuccess = 'Observação adicionada.';
+        }
+    }
+
+    if ($action === 'upload_team_ticket_attachment' && $canManageProjects) {
+        $ticketId = (int) ($_POST['ticket_id'] ?? 0);
+        $file = $_FILES['attachment'] ?? null;
+        $hasFile = $file && is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK;
+        if ($ticketId > 0 && $hasFile) {
+            $ticketCheck = $pdo->prepare('SELECT 1 FROM team_tickets WHERE id = ? AND team_id = ?');
+            $ticketCheck->execute([$ticketId, $teamId]);
+            if ($ticketCheck->fetchColumn()) {
+                $uploadDir = __DIR__ . '/uploads/team_ticket_attachments';
+                if (!is_dir($uploadDir)) {
+                    mkdir($uploadDir, 0775, true);
+                }
+                $ext = pathinfo((string) $file['name'], PATHINFO_EXTENSION);
+                $safeName = uniqid('team_ticket_', true) . ($ext ? '.' . strtolower($ext) : '');
+                $targetPath = $uploadDir . '/' . $safeName;
+                if (move_uploaded_file((string) $file['tmp_name'], $targetPath)) {
+                    $stmt = $pdo->prepare('INSERT INTO team_ticket_attachments(ticket_id, original_name, file_path, uploaded_by) VALUES (?, ?, ?, ?)');
+                    $stmt->execute([$ticketId, (string) $file['name'], 'uploads/team_ticket_attachments/' . $safeName, $userId]);
+                    $flashSuccess = 'Anexo carregado com sucesso.';
+                }
+            }
+        }
+    }
+
     if ($flashSuccess) {
         $_SESSION['flash_success'] = $flashSuccess;
     }
@@ -118,6 +176,20 @@ $members = $membersStmt->fetchAll(PDO::FETCH_ASSOC);
 $teamTasksStmt = $pdo->prepare('SELECT tt.*, u.name AS creator_name, a.name AS assignee_name FROM team_tickets tt INNER JOIN users u ON u.id = tt.created_by LEFT JOIN users a ON a.id = tt.assignee_user_id WHERE tt.team_id = ? ORDER BY CASE WHEN tt.status = "open" THEN 0 ELSE 1 END, tt.created_at DESC');
 $teamTasksStmt->execute([$teamId]);
 $teamTasks = $teamTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$ticketNotesStmt = $pdo->prepare('SELECT tn.*, u.name AS user_name FROM team_ticket_notes tn INNER JOIN team_tickets tt ON tt.id = tn.ticket_id INNER JOIN users u ON u.id = tn.created_by WHERE tt.team_id = ? ORDER BY tn.created_at DESC');
+$ticketNotesStmt->execute([$teamId]);
+$ticketNotesByTicket = [];
+foreach ($ticketNotesStmt->fetchAll(PDO::FETCH_ASSOC) as $ticketNote) {
+    $ticketNotesByTicket[$ticketNote['ticket_id']][] = $ticketNote;
+}
+
+$ticketAttachmentsStmt = $pdo->prepare('SELECT ta.*, u.name AS user_name FROM team_ticket_attachments ta INNER JOIN team_tickets tt ON tt.id = ta.ticket_id INNER JOIN users u ON u.id = ta.uploaded_by WHERE tt.team_id = ? ORDER BY ta.created_at DESC');
+$ticketAttachmentsStmt->execute([$teamId]);
+$ticketAttachmentsByTicket = [];
+foreach ($ticketAttachmentsStmt->fetchAll(PDO::FETCH_ASSOC) as $ticketAttachment) {
+    $ticketAttachmentsByTicket[$ticketAttachment['ticket_id']][] = $ticketAttachment;
+}
 
 $memberRoleStmt = $pdo->prepare('SELECT role FROM team_members WHERE team_id = ? AND user_id = ?');
 $memberRoleStmt->execute([$teamId, $userId]);
@@ -146,62 +218,112 @@ require __DIR__ . '/partials/header.php';
     <p class="text-white-50 mb-0"><?= h($team['description']) ?: 'Sem descrição' ?></p>
 </section>
 
-<div class="row g-4">
-    <div class="col-lg-8">
-        <div class="card shadow-sm soft-card">
-            <div class="card-header d-flex justify-content-between align-items-center bg-white">
-                <h2 class="h5 mb-0">Projetos</h2>
-                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#projectModal">Novo Projeto</button>
-            </div>
-            <div class="list-group list-group-flush">
-                <?php foreach ($projects as $project): ?>
-                    <div class="list-group-item py-3">
-                        <div class="d-flex justify-content-between gap-3 align-items-start">
-                            <div>
-                                <a href="project.php?id=<?= (int) $project['id'] ?>" class="text-decoration-none"><strong><?= h($project['name']) ?></strong></a>
-                                <p class="mb-0 text-muted small"><?= h($project['description']) ?: 'Sem descrição' ?></p>
-                                <small class="text-muted">Líder: <?= h($project['leader_name'] ?: 'Não definido') ?></small>
-                            </div>
-                            <?php if ($canManageProjects): ?>
-                                <div class="d-flex gap-2">
-                                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editProjectModal<?= (int) $project['id'] ?>">Editar</button>
-                                    <form method="post" onsubmit="return confirm('Eliminar este projeto e todas as tarefas associadas?');">
-                                        <input type="hidden" name="action" value="delete_project">
-                                        <input type="hidden" name="project_id" value="<?= (int) $project['id'] ?>">
-                                        <button class="btn btn-sm btn-outline-danger">Eliminar</button>
-                                    </form>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-                <?php if (!$projects): ?><div class="p-3 text-muted">Ainda não existem projetos.</div><?php endif; ?>
-            </div>
+<div class="vstack gap-4">
+    <div class="card shadow-sm soft-card">
+        <div class="card-header d-flex justify-content-between align-items-center bg-white">
+            <h2 class="h5 mb-0">Projetos</h2>
+            <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#projectModal">Novo Projeto</button>
         </div>
-
-        <div class="card shadow-sm soft-card mt-4">
-            <div class="card-header bg-white"><h2 class="h5 mb-0">Tarefas da equipa (fora de projetos)</h2></div>
-            <div class="list-group list-group-flush">
-                <?php foreach ($teamTasks as $task): ?>
-                    <div class="list-group-item py-3">
-                        <div class="d-flex justify-content-between align-items-start gap-3">
-                            <div>
-                                <div class="small text-muted">ID <?= h($task['ticket_code']) ?></div>
-                                <strong><?= h($task['title']) ?></strong>
-                                <p class="mb-1 small text-muted"><?= h($task['description']) ?></p>
-                                <small class="text-muted">Urgência: <?= h($task['urgency']) ?> · Prazo: <?= h($task['due_date'] ?: 'Sem data') ?> · Criado por <?= h($task['creator_name']) ?></small>
-                            </div>
-                            <span class="badge <?= $task['status'] === 'done' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= $task['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
+        <div class="list-group list-group-flush">
+            <?php foreach ($projects as $project): ?>
+                <div class="list-group-item py-3">
+                    <div class="d-flex justify-content-between gap-3 align-items-start">
+                        <div>
+                            <a href="project.php?id=<?= (int) $project['id'] ?>" class="text-decoration-none"><strong><?= h($project['name']) ?></strong></a>
+                            <p class="mb-0 text-muted small"><?= h($project['description']) ?: 'Sem descrição' ?></p>
+                            <small class="text-muted">Líder: <?= h($project['leader_name'] ?: 'Não definido') ?></small>
                         </div>
+                        <?php if ($canManageProjects): ?>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editProjectModal<?= (int) $project['id'] ?>">Editar</button>
+                                <form method="post" onsubmit="return confirm('Eliminar este projeto e todas as tarefas associadas?');">
+                                    <input type="hidden" name="action" value="delete_project">
+                                    <input type="hidden" name="project_id" value="<?= (int) $project['id'] ?>">
+                                    <button class="btn btn-sm btn-outline-danger">Eliminar</button>
+                                </form>
+                            </div>
+                        <?php endif; ?>
                     </div>
-                <?php endforeach; ?>
-                <?php if (!$teamTasks): ?><div class="p-3 text-muted">Sem tarefas diretas para esta equipa.</div><?php endif; ?>
-            </div>
+                </div>
+            <?php endforeach; ?>
+            <?php if (!$projects): ?><div class="p-3 text-muted">Ainda não existem projetos.</div><?php endif; ?>
         </div>
     </div>
 
-    <div class="col-lg-4">
-        <div class="card shadow-sm soft-card mb-3">
+    <div class="card shadow-sm soft-card">
+        <div class="card-header bg-white"><h2 class="h5 mb-0">Tickets</h2></div>
+        <div class="list-group list-group-flush">
+            <?php foreach ($teamTasks as $task): ?>
+                <?php $collapseId = 'ticket-details-' . (int) $task['id']; ?>
+                <div class="list-group-item py-3">
+                    <div class="d-flex justify-content-between align-items-start gap-3">
+                        <div>
+                            <div class="small text-muted">ID <?= h($task['ticket_code']) ?></div>
+                            <strong><?= h($task['title']) ?></strong>
+                            <p class="mb-1 small text-muted"><?= h($task['description']) ?></p>
+                            <small class="text-muted">Urgência: <?= h($task['urgency']) ?> · Prazo: <?= h($task['due_date'] ?: 'Sem data') ?> · Criado por <?= h($task['creator_name']) ?> · Atribuído a <?= h($task['assignee_name'] ?: 'Sem atribuição') ?></small>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge <?= $task['status'] === 'done' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= $task['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#<?= h($collapseId) ?>" aria-expanded="false" aria-controls="<?= h($collapseId) ?>">Detalhes</button>
+                        </div>
+                    </div>
+                    <div class="collapse mt-2" id="<?= h($collapseId) ?>">
+                        <?php if ($canManageProjects): ?>
+                            <form method="post" class="row g-2 align-items-center">
+                                <input type="hidden" name="action" value="update_team_ticket">
+                                <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
+                                <div class="col-md-2"><select class="form-select form-select-sm" name="status"><option value="open" <?= $task['status'] === 'open' ? 'selected' : '' ?>>Aberto</option><option value="done" <?= $task['status'] === 'done' ? 'selected' : '' ?>>Concluído</option></select></div>
+                                <div class="col-md-3">
+                                    <select class="form-select form-select-sm" name="assignee_user_id">
+                                        <option value="0">Sem atribuição</option>
+                                        <?php foreach ($members as $member): ?>
+                                            <option value="<?= (int) $member['id'] ?>" <?= (int) $task['assignee_user_id'] === (int) $member['id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-2"><input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : '' ?>" placeholder="Previsto (min)"></div>
+                                <div class="col-md-2"><input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : '' ?>" placeholder="Real (min)"></div>
+                                <div class="col-md-3"><button class="btn btn-sm btn-outline-primary w-100">Guardar</button></div>
+                            </form>
+                            <div class="row g-2 mt-2">
+                                <div class="col-md-6">
+                                    <form method="post" class="d-flex gap-2">
+                                        <input type="hidden" name="action" value="add_team_ticket_note">
+                                        <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
+                                        <input class="form-control form-control-sm" name="note" placeholder="Nova observação" required>
+                                        <button class="btn btn-sm btn-outline-secondary">Obs</button>
+                                    </form>
+                                    <?php foreach (($ticketNotesByTicket[$task['id']] ?? []) as $note): ?>
+                                        <div class="small border rounded p-2 mt-1 bg-light"><?= h($note['note']) ?><br><small class="text-muted"><?= h($note['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($note['created_at']))) ?></small></div>
+                                    <?php endforeach; ?>
+                                </div>
+                                <div class="col-md-6">
+                                    <form method="post" enctype="multipart/form-data" class="d-flex gap-2">
+                                        <input type="hidden" name="action" value="upload_team_ticket_attachment">
+                                        <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
+                                        <input class="form-control form-control-sm" type="file" name="attachment" required>
+                                        <button class="btn btn-sm btn-outline-secondary">Anexar</button>
+                                    </form>
+                                    <?php foreach (($ticketAttachmentsByTicket[$task['id']] ?? []) as $attachment): ?>
+                                        <div class="small border rounded p-2 mt-1 bg-light"><a href="<?= h($attachment['file_path']) ?>" target="_blank" rel="noopener"><?= h($attachment['original_name']) ?></a><br><small class="text-muted"><?= h($attachment['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($attachment['created_at']))) ?></small></div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <div class="small text-muted">Sem permissões para editar este ticket.</div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+            <?php if (!$teamTasks): ?><div class="p-3 text-muted">Sem tarefas diretas para esta equipa.</div><?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-1">
+    <div class="col-lg-6">
+        <div class="card shadow-sm soft-card h-100">
             <div class="card-header bg-white"><h2 class="h6 mb-0">Membros da equipa</h2></div>
             <ul class="list-group list-group-flush">
                 <?php foreach ($members as $member): ?>
@@ -212,8 +334,10 @@ require __DIR__ . '/partials/header.php';
                 <?php endforeach; ?>
             </ul>
         </div>
+    </div>
 
-        <div class="card shadow-sm soft-card">
+    <div class="col-lg-6">
+        <div class="card shadow-sm soft-card h-100">
             <div class="card-header bg-white"><h2 class="h6 mb-0">Adicionar membro</h2></div>
             <div class="card-body">
                 <form method="post" class="vstack gap-2">
