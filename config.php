@@ -295,6 +295,21 @@ $pdo->exec(
 );
 
 $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS team_recurring_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        team_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        weekday INTEGER NOT NULL,
+        time_of_day TEXT,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
     'CREATE TABLE IF NOT EXISTS team_form_entry_notes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         entry_id INTEGER NOT NULL,
