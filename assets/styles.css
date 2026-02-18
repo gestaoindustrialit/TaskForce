@@ -82,3 +82,18 @@ body {
     .no-print { display: none !important; }
     .report-sheet { box-shadow: none; padding: 0; }
 }
+
+.ticket-status-row {
+    background: #f8fafc;
+    border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+.ticket-status-color-picker {
+    width: 3rem;
+    min-width: 3rem;
+    padding: 0.2rem;
+}
+
+.ticket-status-color-hex {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
