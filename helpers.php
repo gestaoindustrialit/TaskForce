@@ -120,8 +120,20 @@ function app_setting(PDO $pdo, string $settingKey, ?string $default = null): ?st
 
 function set_app_setting(PDO $pdo, string $settingKey, string $settingValue): void
 {
-    $stmt = $pdo->prepare('INSERT INTO app_settings(setting_key, setting_value) VALUES (?, ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value');
-    $stmt->execute([$settingKey, $settingValue]);
+    $updateStmt = $pdo->prepare('UPDATE app_settings SET setting_value = ? WHERE setting_key = ?');
+    $updateStmt->execute([$settingValue, $settingKey]);
+
+    if ($updateStmt->rowCount() > 0) {
+        return;
+    }
+
+    $insertStmt = $pdo->prepare('INSERT INTO app_settings(setting_key, setting_value) VALUES (?, ?)');
+
+    try {
+        $insertStmt->execute([$settingKey, $settingValue]);
+    } catch (PDOException $e) {
+        $updateStmt->execute([$settingValue, $settingKey]);
+    }
 }
 
 function save_brand_logo(array $file, string $prefix): ?string

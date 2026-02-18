@@ -30,6 +30,7 @@ header('Content-Type: text/html; charset=UTF-8');
                 <a class="nav-link" href="dashboard.php">Dashboard</a>
                 <a class="nav-link" href="requests.php">Pedidos &agrave;s equipas</a>
                 <a class="nav-link" href="daily_report.php">Relat&oacute;rio di&aacute;rio</a>
+                <a class="nav-link" href="company_profile.php">Empresa &amp; Branding</a>
             </div>
         <?php endif; ?>
         <div class="ms-auto d-flex align-items-center gap-3 text-white">

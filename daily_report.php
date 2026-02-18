@@ -34,6 +34,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'send_
     }
 
     $reportLogo = app_setting($pdo, 'logo_report_dark');
+    $companyName = app_setting($pdo, 'company_name', '');
+    $companyAddress = app_setting($pdo, 'company_address', '');
+    $companyEmail = app_setting($pdo, 'company_email', '');
+    $companyPhone = app_setting($pdo, 'company_phone', '');
     $rowsHtml = '';
     foreach ($reportTasks as $task) {
         $estimated = $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : null;
@@ -43,8 +47,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'send_
         $rowsHtml .= '<tr><td>' . h($task['project_name']) . '</td><td>' . h($task['title']) . '</td><td>' . h(format_minutes($estimated)) . '</td><td>' . h(format_minutes($actual)) . '</td><td>' . ($delta === null ? '-' : (($delta > 0 ? '+' : '-') . h(format_minutes(abs($delta))))) . '</td><td><a href="' . h($taskLink) . '">Abrir</a></td></tr>';
     }
 
-    $htmlContent = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
-        . '<div><h1 style="margin:0">Relatório diário do colaborador</h1><p style="margin:4px 0 0 0">Data: ' . h($selectedDate) . '</p><p style="margin:4px 0 0 0">Colaborador: ' . h((string) ($currentUser['name'] ?? '')) . '</p></div>'
+    $companyDetails = [];
+    if ($companyAddress !== '') {
+        $companyDetails[] = 'Morada: ' . h($companyAddress);
+    }
+    if ($companyEmail !== '') {
+        $companyDetails[] = 'Email: ' . h($companyEmail);
+    }
+    if ($companyPhone !== '') {
+        $companyDetails[] = 'Telefone: ' . h($companyPhone);
+    }
+
+    $htmlContent = '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;gap:12px">'
+        . '<div><h1 style="margin:0">Relatório diário do colaborador</h1>'
+        . '<p style="margin:4px 0 0 0">Data: ' . h($selectedDate) . '</p>'
+        . '<p style="margin:4px 0 0 0">Colaborador: ' . h((string) ($currentUser['name'] ?? '')) . '</p>'
+        . ($companyName !== '' ? '<p style="margin:8px 0 0 0"><strong>Empresa:</strong> ' . h($companyName) . '</p>' : '')
+        . ($companyDetails ? '<p style="margin:4px 0 0 0">' . implode('<br>', $companyDetails) . '</p>' : '')
+        . '</div>'
         . ($reportLogo ? '<img src="' . h(app_base_url() . '/' . $reportLogo) . '" alt="logo" style="max-height:55px">' : '')
         . '</div>'
         . '<p><strong>Resumo:</strong> ' . h($summaryText !== '' ? $summaryText : 'Sem notas adicionais.') . '</p>'

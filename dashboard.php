@@ -123,8 +123,6 @@ $statsStmt = $pdo->prepare('SELECT (SELECT COUNT(*) FROM team_members WHERE user
 $statsStmt->execute([$userId, $userId]);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 $users = $pdo->query('SELECT id, name, email, is_admin FROM users ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
-$navbarLogo = app_setting($pdo, 'logo_navbar_light');
-$reportLogo = app_setting($pdo, 'logo_report_dark');
 
 $pageTitle = 'Dashboard';
 require __DIR__ . '/partials/header.php';
@@ -217,18 +215,7 @@ require __DIR__ . '/partials/header.php';
         </div>
 
         <?php if ($isAdmin): ?>
-            <div class="card shadow-sm soft-card mt-4"><div class="card-body p-4"><h3 class="h5">Branding</h3><p class="small text-muted">Carrega os logotipos da empresa (claro para navbar e escuro para cabeçalho de relatório).</p>
-                <form method="post" enctype="multipart/form-data" class="vstack gap-2">
-                    <input type="hidden" name="action" value="upload_branding">
-                    <label class="form-label mb-0">Logo claro (navbar)</label>
-                    <input class="form-control form-control-sm" type="file" name="logo_navbar_light" accept="image/png,image/jpeg,image/svg+xml,image/webp">
-                    <?php if ($navbarLogo): ?><img src="<?= h($navbarLogo) ?>" alt="Logo navbar" class="img-fluid border rounded p-2 mb-2"><?php endif; ?>
-                    <label class="form-label mb-0">Logo escuro (report)</label>
-                    <input class="form-control form-control-sm" type="file" name="logo_report_dark" accept="image/png,image/jpeg,image/svg+xml,image/webp">
-                    <?php if ($reportLogo): ?><img src="<?= h($reportLogo) ?>" alt="Logo report" class="img-fluid border rounded p-2 mb-2"><?php endif; ?>
-                    <button class="btn btn-outline-primary btn-sm">Guardar branding</button>
-                </form>
-            </div></div>
+            <div class="card shadow-sm soft-card mt-4"><div class="card-body p-4"><h3 class="h5">Empresa & Branding</h3><p class="small text-muted">Configure nome, morada, email, telefone e os dois logotipos numa página dedicada.</p><a class="btn btn-outline-primary btn-sm" href="company_profile.php">Abrir configurações da empresa</a></div></div>
         <?php endif; ?>
     </div>
 </div>
