@@ -94,12 +94,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if ($action === 'update_team_ticket' && $canManageProjects) {
+    if ($action === 'save_team_ticket_details' && $canManageProjects) {
         $ticketId = (int) ($_POST['ticket_id'] ?? 0);
         $status = (string) ($_POST['status'] ?? 'open');
         $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
         $estimatedMinutes = ($_POST['estimated_minutes'] ?? '') !== '' ? max(0, (int) $_POST['estimated_minutes']) : null;
         $actualMinutes = ($_POST['actual_minutes'] ?? '') !== '' ? max(0, (int) $_POST['actual_minutes']) : null;
+        $note = trim($_POST['note'] ?? '');
+        $file = $_FILES['attachment'] ?? null;
+        $hasFile = $file && is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK;
 
         $assignee = null;
         if ($assigneeUserId > 0) {
@@ -135,19 +138,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($ticketId > 0 && $hasFile) {
             $ticketCheck = $pdo->prepare('SELECT 1 FROM team_tickets WHERE id = ? AND team_id = ?');
             $ticketCheck->execute([$ticketId, $teamId]);
+
             if ($ticketCheck->fetchColumn()) {
-                $uploadDir = __DIR__ . '/uploads/team_ticket_attachments';
-                if (!is_dir($uploadDir)) {
-                    mkdir($uploadDir, 0775, true);
+                $completedAt = $status === 'done' ? date('Y-m-d H:i:s') : null;
+                $stmt = $pdo->prepare('UPDATE team_tickets SET status = ?, assignee_user_id = ?, estimated_minutes = ?, actual_minutes = ?, completed_at = ? WHERE id = ? AND team_id = ?');
+                $stmt->execute([$status, $assignee, $estimatedMinutes, $actualMinutes, $completedAt, $ticketId, $teamId]);
+
+                if ($note !== '') {
+                    $noteStmt = $pdo->prepare('INSERT INTO team_ticket_notes(ticket_id, note, created_by) VALUES (?, ?, ?)');
+                    $noteStmt->execute([$ticketId, $note, $userId]);
                 }
-                $ext = pathinfo((string) $file['name'], PATHINFO_EXTENSION);
-                $safeName = uniqid('team_ticket_', true) . ($ext ? '.' . strtolower($ext) : '');
-                $targetPath = $uploadDir . '/' . $safeName;
-                if (move_uploaded_file((string) $file['tmp_name'], $targetPath)) {
-                    $stmt = $pdo->prepare('INSERT INTO team_ticket_attachments(ticket_id, original_name, file_path, uploaded_by) VALUES (?, ?, ?, ?)');
-                    $stmt->execute([$ticketId, (string) $file['name'], 'uploads/team_ticket_attachments/' . $safeName, $userId]);
-                    $flashSuccess = 'Anexo carregado com sucesso.';
+
+                if ($hasFile) {
+                    $uploadDir = __DIR__ . '/uploads/team_ticket_attachments';
+                    if (!is_dir($uploadDir)) {
+                        mkdir($uploadDir, 0775, true);
+                    }
+                    $ext = pathinfo((string) $file['name'], PATHINFO_EXTENSION);
+                    $safeName = uniqid('team_ticket_', true) . ($ext ? '.' . strtolower($ext) : '');
+                    $targetPath = $uploadDir . '/' . $safeName;
+                    if (move_uploaded_file((string) $file['tmp_name'], $targetPath)) {
+                        $attachStmt = $pdo->prepare('INSERT INTO team_ticket_attachments(ticket_id, original_name, file_path, uploaded_by) VALUES (?, ?, ?, ?)');
+                        $attachStmt->execute([$ticketId, (string) $file['name'], 'uploads/team_ticket_attachments/' . $safeName, $userId]);
+                    }
                 }
+
+                $flashSuccess = 'Ticket atualizado com sucesso.';
             }
         }
     }
@@ -257,7 +273,7 @@ require __DIR__ . '/partials/header.php';
             <?php foreach ($teamTasks as $task): ?>
                 <?php $collapseId = 'ticket-details-' . (int) $task['id']; ?>
                 <div class="list-group-item py-3">
-                    <div class="d-flex justify-content-between align-items-start gap-3">
+                    <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
                         <div>
                             <div class="small text-muted">ID <?= h($task['ticket_code']) ?></div>
                             <strong><?= h($task['title']) ?></strong>
@@ -272,8 +288,8 @@ require __DIR__ . '/partials/header.php';
                     </div>
                     <div class="collapse mt-2" id="<?= h($collapseId) ?>">
                         <?php if ($canManageProjects): ?>
-                            <form method="post" class="row g-2 align-items-center">
-                                <input type="hidden" name="action" value="update_team_ticket">
+                            <form method="post" enctype="multipart/form-data" class="border rounded p-3 bg-light-subtle">
+                                <input type="hidden" name="action" value="save_team_ticket_details">
                                 <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
                                 <div class="col-md-2">
                                     <select class="form-select form-select-sm" name="status">
@@ -293,29 +309,15 @@ require __DIR__ . '/partials/header.php';
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
-                                <div class="col-md-2"><input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : '' ?>" placeholder="Previsto (min)"></div>
-                                <div class="col-md-2"><input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : '' ?>" placeholder="Real (min)"></div>
-                                <div class="col-md-3"><button class="btn btn-sm btn-outline-primary w-100">Guardar</button></div>
                             </form>
+
                             <div class="row g-2 mt-2">
                                 <div class="col-md-6">
-                                    <form method="post" class="d-flex gap-2">
-                                        <input type="hidden" name="action" value="add_team_ticket_note">
-                                        <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
-                                        <input class="form-control form-control-sm" name="note" placeholder="Nova observação" required>
-                                        <button class="btn btn-sm btn-outline-secondary">Obs</button>
-                                    </form>
                                     <?php foreach (($ticketNotesByTicket[$task['id']] ?? []) as $note): ?>
                                         <div class="small border rounded p-2 mt-1 bg-light"><?= h($note['note']) ?><br><small class="text-muted"><?= h($note['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($note['created_at']))) ?></small></div>
                                     <?php endforeach; ?>
                                 </div>
                                 <div class="col-md-6">
-                                    <form method="post" enctype="multipart/form-data" class="d-flex gap-2">
-                                        <input type="hidden" name="action" value="upload_team_ticket_attachment">
-                                        <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
-                                        <input class="form-control form-control-sm" type="file" name="attachment" required>
-                                        <button class="btn btn-sm btn-outline-secondary">Anexar</button>
-                                    </form>
                                     <?php foreach (($ticketAttachmentsByTicket[$task['id']] ?? []) as $attachment): ?>
                                         <div class="small border rounded p-2 mt-1 bg-light"><a href="<?= h($attachment['file_path']) ?>" target="_blank" rel="noopener"><?= h($attachment['original_name']) ?></a><br><small class="text-muted"><?= h($attachment['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($attachment['created_at']))) ?></small></div>
                                     <?php endforeach; ?>
