@@ -96,12 +96,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'update_team_ticket' && $canManageProjects) {
         $ticketId = (int) ($_POST['ticket_id'] ?? 0);
         $status = (string) ($_POST['status'] ?? 'open');
+        $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
         $estimatedMinutes = ($_POST['estimated_minutes'] ?? '') !== '' ? max(0, (int) $_POST['estimated_minutes']) : null;
         $actualMinutes = ($_POST['actual_minutes'] ?? '') !== '' ? max(0, (int) $_POST['actual_minutes']) : null;
+
+        $assignee = null;
+        if ($assigneeUserId > 0) {
+            $memberStmt = $pdo->prepare('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?');
+            $memberStmt->execute([$teamId, $assigneeUserId]);
+            if ($memberStmt->fetchColumn()) {
+                $assignee = $assigneeUserId;
+            }
+        }
+
         if ($ticketId > 0 && in_array($status, ['open', 'done'], true)) {
             $completedAt = $status === 'done' ? date('Y-m-d H:i:s') : null;
-            $stmt = $pdo->prepare('UPDATE team_tickets SET status = ?, estimated_minutes = ?, actual_minutes = ?, completed_at = ? WHERE id = ? AND team_id = ?');
-            $stmt->execute([$status, $estimatedMinutes, $actualMinutes, $completedAt, $ticketId, $teamId]);
+            $stmt = $pdo->prepare('UPDATE team_tickets SET status = ?, assignee_user_id = ?, estimated_minutes = ?, actual_minutes = ?, completed_at = ? WHERE id = ? AND team_id = ?');
+            $stmt->execute([$status, $assignee, $estimatedMinutes, $actualMinutes, $completedAt, $ticketId, $teamId]);
             $flashSuccess = 'Ticket atualizado com sucesso.';
         }
     }
@@ -207,96 +218,104 @@ require __DIR__ . '/partials/header.php';
     <p class="text-white-50 mb-0"><?= h($team['description']) ?: 'Sem descrição' ?></p>
 </section>
 
-<div class="row g-4">
-    <div class="col-lg-8">
-        <div class="card shadow-sm soft-card">
-            <div class="card-header d-flex justify-content-between align-items-center bg-white">
-                <h2 class="h5 mb-0">Projetos</h2>
-                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#projectModal">Novo Projeto</button>
-            </div>
-            <div class="list-group list-group-flush">
-                <?php foreach ($projects as $project): ?>
-                    <div class="list-group-item py-3">
-                        <div class="d-flex justify-content-between gap-3 align-items-start">
-                            <div>
-                                <a href="project.php?id=<?= (int) $project['id'] ?>" class="text-decoration-none"><strong><?= h($project['name']) ?></strong></a>
-                                <p class="mb-0 text-muted small"><?= h($project['description']) ?: 'Sem descrição' ?></p>
-                                <small class="text-muted">Líder: <?= h($project['leader_name'] ?: 'Não definido') ?></small>
-                            </div>
-                            <?php if ($canManageProjects): ?>
-                                <div class="d-flex gap-2">
-                                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editProjectModal<?= (int) $project['id'] ?>">Editar</button>
-                                    <form method="post" onsubmit="return confirm('Eliminar este projeto e todas as tarefas associadas?');">
-                                        <input type="hidden" name="action" value="delete_project">
-                                        <input type="hidden" name="project_id" value="<?= (int) $project['id'] ?>">
-                                        <button class="btn btn-sm btn-outline-danger">Eliminar</button>
-                                    </form>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-                <?php if (!$projects): ?><div class="p-3 text-muted">Ainda não existem projetos.</div><?php endif; ?>
-            </div>
+<div class="vstack gap-4">
+    <div class="card shadow-sm soft-card">
+        <div class="card-header d-flex justify-content-between align-items-center bg-white">
+            <h2 class="h5 mb-0">Projetos</h2>
+            <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#projectModal">Novo Projeto</button>
         </div>
-
-        <div class="card shadow-sm soft-card mt-4">
-            <div class="card-header bg-white"><h2 class="h5 mb-0">Tarefas da equipa (fora de projetos)</h2></div>
-            <div class="list-group list-group-flush">
-                <?php foreach ($teamTasks as $task): ?>
-                    <div class="list-group-item py-3">
-                        <div class="d-flex justify-content-between align-items-start gap-3">
-                            <div>
-                                <div class="small text-muted">ID <?= h($task['ticket_code']) ?></div>
-                                <strong><?= h($task['title']) ?></strong>
-                                <p class="mb-1 small text-muted"><?= h($task['description']) ?></p>
-                                <small class="text-muted">Urgência: <?= h($task['urgency']) ?> · Prazo: <?= h($task['due_date'] ?: 'Sem data') ?> · Criado por <?= h($task['creator_name']) ?></small>
-                            </div>
-                            <span class="badge <?= $task['status'] === 'done' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= $task['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
+        <div class="list-group list-group-flush">
+            <?php foreach ($projects as $project): ?>
+                <div class="list-group-item py-3">
+                    <div class="d-flex justify-content-between gap-3 align-items-start">
+                        <div>
+                            <a href="project.php?id=<?= (int) $project['id'] ?>" class="text-decoration-none"><strong><?= h($project['name']) ?></strong></a>
+                            <p class="mb-0 text-muted small"><?= h($project['description']) ?: 'Sem descrição' ?></p>
+                            <small class="text-muted">Líder: <?= h($project['leader_name'] ?: 'Não definido') ?></small>
                         </div>
                         <?php if ($canManageProjects): ?>
-                            <form method="post" class="row g-2 mt-2">
-                                <input type="hidden" name="action" value="update_team_ticket">
-                                <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
-                                <div class="col-md-3"><select class="form-select form-select-sm" name="status"><option value="open" <?= $task['status'] === 'open' ? 'selected' : '' ?>>Aberto</option><option value="done" <?= $task['status'] === 'done' ? 'selected' : '' ?>>Concluído</option></select></div>
-                                <div class="col-md-3"><input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : '' ?>" placeholder="Previsto (min)"></div>
-                                <div class="col-md-3"><input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : '' ?>" placeholder="Real (min)"></div>
-                                <div class="col-md-3"><button class="btn btn-sm btn-outline-primary w-100">Guardar</button></div>
-                            </form>
-                            <div class="row g-2 mt-2">
-                                <div class="col-md-6">
-                                    <form method="post" class="d-flex gap-2">
-                                        <input type="hidden" name="action" value="add_team_ticket_note">
-                                        <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
-                                        <input class="form-control form-control-sm" name="note" placeholder="Nova observação" required>
-                                        <button class="btn btn-sm btn-outline-secondary">Obs</button>
-                                    </form>
-                                    <?php foreach (($ticketNotesByTicket[$task['id']] ?? []) as $note): ?>
-                                        <div class="small border rounded p-2 mt-1 bg-light"><?= h($note['note']) ?><br><small class="text-muted"><?= h($note['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($note['created_at']))) ?></small></div>
-                                    <?php endforeach; ?>
-                                </div>
-                                <div class="col-md-6">
-                                    <form method="post" enctype="multipart/form-data" class="d-flex gap-2">
-                                        <input type="hidden" name="action" value="upload_team_ticket_attachment">
-                                        <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
-                                        <input class="form-control form-control-sm" type="file" name="attachment" required>
-                                        <button class="btn btn-sm btn-outline-secondary">Anexar</button>
-                                    </form>
-                                    <?php foreach (($ticketAttachmentsByTicket[$task['id']] ?? []) as $attachment): ?>
-                                        <div class="small border rounded p-2 mt-1 bg-light"><a href="<?= h($attachment['file_path']) ?>" target="_blank" rel="noopener"><?= h($attachment['original_name']) ?></a><br><small class="text-muted"><?= h($attachment['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($attachment['created_at']))) ?></small></div>
-                                    <?php endforeach; ?>
-                                </div>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editProjectModal<?= (int) $project['id'] ?>">Editar</button>
+                                <form method="post" onsubmit="return confirm('Eliminar este projeto e todas as tarefas associadas?');">
+                                    <input type="hidden" name="action" value="delete_project">
+                                    <input type="hidden" name="project_id" value="<?= (int) $project['id'] ?>">
+                                    <button class="btn btn-sm btn-outline-danger">Eliminar</button>
+                                </form>
                             </div>
                         <?php endif; ?>
                     </div>
-                <?php endforeach; ?>
-                <?php if (!$teamTasks): ?><div class="p-3 text-muted">Sem tarefas diretas para esta equipa.</div><?php endif; ?>
-            </div>
+                </div>
+            <?php endforeach; ?>
+            <?php if (!$projects): ?><div class="p-3 text-muted">Ainda não existem projetos.</div><?php endif; ?>
         </div>
     </div>
 
-    <div class="col-lg-4">
-        <div class="card shadow-sm soft-card mb-3">
+    <div class="card shadow-sm soft-card">
+        <div class="card-header bg-white"><h2 class="h5 mb-0">Tickets</h2></div>
+        <div class="list-group list-group-flush">
+            <?php foreach ($teamTasks as $task): ?>
+                <div class="list-group-item py-3">
+                    <div class="d-flex justify-content-between align-items-start gap-3">
+                        <div>
+                            <div class="small text-muted">ID <?= h($task['ticket_code']) ?></div>
+                            <strong><?= h($task['title']) ?></strong>
+                            <p class="mb-1 small text-muted"><?= h($task['description']) ?></p>
+                            <small class="text-muted">Urgência: <?= h($task['urgency']) ?> · Prazo: <?= h($task['due_date'] ?: 'Sem data') ?> · Criado por <?= h($task['creator_name']) ?> · Atribuído a <?= h($task['assignee_name'] ?: 'Sem atribuição') ?></small>
+                        </div>
+                        <span class="badge <?= $task['status'] === 'done' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= $task['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
+                    </div>
+                    <?php if ($canManageProjects): ?>
+                        <form method="post" class="row g-2 mt-2 align-items-center">
+                            <input type="hidden" name="action" value="update_team_ticket">
+                            <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
+                            <div class="col-md-2"><select class="form-select form-select-sm" name="status"><option value="open" <?= $task['status'] === 'open' ? 'selected' : '' ?>>Aberto</option><option value="done" <?= $task['status'] === 'done' ? 'selected' : '' ?>>Concluído</option></select></div>
+                            <div class="col-md-3">
+                                <select class="form-select form-select-sm" name="assignee_user_id">
+                                    <option value="0">Sem atribuição</option>
+                                    <?php foreach ($members as $member): ?>
+                                        <option value="<?= (int) $member['id'] ?>" <?= (int) $task['assignee_user_id'] === (int) $member['id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-2"><input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : '' ?>" placeholder="Previsto (min)"></div>
+                            <div class="col-md-2"><input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : '' ?>" placeholder="Real (min)"></div>
+                            <div class="col-md-3"><button class="btn btn-sm btn-outline-primary w-100">Guardar</button></div>
+                        </form>
+                        <div class="row g-2 mt-2">
+                            <div class="col-md-6">
+                                <form method="post" class="d-flex gap-2">
+                                    <input type="hidden" name="action" value="add_team_ticket_note">
+                                    <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
+                                    <input class="form-control form-control-sm" name="note" placeholder="Nova observação" required>
+                                    <button class="btn btn-sm btn-outline-secondary">Obs</button>
+                                </form>
+                                <?php foreach (($ticketNotesByTicket[$task['id']] ?? []) as $note): ?>
+                                    <div class="small border rounded p-2 mt-1 bg-light"><?= h($note['note']) ?><br><small class="text-muted"><?= h($note['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($note['created_at']))) ?></small></div>
+                                <?php endforeach; ?>
+                            </div>
+                            <div class="col-md-6">
+                                <form method="post" enctype="multipart/form-data" class="d-flex gap-2">
+                                    <input type="hidden" name="action" value="upload_team_ticket_attachment">
+                                    <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
+                                    <input class="form-control form-control-sm" type="file" name="attachment" required>
+                                    <button class="btn btn-sm btn-outline-secondary">Anexar</button>
+                                </form>
+                                <?php foreach (($ticketAttachmentsByTicket[$task['id']] ?? []) as $attachment): ?>
+                                    <div class="small border rounded p-2 mt-1 bg-light"><a href="<?= h($attachment['file_path']) ?>" target="_blank" rel="noopener"><?= h($attachment['original_name']) ?></a><br><small class="text-muted"><?= h($attachment['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($attachment['created_at']))) ?></small></div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endforeach; ?>
+            <?php if (!$teamTasks): ?><div class="p-3 text-muted">Sem tarefas diretas para esta equipa.</div><?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-1">
+    <div class="col-lg-6">
+        <div class="card shadow-sm soft-card h-100">
             <div class="card-header bg-white"><h2 class="h6 mb-0">Membros da equipa</h2></div>
             <ul class="list-group list-group-flush">
                 <?php foreach ($members as $member): ?>
@@ -307,8 +326,10 @@ require __DIR__ . '/partials/header.php';
                 <?php endforeach; ?>
             </ul>
         </div>
+    </div>
 
-        <div class="card shadow-sm soft-card">
+    <div class="col-lg-6">
+        <div class="card shadow-sm soft-card h-100">
             <div class="card-header bg-white"><h2 class="h6 mb-0">Adicionar membro</h2></div>
             <div class="card-body">
                 <form method="post" class="vstack gap-2">
