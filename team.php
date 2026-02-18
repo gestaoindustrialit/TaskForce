@@ -94,6 +94,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'create_recurring_task' && $canManageProjects) {
+        $title = trim($_POST['title'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $weekday = (int) ($_POST['weekday'] ?? -1);
+        $timeOfDay = trim($_POST['time_of_day'] ?? '');
+
+        if ($title === '') {
+            $flashError = 'A tarefa recorrente deve ter um título.';
+        } elseif ($weekday < 1 || $weekday > 7) {
+            $flashError = 'Dia da semana inválido para tarefa recorrente.';
+        } else {
+            if ($timeOfDay !== '' && !preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $timeOfDay)) {
+                $timeOfDay = '';
+            }
+
+            $stmt = $pdo->prepare('INSERT INTO team_recurring_tasks(team_id, title, description, weekday, time_of_day, created_by) VALUES (?, ?, ?, ?, ?, ?)');
+            $stmt->execute([$teamId, $title, $description, $weekday, $timeOfDay !== '' ? $timeOfDay : null, $userId]);
+            $flashSuccess = 'Tarefa recorrente adicionada ao calendário da equipa.';
+        }
+    }
+
+    if ($action === 'delete_recurring_task' && $canManageProjects) {
+        $recurringTaskId = (int) ($_POST['recurring_task_id'] ?? 0);
+        $stmt = $pdo->prepare('DELETE FROM team_recurring_tasks WHERE id = ? AND team_id = ?');
+        $stmt->execute([$recurringTaskId, $teamId]);
+
+        if ($stmt->rowCount() > 0) {
+            $flashSuccess = 'Tarefa recorrente removida com sucesso.';
+        } else {
+            $flashError = 'Não foi possível remover a tarefa recorrente selecionada.';
+        }
+    }
+
     if ($action === 'save_team_ticket_details' && $canManageProjects) {
         $ticketId = (int) ($_POST['ticket_id'] ?? 0);
         $status = (string) ($_POST['status'] ?? 'open');
@@ -190,6 +223,28 @@ $membersStmt = $pdo->prepare('SELECT u.id, u.name, u.email, tm.role FROM team_me
 $membersStmt->execute([$teamId]);
 $members = $membersStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$weekdayNames = [
+    1 => 'Segunda-feira',
+    2 => 'Terça-feira',
+    3 => 'Quarta-feira',
+    4 => 'Quinta-feira',
+    5 => 'Sexta-feira',
+    6 => 'Sábado',
+    7 => 'Domingo',
+];
+
+$recurringTasksStmt = $pdo->prepare('SELECT rt.*, u.name AS creator_name FROM team_recurring_tasks rt INNER JOIN users u ON u.id = rt.created_by WHERE rt.team_id = ? ORDER BY rt.weekday ASC, COALESCE(rt.time_of_day, "23:59") ASC, rt.created_at ASC');
+$recurringTasksStmt->execute([$teamId]);
+$recurringTasks = $recurringTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+$recurringTasksByWeekday = [];
+foreach ($recurringTasks as $recurringTask) {
+    $day = (int) $recurringTask['weekday'];
+    if (!isset($recurringTasksByWeekday[$day])) {
+        $recurringTasksByWeekday[$day] = [];
+    }
+    $recurringTasksByWeekday[$day][] = $recurringTask;
+}
+
 $teamTasksStmt = $pdo->prepare('SELECT tt.*, u.name AS creator_name, a.name AS assignee_name FROM team_tickets tt INNER JOIN users u ON u.id = tt.created_by LEFT JOIN users a ON a.id = tt.assignee_user_id WHERE tt.team_id = ? ORDER BY CASE WHEN tt.completed_at IS NULL THEN 0 ELSE 1 END, tt.created_at DESC');
 $teamTasksStmt->execute([$teamId]);
 $teamTasks = $teamTasksStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -264,6 +319,54 @@ require __DIR__ . '/partials/header.php';
                 </div>
             <?php endforeach; ?>
             <?php if (!$projects): ?><div class="p-3 text-muted">Ainda não existem projetos.</div><?php endif; ?>
+        </div>
+    </div>
+
+    <div class="card shadow-sm soft-card">
+        <div class="card-header d-flex justify-content-between align-items-center bg-white flex-wrap gap-2">
+            <h2 class="h5 mb-0">Calendário semanal da equipa</h2>
+            <?php if ($canManageProjects): ?>
+                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#recurringTaskModal">Nova tarefa recorrente</button>
+            <?php endif; ?>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">Planeamento das tarefas recorrentes para consulta rápida durante a semana.</p>
+            <div class="row g-3">
+                <?php foreach ($weekdayNames as $weekdayNumber => $weekdayLabel): ?>
+                    <div class="col-12 col-md-6 col-xl-4">
+                        <div class="border rounded p-3 h-100 bg-light-subtle">
+                            <h3 class="h6 mb-2"><?= h($weekdayLabel) ?></h3>
+                            <?php if (!empty($recurringTasksByWeekday[$weekdayNumber])): ?>
+                                <div class="vstack gap-2">
+                                    <?php foreach ($recurringTasksByWeekday[$weekdayNumber] as $recurringTask): ?>
+                                        <div class="border rounded p-2 bg-white">
+                                            <div class="d-flex justify-content-between gap-2">
+                                                <strong class="small"><?= h($recurringTask['title']) ?></strong>
+                                                <span class="text-muted small"><?= h($recurringTask['time_of_day'] ?: 'Sem hora') ?></span>
+                                            </div>
+                                            <?php if (!empty($recurringTask['description'])): ?>
+                                                <p class="mb-1 small text-muted"><?= h($recurringTask['description']) ?></p>
+                                            <?php endif; ?>
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <small class="text-muted">Criado por <?= h($recurringTask['creator_name']) ?></small>
+                                                <?php if ($canManageProjects): ?>
+                                                    <form method="post" onsubmit="return confirm('Remover esta tarefa recorrente?');">
+                                                        <input type="hidden" name="action" value="delete_recurring_task">
+                                                        <input type="hidden" name="recurring_task_id" value="<?= (int) $recurringTask['id'] ?>">
+                                                        <button class="btn btn-sm btn-outline-danger py-0 px-2">Remover</button>
+                                                    </form>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php else: ?>
+                                <div class="small text-muted">Sem tarefas recorrentes.</div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
         </div>
     </div>
 
@@ -402,6 +505,34 @@ require __DIR__ . '/partials/header.php';
         </div>
     <?php endforeach; ?>
 <?php endif; ?>
+
+<div class="modal fade" id="recurringTaskModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form class="modal-content" method="post">
+            <input type="hidden" name="action" value="create_recurring_task">
+            <div class="modal-header"><h5 class="modal-title">Nova tarefa recorrente</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body vstack gap-3">
+                <input class="form-control" name="title" placeholder="Título da tarefa" required>
+                <textarea class="form-control" name="description" placeholder="Descrição (opcional)"></textarea>
+                <div class="row g-2">
+                    <div class="col-md-7">
+                        <label class="form-label small text-muted mb-1">Dia da semana</label>
+                        <select class="form-select" name="weekday" required>
+                            <?php foreach ($weekdayNames as $weekdayNumber => $weekdayLabel): ?>
+                                <option value="<?= (int) $weekdayNumber ?>"><?= h($weekdayLabel) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small text-muted mb-1">Hora</label>
+                        <input class="form-control" type="time" name="time_of_day">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-primary">Guardar</button></div>
+        </form>
+    </div>
+</div>
 
 <div class="modal fade" id="projectModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
