@@ -400,23 +400,95 @@ function generate_ticket_code(PDO $pdo): string
 }
 
 
-function recurring_task_recurrence_options(): array
+function default_recurring_task_recurrence_options(): array
 {
     return [
-        'daily' => 'Diária',
-        'weekly' => 'Semanal',
-        'biweekly' => '15 em 15 dias',
-        'monthly' => 'Mensal',
-        'bimonthly' => 'Bi-mestral',
-        'semiannual' => 'Semestral',
-        'yearly' => 'Anual',
+        ['value' => 'daily', 'label' => 'Diária', 'enabled' => true],
+        ['value' => 'weekly', 'label' => 'Semanal', 'enabled' => true],
+        ['value' => 'biweekly', 'label' => '15 em 15 dias', 'enabled' => true],
+        ['value' => 'monthly', 'label' => 'Mensal', 'enabled' => true],
+        ['value' => 'bimonthly', 'label' => 'Bi-mestral', 'enabled' => true],
+        ['value' => 'semiannual', 'label' => 'Semestral', 'enabled' => true],
+        ['value' => 'yearly', 'label' => 'Anual', 'enabled' => true],
     ];
 }
 
-function recurring_task_recurrence_label(string $recurrenceType): string
+function recurring_task_recurrence_catalog(PDO $pdo): array
 {
-    $options = recurring_task_recurrence_options();
-    return $options[$recurrenceType] ?? 'Semanal';
+    $defaults = default_recurring_task_recurrence_options();
+    $defaultByValue = [];
+    foreach ($defaults as $option) {
+        $defaultByValue[(string) $option['value']] = $option;
+    }
+
+    $raw = app_setting($pdo, 'recurring_task_recurrences_json', '');
+    if (!is_string($raw) || trim($raw) === '') {
+        return $defaults;
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return $defaults;
+    }
+
+    $catalog = [];
+    foreach ($decoded as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+
+        $value = strtolower(trim((string) ($entry['value'] ?? '')));
+        $label = trim((string) ($entry['label'] ?? ''));
+        $enabled = !array_key_exists('enabled', $entry) || !empty($entry['enabled']);
+
+        if (!isset($defaultByValue[$value])) {
+            continue;
+        }
+
+        if ($label === '') {
+            $label = (string) $defaultByValue[$value]['label'];
+        }
+
+        $catalog[$value] = [
+            'value' => $value,
+            'label' => $label,
+            'enabled' => $enabled,
+        ];
+    }
+
+    foreach ($defaults as $defaultOption) {
+        $value = (string) $defaultOption['value'];
+        if (!isset($catalog[$value])) {
+            $catalog[$value] = $defaultOption;
+        }
+    }
+
+    return array_values($catalog);
+}
+
+function recurring_task_recurrence_options(PDO $pdo, bool $onlyEnabled = true): array
+{
+    $options = [];
+    foreach (recurring_task_recurrence_catalog($pdo) as $entry) {
+        if ($onlyEnabled && empty($entry['enabled'])) {
+            continue;
+        }
+        $options[(string) $entry['value']] = (string) $entry['label'];
+    }
+
+    if ($onlyEnabled && count($options) === 0) {
+        $default = default_recurring_task_recurrence_options();
+        $first = $default[0] ?? ['value' => 'weekly', 'label' => 'Semanal'];
+        $options[(string) $first['value']] = (string) $first['label'];
+    }
+
+    return $options;
+}
+
+function recurring_task_recurrence_label(PDO $pdo, string $recurrenceType): string
+{
+    $allOptions = recurring_task_recurrence_options($pdo, false);
+    return $allOptions[$recurrenceType] ?? 'Semanal';
 }
 
 function recurring_task_anchor_date(array $task): DateTimeImmutable
@@ -439,10 +511,11 @@ function recurring_task_anchor_date(array $task): DateTimeImmutable
     return $createdAt->setTime(0, 0);
 }
 
-function recurring_task_occurrences(array $task, DateTimeImmutable $periodStart, DateTimeImmutable $periodEnd): array
+function recurring_task_occurrences(PDO $pdo, array $task, DateTimeImmutable $periodStart, DateTimeImmutable $periodEnd): array
 {
     $recurrenceType = (string) ($task['recurrence_type'] ?? 'weekly');
-    if (!array_key_exists($recurrenceType, recurring_task_recurrence_options())) {
+    $allOptions = recurring_task_recurrence_options($pdo, false);
+    if (!isset($allOptions[$recurrenceType])) {
         $recurrenceType = 'weekly';
     }
 

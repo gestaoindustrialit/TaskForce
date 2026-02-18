@@ -99,9 +99,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $description = trim($_POST['description'] ?? '');
         $recurrenceType = (string) ($_POST['recurrence_type'] ?? 'weekly');
         $startDate = trim($_POST['start_date'] ?? date('Y-m-d'));
+        $projectId = (int) ($_POST['project_id'] ?? 0);
         $timeOfDay = trim($_POST['time_of_day'] ?? '');
 
-        if (!array_key_exists($recurrenceType, recurring_task_recurrence_options())) {
+        if (!array_key_exists($recurrenceType, recurring_task_recurrence_options($pdo))) {
             $recurrenceType = 'weekly';
         }
 
@@ -116,9 +117,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $timeOfDay = '';
                 }
 
+                $projectIdValue = null;
+                if ($projectId > 0) {
+                    $projectCheckStmt = $pdo->prepare('SELECT 1 FROM projects WHERE id = ? AND team_id = ?');
+                    $projectCheckStmt->execute([$projectId, $teamId]);
+                    if ($projectCheckStmt->fetchColumn()) {
+                        $projectIdValue = $projectId;
+                    }
+                }
+
                 $weekday = (int) $startDateObj->format('N');
-                $stmt = $pdo->prepare('INSERT INTO team_recurring_tasks(team_id, title, description, weekday, recurrence_type, start_date, time_of_day, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-                $stmt->execute([$teamId, $title, $description, $weekday, $recurrenceType, $startDateObj->format('Y-m-d'), $timeOfDay !== '' ? $timeOfDay : null, $userId]);
+                $stmt = $pdo->prepare('INSERT INTO team_recurring_tasks(team_id, project_id, title, description, weekday, recurrence_type, start_date, time_of_day, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                $stmt->execute([$teamId, $projectIdValue, $title, $description, $weekday, $recurrenceType, $startDateObj->format('Y-m-d'), $timeOfDay !== '' ? $timeOfDay : null, $userId]);
                 $flashSuccess = 'Tarefa recorrente adicionada ao calendário da equipa.';
             }
         }
@@ -241,7 +251,7 @@ $weekdayNames = [
     6 => 'Sábado',
     7 => 'Domingo',
 ];
-$recurrenceOptions = recurring_task_recurrence_options();
+$recurrenceOptions = recurring_task_recurrence_options($pdo);
 
 $calendarViewLabels = [
     'day' => 'Dia',
@@ -280,13 +290,13 @@ if ($calendarView === 'week') {
     $calendarPeriodLabel = $referenceDate->format('Y');
 }
 
-$recurringTasksStmt = $pdo->prepare('SELECT rt.*, u.name AS creator_name FROM team_recurring_tasks rt INNER JOIN users u ON u.id = rt.created_by WHERE rt.team_id = ? ORDER BY rt.created_at ASC');
+$recurringTasksStmt = $pdo->prepare('SELECT rt.*, u.name AS creator_name, p.name AS project_name FROM team_recurring_tasks rt INNER JOIN users u ON u.id = rt.created_by LEFT JOIN projects p ON p.id = rt.project_id WHERE rt.team_id = ? ORDER BY rt.created_at ASC');
 $recurringTasksStmt->execute([$teamId]);
 $recurringTasks = $recurringTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $calendarOccurrences = [];
 foreach ($recurringTasks as $recurringTask) {
-    $occurrenceDates = recurring_task_occurrences($recurringTask, $calendarPeriodStart, $calendarPeriodEnd);
+    $occurrenceDates = recurring_task_occurrences($pdo, $recurringTask, $calendarPeriodStart, $calendarPeriodEnd);
     foreach ($occurrenceDates as $occurrenceDate) {
         $dateKey = $occurrenceDate->format('Y-m-d');
         if (!isset($calendarOccurrences[$dateKey])) {
@@ -299,7 +309,8 @@ foreach ($recurringTasks as $recurringTask) {
             'description' => (string) ($recurringTask['description'] ?? ''),
             'time_of_day' => (string) ($recurringTask['time_of_day'] ?? ''),
             'creator_name' => (string) $recurringTask['creator_name'],
-            'recurrence_label' => recurring_task_recurrence_label((string) ($recurringTask['recurrence_type'] ?? 'weekly')),
+            'project_name' => (string) ($recurringTask['project_name'] ?? ''),
+            'recurrence_label' => recurring_task_recurrence_label($pdo, (string) ($recurringTask['recurrence_type'] ?? 'weekly')),
             'start_date' => (string) ($recurringTask['start_date'] ?? ''),
         ];
     }
@@ -445,7 +456,7 @@ require __DIR__ . '/partials/header.php';
                                                     <strong class="small"><?= h($occurrence['title']) ?></strong>
                                                     <span class="text-muted small"><?= h($occurrence['time_of_day'] !== '' ? $occurrence['time_of_day'] : 'Sem hora') ?></span>
                                                 </div>
-                                                <div class="small text-muted"><?= h($occurrence['recurrence_label']) ?></div>
+                                                <div class="small text-muted"><?= h($occurrence['recurrence_label']) ?><?= $occurrence['project_name'] !== '' ? ' · Projeto: ' . h($occurrence['project_name']) : '' ?></div>
                                                 <?php if ($occurrence['description'] !== ''): ?><p class="mb-1 small text-muted"><?= h($occurrence['description']) ?></p><?php endif; ?>
                                                 <div class="d-flex justify-content-between align-items-center">
                                                     <small class="text-muted">Criado por <?= h($occurrence['creator_name']) ?></small>
@@ -481,7 +492,7 @@ require __DIR__ . '/partials/header.php';
                                                 <strong class="small"><?= h($occurrence['title']) ?></strong>
                                                 <span class="text-muted small"><?= h($occurrence['time_of_day'] !== '' ? $occurrence['time_of_day'] : 'Sem hora') ?></span>
                                             </div>
-                                            <div class="small text-muted"><?= h($occurrence['recurrence_label']) ?></div>
+                                            <div class="small text-muted"><?= h($occurrence['recurrence_label']) ?><?= $occurrence['project_name'] !== '' ? ' · Projeto: ' . h($occurrence['project_name']) : '' ?></div>
                                             <?php if ($occurrence['description'] !== ''): ?><p class="mb-1 small text-muted"><?= h($occurrence['description']) ?></p><?php endif; ?>
                                             <div class="d-flex justify-content-between align-items-center">
                                                 <small class="text-muted">Criado por <?= h($occurrence['creator_name']) ?></small>
@@ -650,6 +661,15 @@ require __DIR__ . '/partials/header.php';
             <div class="modal-body vstack gap-3">
                 <input class="form-control" name="title" placeholder="Título da tarefa" required>
                 <textarea class="form-control" name="description" placeholder="Descrição (opcional)"></textarea>
+                <div>
+                    <label class="form-label small text-muted mb-1">Projeto (opcional)</label>
+                    <select class="form-select" name="project_id">
+                        <option value="0">Sem projeto</option>
+                        <?php foreach ($projects as $project): ?>
+                            <option value="<?= (int) $project['id'] ?>"><?= h($project['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
                 <div class="row g-2">
                     <div class="col-md-6">
                         <label class="form-label small text-muted mb-1">Recorrência</label>

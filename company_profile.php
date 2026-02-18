@@ -23,6 +23,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $statusColors = $_POST['ticket_status_color'] ?? [];
         $ticketStatuses = [];
 
+        $recurrenceValues = $_POST['recurrence_value'] ?? [];
+        $recurrenceLabels = $_POST['recurrence_label'] ?? [];
+        $recurrenceEnabled = $_POST['recurrence_enabled'] ?? [];
+        $recurrenceCatalog = [];
+
         foreach ($statusValues as $index => $rawValue) {
             $value = strtolower(trim((string) $rawValue));
             $label = trim((string) ($statusLabels[$index] ?? ''));
@@ -55,16 +60,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
         }
 
-        uasort($ticketStatuses, static function (array $a, array $b): int {
-            $left = (int) ($a['sort_order'] ?? 0);
-            $right = (int) ($b['sort_order'] ?? 0);
+        $defaultRecurrences = default_recurring_task_recurrence_options();
+        $allowedRecurrences = [];
+        foreach ($defaultRecurrences as $defaultRecurrence) {
+            $allowedRecurrences[(string) $defaultRecurrence['value']] = (string) $defaultRecurrence['label'];
+        }
 
-            if ($left === $right) {
-                return strcmp((string) $a['label'], (string) $b['label']);
+        foreach ($recurrenceValues as $index => $rawValue) {
+            $value = strtolower(trim((string) $rawValue));
+            if (!isset($allowedRecurrences[$value]) || isset($recurrenceCatalog[$value])) {
+                continue;
             }
 
-            return $left <=> $right;
-        });
+            $label = trim((string) ($recurrenceLabels[$index] ?? ''));
+            if ($label === '') {
+                $label = $allowedRecurrences[$value];
+            }
+
+            $recurrenceCatalog[$value] = [
+                'value' => $value,
+                'label' => $label,
+                'enabled' => isset($recurrenceEnabled[$index]) && $recurrenceEnabled[$index] === '1',
+            ];
+        }
+
+        foreach ($defaultRecurrences as $defaultRecurrence) {
+            $value = (string) $defaultRecurrence['value'];
+            if (!isset($recurrenceCatalog[$value])) {
+                $recurrenceCatalog[$value] = [
+                    'value' => $value,
+                    'label' => (string) $defaultRecurrence['label'],
+                    'enabled' => !empty($defaultRecurrence['enabled']),
+                ];
+            }
+        }
 
         if ($companyEmail !== '' && filter_var($companyEmail, FILTER_VALIDATE_EMAIL) === false) {
             $flashError = 'Indique um email válido para a empresa.';
@@ -72,12 +101,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flashError = 'Defina pelo menos um estado para os tickets.';
         } elseif (!array_filter($ticketStatuses, static fn (array $status): bool => empty($status['is_completed']))) {
             $flashError = 'Defina pelo menos um estado não concluído para os tickets.';
+        } elseif (!array_filter($recurrenceCatalog, static fn (array $entry): bool => !empty($entry['enabled']))) {
+            $flashError = 'Ative pelo menos um tipo de recorrência para tarefas recorrentes.';
         } else {
             set_app_setting($pdo, 'company_name', $companyName);
             set_app_setting($pdo, 'company_address', $companyAddress);
             set_app_setting($pdo, 'company_email', $companyEmail);
             set_app_setting($pdo, 'company_phone', $companyPhone);
             set_app_setting($pdo, 'ticket_statuses_json', json_encode(array_values($ticketStatuses), JSON_UNESCAPED_UNICODE));
+            set_app_setting($pdo, 'recurring_task_recurrences_json', json_encode(array_values($recurrenceCatalog), JSON_UNESCAPED_UNICODE));
 
             $savedLogos = 0;
             $lightPath = save_brand_logo($_FILES['logo_navbar_light'] ?? [], 'navbar_light');
@@ -106,6 +138,7 @@ $companyPhone = app_setting($pdo, 'company_phone', '');
 $navbarLogo = app_setting($pdo, 'logo_navbar_light');
 $reportLogo = app_setting($pdo, 'logo_report_dark');
 $ticketStatuses = ticket_statuses($pdo);
+$recurrenceCatalog = recurring_task_recurrence_catalog($pdo);
 
 $pageTitle = 'Empresa e Branding';
 require __DIR__ . '/partials/header.php';
@@ -180,6 +213,26 @@ require __DIR__ . '/partials/header.php';
                                         <button type="button" class="btn btn-sm btn-outline-danger remove-ticket-status">×</button>
                                     </div>
                                 <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <hr>
+                <label class="form-label mb-0">Recorrências de tarefas</label>
+                <p class="small text-muted mb-2">Personalize os nomes e ative/desative tipos de recorrência disponíveis ao criar tarefas recorrentes.</p>
+                <div id="recurrence-list" class="vstack gap-2">
+                    <?php foreach ($recurrenceCatalog as $index => $recurrence): ?>
+                        <div class="row g-2 align-items-center recurrence-row">
+                            <div class="col-md-3"><input class="form-control form-control-sm" name="recurrence_value[]" value="<?= h($recurrence['value']) ?>" readonly></div>
+                            <div class="col-md-6"><input class="form-control form-control-sm" name="recurrence_label[]" value="<?= h($recurrence['label']) ?>" placeholder="Etiqueta" <?= !$isAdmin ? 'readonly' : '' ?>></div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="recurrence_enabled[<?= (int) $index ?>]" value="1" <?= !empty($recurrence['enabled']) ? 'checked' : '' ?> <?= !$isAdmin ? 'disabled' : '' ?>>
+                                    <label class="form-check-label small">Ativo</label>
+                                </div>
                             </div>
                         </div>
                     <?php endforeach; ?>
