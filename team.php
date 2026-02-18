@@ -115,6 +115,10 @@ $membersStmt = $pdo->prepare('SELECT u.id, u.name, u.email, tm.role FROM team_me
 $membersStmt->execute([$teamId]);
 $members = $membersStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$teamTasksStmt = $pdo->prepare('SELECT tt.*, u.name AS creator_name, a.name AS assignee_name FROM team_tickets tt INNER JOIN users u ON u.id = tt.created_by LEFT JOIN users a ON a.id = tt.assignee_user_id WHERE tt.team_id = ? ORDER BY CASE WHEN tt.status = "open" THEN 0 ELSE 1 END, tt.created_at DESC');
+$teamTasksStmt->execute([$teamId]);
+$teamTasks = $teamTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+
 $memberRoleStmt = $pdo->prepare('SELECT role FROM team_members WHERE team_id = ? AND user_id = ?');
 $memberRoleStmt->execute([$teamId, $userId]);
 $memberRole = (string) $memberRoleStmt->fetchColumn();
@@ -172,6 +176,26 @@ require __DIR__ . '/partials/header.php';
                     </div>
                 <?php endforeach; ?>
                 <?php if (!$projects): ?><div class="p-3 text-muted">Ainda não existem projetos.</div><?php endif; ?>
+            </div>
+        </div>
+
+        <div class="card shadow-sm soft-card mt-4">
+            <div class="card-header bg-white"><h2 class="h5 mb-0">Tarefas da equipa (fora de projetos)</h2></div>
+            <div class="list-group list-group-flush">
+                <?php foreach ($teamTasks as $task): ?>
+                    <div class="list-group-item py-3">
+                        <div class="d-flex justify-content-between align-items-start gap-3">
+                            <div>
+                                <div class="small text-muted">ID <?= h($task['ticket_code']) ?></div>
+                                <strong><?= h($task['title']) ?></strong>
+                                <p class="mb-1 small text-muted"><?= h($task['description']) ?></p>
+                                <small class="text-muted">Urgência: <?= h($task['urgency']) ?> · Prazo: <?= h($task['due_date'] ?: 'Sem data') ?> · Criado por <?= h($task['creator_name']) ?></small>
+                            </div>
+                            <span class="badge <?= $task['status'] === 'done' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= $task['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+                <?php if (!$teamTasks): ?><div class="p-3 text-muted">Sem tarefas diretas para esta equipa.</div><?php endif; ?>
             </div>
         </div>
     </div>
