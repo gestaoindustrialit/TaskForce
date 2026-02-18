@@ -261,6 +261,7 @@ require __DIR__ . '/partials/header.php';
                             <span class="badge <?= $task['status'] === 'done' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= $task['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
                             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#<?= h($collapseId) ?>" aria-expanded="false" aria-controls="<?= h($collapseId) ?>">Detalhes</button>
                         </div>
+                        <span class="badge <?= $task['status'] === 'done' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= $task['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
                     </div>
                     <div class="collapse mt-2" id="<?= h($collapseId) ?>">
                         <?php if ($canManageProjects): ?>
