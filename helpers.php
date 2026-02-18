@@ -399,6 +399,109 @@ function generate_ticket_code(PDO $pdo): string
     return $code;
 }
 
+
+function recurring_task_recurrence_options(): array
+{
+    return [
+        'daily' => 'Diária',
+        'weekly' => 'Semanal',
+        'biweekly' => '15 em 15 dias',
+        'monthly' => 'Mensal',
+        'bimonthly' => 'Bi-mestral',
+        'semiannual' => 'Semestral',
+        'yearly' => 'Anual',
+    ];
+}
+
+function recurring_task_recurrence_label(string $recurrenceType): string
+{
+    $options = recurring_task_recurrence_options();
+    return $options[$recurrenceType] ?? 'Semanal';
+}
+
+function recurring_task_anchor_date(array $task): DateTimeImmutable
+{
+    $createdAt = !empty($task['created_at']) ? new DateTimeImmutable((string) $task['created_at']) : new DateTimeImmutable('today');
+
+    if (!empty($task['start_date'])) {
+        $startDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) $task['start_date']);
+        if ($startDate instanceof DateTimeImmutable) {
+            return $startDate;
+        }
+    }
+
+    $weekday = (int) ($task['weekday'] ?? 0);
+    if ($weekday >= 1 && $weekday <= 7) {
+        $monday = $createdAt->modify('monday this week');
+        return $monday->modify('+' . ($weekday - 1) . ' day')->setTime(0, 0);
+    }
+
+    return $createdAt->setTime(0, 0);
+}
+
+function recurring_task_occurrences(array $task, DateTimeImmutable $periodStart, DateTimeImmutable $periodEnd): array
+{
+    $recurrenceType = (string) ($task['recurrence_type'] ?? 'weekly');
+    if (!array_key_exists($recurrenceType, recurring_task_recurrence_options())) {
+        $recurrenceType = 'weekly';
+    }
+
+    $anchor = recurring_task_anchor_date($task);
+    $date = $anchor;
+    $occurrences = [];
+
+    $dayIntervals = [
+        'daily' => 1,
+        'weekly' => 7,
+        'biweekly' => 14,
+    ];
+
+    if (isset($dayIntervals[$recurrenceType])) {
+        $intervalDays = $dayIntervals[$recurrenceType];
+        if ($date < $periodStart) {
+            $diffDays = (int) $date->diff($periodStart)->format('%a');
+            $steps = (int) floor($diffDays / $intervalDays);
+            $date = $date->modify('+' . ($steps * $intervalDays) . ' day');
+            while ($date < $periodStart) {
+                $date = $date->modify('+' . $intervalDays . ' day');
+            }
+        }
+
+        while ($date <= $periodEnd) {
+            if ($date >= $periodStart) {
+                $occurrences[] = $date;
+            }
+            $date = $date->modify('+' . $intervalDays . ' day');
+        }
+
+        return $occurrences;
+    }
+
+    $monthIntervals = [
+        'monthly' => 1,
+        'bimonthly' => 2,
+        'semiannual' => 6,
+        'yearly' => 12,
+    ];
+
+    $intervalMonths = $monthIntervals[$recurrenceType] ?? 1;
+    $guard = 0;
+    while ($date < $periodStart && $guard < 600) {
+        $date = $date->modify('+' . $intervalMonths . ' month');
+        $guard++;
+    }
+
+    while ($date <= $periodEnd && $guard < 1000) {
+        if ($date >= $periodStart) {
+            $occurrences[] = $date;
+        }
+        $date = $date->modify('+' . $intervalMonths . ' month');
+        $guard++;
+    }
+
+    return $occurrences;
+}
+
 function app_base_url(): string
 {
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';

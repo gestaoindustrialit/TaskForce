@@ -300,7 +300,9 @@ $pdo->exec(
         team_id INTEGER NOT NULL,
         title TEXT NOT NULL,
         description TEXT,
-        weekday INTEGER NOT NULL,
+        weekday INTEGER,
+        recurrence_type TEXT NOT NULL DEFAULT "weekly",
+        start_date DATE,
         time_of_day TEXT,
         created_by INTEGER NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -308,6 +310,17 @@ $pdo->exec(
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
     )'
 );
+
+$recurringColumns = $pdo->query('PRAGMA table_info(team_recurring_tasks)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('recurrence_type', $recurringColumns, true)) {
+    $pdo->exec('ALTER TABLE team_recurring_tasks ADD COLUMN recurrence_type TEXT NOT NULL DEFAULT "weekly"');
+}
+if (!in_array('start_date', $recurringColumns, true)) {
+    $pdo->exec('ALTER TABLE team_recurring_tasks ADD COLUMN start_date DATE');
+}
+if (in_array('weekday', $recurringColumns, true)) {
+    $pdo->exec('UPDATE team_recurring_tasks SET weekday = NULL WHERE weekday NOT BETWEEN 1 AND 7');
+}
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS team_form_entry_notes (
