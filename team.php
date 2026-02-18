@@ -7,6 +7,7 @@ $teamId = (int) ($_GET['id'] ?? 0);
 $isAdmin = is_admin($pdo, $userId);
 $flashSuccess = null;
 $flashError = null;
+$ticketStatuses = ticket_statuses($pdo);
 
 if (!$teamId || !team_accessible($pdo, $teamId, $userId)) {
     http_response_code(403);
@@ -109,8 +110,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        if ($ticketId > 0 && in_array($status, ['open', 'done'], true)) {
-            $completedAt = $status === 'done' ? date('Y-m-d H:i:s') : null;
+        if ($ticketId > 0 && ticket_status_value_exists($pdo, $status)) {
+            $completedAt = ticket_status_is_completed($pdo, $status) ? date('Y-m-d H:i:s') : null;
             $stmt = $pdo->prepare('UPDATE team_tickets SET status = ?, assignee_user_id = ?, estimated_minutes = ?, actual_minutes = ?, completed_at = ? WHERE id = ? AND team_id = ?');
             $stmt->execute([$status, $assignee, $estimatedMinutes, $actualMinutes, $completedAt, $ticketId, $teamId]);
             $flashSuccess = 'Ticket atualizado com sucesso.';
@@ -173,7 +174,7 @@ $membersStmt = $pdo->prepare('SELECT u.id, u.name, u.email, tm.role FROM team_me
 $membersStmt->execute([$teamId]);
 $members = $membersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$teamTasksStmt = $pdo->prepare('SELECT tt.*, u.name AS creator_name, a.name AS assignee_name FROM team_tickets tt INNER JOIN users u ON u.id = tt.created_by LEFT JOIN users a ON a.id = tt.assignee_user_id WHERE tt.team_id = ? ORDER BY CASE WHEN tt.status = "open" THEN 0 ELSE 1 END, tt.created_at DESC');
+$teamTasksStmt = $pdo->prepare('SELECT tt.*, u.name AS creator_name, a.name AS assignee_name FROM team_tickets tt INNER JOIN users u ON u.id = tt.created_by LEFT JOIN users a ON a.id = tt.assignee_user_id WHERE tt.team_id = ? ORDER BY CASE WHEN tt.completed_at IS NULL THEN 0 ELSE 1 END, tt.created_at DESC');
 $teamTasksStmt->execute([$teamId]);
 $teamTasks = $teamTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -264,17 +265,26 @@ require __DIR__ . '/partials/header.php';
                             <small class="text-muted">Urgência: <?= h($task['urgency']) ?> · Prazo: <?= h($task['due_date'] ?: 'Sem data') ?> · Criado por <?= h($task['creator_name']) ?> · Atribuído a <?= h($task['assignee_name'] ?: 'Sem atribuição') ?></small>
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            <span class="badge <?= $task['status'] === 'done' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= $task['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
+                            <span class="badge <?= h(ticket_status_badge_class($pdo, (string) $task['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $task['status'])) ?></span>
                             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#<?= h($collapseId) ?>" aria-expanded="false" aria-controls="<?= h($collapseId) ?>">Detalhes</button>
                         </div>
-                        <span class="badge <?= $task['status'] === 'done' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= $task['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
+                        <span class="badge <?= h(ticket_status_badge_class($pdo, (string) $task['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $task['status'])) ?></span>
                     </div>
                     <div class="collapse mt-2" id="<?= h($collapseId) ?>">
                         <?php if ($canManageProjects): ?>
                             <form method="post" class="row g-2 align-items-center">
                                 <input type="hidden" name="action" value="update_team_ticket">
                                 <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
-                                <div class="col-md-2"><select class="form-select form-select-sm" name="status"><option value="open" <?= $task['status'] === 'open' ? 'selected' : '' ?>>Aberto</option><option value="done" <?= $task['status'] === 'done' ? 'selected' : '' ?>>Concluído</option></select></div>
+                                <div class="col-md-2">
+                                    <select class="form-select form-select-sm" name="status">
+                                        <?php foreach ($ticketStatuses as $statusOption): ?>
+                                            <option value="<?= h($statusOption['value']) ?>" <?= $task['status'] === $statusOption['value'] ? 'selected' : '' ?>><?= h($statusOption['label']) ?></option>
+                                        <?php endforeach; ?>
+                                        <?php if (!ticket_status_value_exists($pdo, (string) $task['status'])): ?>
+                                            <option value="<?= h($task['status']) ?>" selected><?= h(ticket_status_label($pdo, (string) $task['status'])) ?> (legado)</option>
+                                        <?php endif; ?>
+                                    </select>
+                                </div>
                                 <div class="col-md-3">
                                     <select class="form-select form-select-sm" name="assignee_user_id">
                                         <option value="0">Sem atribuição</option>

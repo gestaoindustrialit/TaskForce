@@ -136,6 +136,109 @@ function set_app_setting(PDO $pdo, string $settingKey, string $settingValue): vo
     }
 }
 
+function default_ticket_statuses(): array
+{
+    return [
+        ['value' => 'open', 'label' => 'Aberto', 'is_completed' => false],
+        ['value' => 'done', 'label' => 'Concluído', 'is_completed' => true],
+    ];
+}
+
+function ticket_statuses(PDO $pdo): array
+{
+    $raw = app_setting($pdo, 'ticket_statuses_json', '');
+    if (!is_string($raw) || trim($raw) === '') {
+        return default_ticket_statuses();
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return default_ticket_statuses();
+    }
+
+    $sanitized = [];
+    foreach ($decoded as $status) {
+        if (!is_array($status)) {
+            continue;
+        }
+
+        $value = strtolower(trim((string) ($status['value'] ?? '')));
+        $label = trim((string) ($status['label'] ?? ''));
+        $isCompleted = !empty($status['is_completed']);
+
+        if ($value === '' || $label === '') {
+            continue;
+        }
+
+        $value = preg_replace('/[^a-z0-9_\-]/', '_', $value) ?: '';
+        if ($value === '' || isset($sanitized[$value])) {
+            continue;
+        }
+
+        $sanitized[$value] = [
+            'value' => $value,
+            'label' => $label,
+            'is_completed' => $isCompleted,
+        ];
+    }
+
+    if (count($sanitized) === 0) {
+        return default_ticket_statuses();
+    }
+
+    return array_values($sanitized);
+}
+
+function ticket_status_value_exists(PDO $pdo, string $value): bool
+{
+    foreach (ticket_statuses($pdo) as $status) {
+        if ((string) $status['value'] === $value) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function default_open_ticket_status(PDO $pdo): string
+{
+    foreach (ticket_statuses($pdo) as $status) {
+        if (empty($status['is_completed'])) {
+            return (string) $status['value'];
+        }
+    }
+
+    $statuses = ticket_statuses($pdo);
+    return (string) ($statuses[0]['value'] ?? 'open');
+}
+
+function ticket_status_is_completed(PDO $pdo, string $value): bool
+{
+    foreach (ticket_statuses($pdo) as $status) {
+        if ((string) $status['value'] === $value) {
+            return !empty($status['is_completed']);
+        }
+    }
+
+    return false;
+}
+
+function ticket_status_label(PDO $pdo, string $value): string
+{
+    foreach (ticket_statuses($pdo) as $status) {
+        if ((string) $status['value'] === $value) {
+            return (string) $status['label'];
+        }
+    }
+
+    return ucfirst(str_replace(['_', '-'], ' ', $value));
+}
+
+function ticket_status_badge_class(PDO $pdo, string $value): string
+{
+    return ticket_status_is_completed($pdo, $value) ? 'text-bg-success' : 'text-bg-warning';
+}
+
 function save_brand_logo(array $file, string $prefix): ?string
 {
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
