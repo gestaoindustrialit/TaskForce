@@ -284,30 +284,45 @@ require __DIR__ . '/partials/header.php';
                             <span class="badge <?= h(ticket_status_badge_class($pdo, (string) $task['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $task['status'])) ?></span>
                             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#<?= h($collapseId) ?>" aria-expanded="false" aria-controls="<?= h($collapseId) ?>">Detalhes</button>
                         </div>
-                        <span class="badge <?= h(ticket_status_badge_class($pdo, (string) $task['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $task['status'])) ?></span>
                     </div>
                     <div class="collapse mt-2" id="<?= h($collapseId) ?>">
                         <?php if ($canManageProjects): ?>
                             <form method="post" enctype="multipart/form-data" class="border rounded p-3 bg-light-subtle">
                                 <input type="hidden" name="action" value="save_team_ticket_details">
                                 <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
-                                <div class="col-md-2">
-                                    <select class="form-select form-select-sm" name="status">
-                                        <?php foreach ($ticketStatuses as $statusOption): ?>
-                                            <option value="<?= h($statusOption['value']) ?>" <?= $task['status'] === $statusOption['value'] ? 'selected' : '' ?>><?= h($statusOption['label']) ?></option>
-                                        <?php endforeach; ?>
-                                        <?php if (!ticket_status_value_exists($pdo, (string) $task['status'])): ?>
-                                            <option value="<?= h($task['status']) ?>" selected><?= h(ticket_status_label($pdo, (string) $task['status'])) ?> (legado)</option>
-                                        <?php endif; ?>
-                                    </select>
+                                <div class="row g-2 align-items-center">
+                                    <div class="col-md-2">
+                                        <select class="form-select form-select-sm" name="status">
+                                            <?php foreach ($ticketStatuses as $statusOption): ?>
+                                                <option value="<?= h($statusOption['value']) ?>" <?= $task['status'] === $statusOption['value'] ? 'selected' : '' ?>><?= h($statusOption['label']) ?></option>
+                                            <?php endforeach; ?>
+                                            <?php if (!ticket_status_value_exists($pdo, (string) $task['status'])): ?>
+                                                <option value="<?= h($task['status']) ?>" selected><?= h(ticket_status_label($pdo, (string) $task['status'])) ?> (legado)</option>
+                                            <?php endif; ?>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <select class="form-select form-select-sm" name="assignee_user_id">
+                                            <option value="0">Sem atribuição</option>
+                                            <?php foreach ($members as $member): ?>
+                                                <option value="<?= (int) $member['id'] ?>" <?= (int) $task['assignee_user_id'] === (int) $member['id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2"><input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : '' ?>" placeholder="Previsto (min)"></div>
+                                    <div class="col-md-2"><input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : '' ?>" placeholder="Real (min)"></div>
+                                    <div class="col-md-3"><button class="btn btn-sm btn-primary w-100">Guardar alterações</button></div>
                                 </div>
-                                <div class="col-md-3">
-                                    <select class="form-select form-select-sm" name="assignee_user_id">
-                                        <option value="0">Sem atribuição</option>
-                                        <?php foreach ($members as $member): ?>
-                                            <option value="<?= (int) $member['id'] ?>" <?= (int) $task['assignee_user_id'] === (int) $member['id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
+
+                                <div class="row g-2 mt-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label small mb-1">Nova observação (opcional)</label>
+                                        <input class="form-control form-control-sm" name="note" placeholder="Escreva uma observação...">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small mb-1">Anexar documento (opcional)</label>
+                                        <input class="form-control form-control-sm" type="file" name="attachment">
+                                    </div>
                                 </div>
                             </form>
 
