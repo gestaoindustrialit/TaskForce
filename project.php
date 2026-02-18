@@ -86,6 +86,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare('UPDATE tasks SET updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = (SELECT task_id FROM checklist_items WHERE id = ?)')->execute([$userId, $itemId]);
     }
 
+    if ($action === 'add_task_note') {
+        $taskId = (int) ($_POST['task_id'] ?? 0);
+        $note = trim($_POST['note'] ?? '');
+        if ($taskId > 0 && $note !== '') {
+            $stmt = $pdo->prepare('INSERT INTO task_notes(task_id, note, created_by) SELECT id, ?, ? FROM tasks WHERE id = ? AND project_id = ?');
+            $stmt->execute([$note, $userId, $taskId, $projectId]);
+            if ($stmt->rowCount() > 0) {
+                $pdo->prepare('UPDATE tasks SET updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = ? AND project_id = ?')->execute([$userId, $taskId, $projectId]);
+            }
+        }
+    }
+
+    if ($action === 'upload_task_attachment') {
+        $taskId = (int) ($_POST['task_id'] ?? 0);
+        $file = $_FILES['attachment'] ?? null;
+        $hasFile = $file && is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK;
+        if ($taskId > 0 && $hasFile) {
+            $taskCheck = $pdo->prepare('SELECT 1 FROM tasks WHERE id = ? AND project_id = ?');
+            $taskCheck->execute([$taskId, $projectId]);
+            if ($taskCheck->fetchColumn()) {
+                $uploadDir = __DIR__ . '/uploads/task_attachments';
+                if (!is_dir($uploadDir)) {
+                    mkdir($uploadDir, 0775, true);
+                }
+                $ext = pathinfo((string) $file['name'], PATHINFO_EXTENSION);
+                $safeName = uniqid('task_', true) . ($ext ? '.' . strtolower($ext) : '');
+                $targetPath = $uploadDir . '/' . $safeName;
+                if (move_uploaded_file((string) $file['tmp_name'], $targetPath)) {
+                    $stmt = $pdo->prepare('INSERT INTO task_attachments(task_id, original_name, file_path, uploaded_by) VALUES (?, ?, ?, ?)');
+                    $stmt->execute([$taskId, (string) $file['name'], 'uploads/task_attachments/' . $safeName, $userId]);
+                    $pdo->prepare('UPDATE tasks SET updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = ? AND project_id = ?')->execute([$userId, $taskId, $projectId]);
+                }
+            }
+        }
+    }
 
     redirect('project.php?id=' . $projectId . '&view=' . $view . '&show_done=' . ($showDone ? '1' : '0'));
 }
@@ -117,6 +152,20 @@ $checklistItems = $checkStmt->fetchAll(PDO::FETCH_ASSOC);
 $checklistByTask = [];
 foreach ($checklistItems as $item) {
     $checklistByTask[$item['task_id']][] = $item;
+}
+
+$taskNotesStmt = $pdo->prepare('SELECT tn.*, u.name AS user_name FROM task_notes tn INNER JOIN tasks t ON t.id = tn.task_id INNER JOIN users u ON u.id = tn.created_by WHERE t.project_id = ? ORDER BY tn.created_at DESC');
+$taskNotesStmt->execute([$projectId]);
+$taskNotesByTask = [];
+foreach ($taskNotesStmt->fetchAll(PDO::FETCH_ASSOC) as $taskNote) {
+    $taskNotesByTask[$taskNote['task_id']][] = $taskNote;
+}
+
+$taskAttachStmt = $pdo->prepare('SELECT ta.*, u.name AS user_name FROM task_attachments ta INNER JOIN tasks t ON t.id = ta.task_id INNER JOIN users u ON u.id = ta.uploaded_by WHERE t.project_id = ? ORDER BY ta.created_at DESC');
+$taskAttachStmt->execute([$projectId]);
+$taskAttachmentsByTask = [];
+foreach ($taskAttachStmt->fetchAll(PDO::FETCH_ASSOC) as $taskAttachment) {
+    $taskAttachmentsByTask[$taskAttachment['task_id']][] = $taskAttachment;
 }
 
 $pageTitle = 'Projeto ' . $project['name'];
@@ -183,6 +232,38 @@ require __DIR__ . '/partials/header.php';
             <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="create_subtask"><input type="hidden" name="parent_task_id" value="<?= (int) $task['id'] ?>"><input name="title" class="form-control form-control-sm" placeholder="Nova sub tarefa" required><button class="btn btn-sm btn-outline-secondary">+</button></form></div>
         </div>
         <form method="post" class="d-none" id="timerForm<?= (int) $task['id'] ?>"><input type="hidden" name="action" value="update_time"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><input type="hidden" name="estimated_minutes" value="<?= $estimated !== null ? $estimated : "" ?>"><input type="hidden" name="add_actual_minutes" value="0" class="js-add-actual"></form>
+        <div class="row g-2 mt-3">
+            <div class="col-md-6">
+                <h3 class="h6">Observações</h3>
+                <form method="post" class="d-flex gap-2 mb-2">
+                    <input type="hidden" name="action" value="add_task_note">
+                    <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
+                    <input class="form-control form-control-sm" name="note" placeholder="Adicionar observação" required>
+                    <button class="btn btn-sm btn-outline-primary">Guardar</button>
+                </form>
+                <?php foreach (($taskNotesByTask[$task['id']] ?? []) as $note): ?>
+                    <div class="small border rounded p-2 mb-1 bg-light">
+                        <?= h($note['note']) ?><br>
+                        <small class="text-muted"><?= h($note['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($note['created_at']))) ?></small>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <div class="col-md-6">
+                <h3 class="h6">Documentos anexados</h3>
+                <form method="post" enctype="multipart/form-data" class="d-flex gap-2 mb-2">
+                    <input type="hidden" name="action" value="upload_task_attachment">
+                    <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
+                    <input class="form-control form-control-sm" type="file" name="attachment" required>
+                    <button class="btn btn-sm btn-outline-secondary">Anexar</button>
+                </form>
+                <?php foreach (($taskAttachmentsByTask[$task['id']] ?? []) as $attachment): ?>
+                    <div class="small border rounded p-2 mb-1 bg-light">
+                        <a href="<?= h($attachment['file_path']) ?>" target="_blank" rel="noopener"><?= h($attachment['original_name']) ?></a><br>
+                        <small class="text-muted"><?= h($attachment['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($attachment['created_at']))) ?></small>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
     </div></div>
 <?php endforeach; ?>
 </div>
