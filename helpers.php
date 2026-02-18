@@ -139,8 +139,20 @@ function set_app_setting(PDO $pdo, string $settingKey, string $settingValue): vo
 function default_ticket_statuses(): array
 {
     return [
-        ['value' => 'open', 'label' => 'Aberto', 'is_completed' => false],
-        ['value' => 'done', 'label' => 'Concluído', 'is_completed' => true],
+        [
+            'value' => 'open',
+            'label' => 'Aberto',
+            'is_completed' => false,
+            'sort_order' => 10,
+            'color' => '#facc15',
+        ],
+        [
+            'value' => 'done',
+            'label' => 'Concluído',
+            'is_completed' => true,
+            'sort_order' => 20,
+            'color' => '#22c55e',
+        ],
     ];
 }
 
@@ -165,6 +177,8 @@ function ticket_statuses(PDO $pdo): array
         $value = strtolower(trim((string) ($status['value'] ?? '')));
         $label = trim((string) ($status['label'] ?? ''));
         $isCompleted = !empty($status['is_completed']);
+        $sortOrder = isset($status['sort_order']) ? (int) $status['sort_order'] : 0;
+        $color = strtoupper(trim((string) ($status['color'] ?? '')));
 
         if ($value === '' || $label === '') {
             continue;
@@ -175,16 +189,33 @@ function ticket_statuses(PDO $pdo): array
             continue;
         }
 
+        if (!preg_match('/^#[0-9A-F]{6}$/', $color)) {
+            $color = $isCompleted ? '#22C55E' : '#FACC15';
+        }
+
         $sanitized[$value] = [
             'value' => $value,
             'label' => $label,
             'is_completed' => $isCompleted,
+            'sort_order' => $sortOrder,
+            'color' => $color,
         ];
     }
 
     if (count($sanitized) === 0) {
         return default_ticket_statuses();
     }
+
+    uasort($sanitized, static function (array $a, array $b): int {
+        $left = (int) ($a['sort_order'] ?? 0);
+        $right = (int) ($b['sort_order'] ?? 0);
+
+        if ($left === $right) {
+            return strcmp((string) $a['label'], (string) $b['label']);
+        }
+
+        return $left <=> $right;
+    });
 
     return array_values($sanitized);
 }
@@ -237,6 +268,29 @@ function ticket_status_label(PDO $pdo, string $value): string
 function ticket_status_badge_class(PDO $pdo, string $value): string
 {
     return ticket_status_is_completed($pdo, $value) ? 'text-bg-success' : 'text-bg-warning';
+}
+
+function ticket_status_color(PDO $pdo, string $value): string
+{
+    foreach (ticket_statuses($pdo) as $status) {
+        if ((string) $status['value'] === $value) {
+            $color = strtoupper(trim((string) ($status['color'] ?? '')));
+            if (preg_match('/^#[0-9A-F]{6}$/', $color)) {
+                return $color;
+            }
+
+            return !empty($status['is_completed']) ? '#22C55E' : '#FACC15';
+        }
+    }
+
+    return '#E5E7EB';
+}
+
+function ticket_status_badge_style(PDO $pdo, string $value): string
+{
+    $hex = ticket_status_color($pdo, $value);
+
+    return 'background-color: ' . $hex . '; color: #111827; border: 1px solid rgba(0, 0, 0, 0.08);';
 }
 
 function save_brand_logo(array $file, string $prefix): ?string
