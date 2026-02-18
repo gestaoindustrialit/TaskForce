@@ -108,8 +108,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flashError = 'Sem permissão para abrir ticket para essa equipa.';
         } else {
             $ticketCode = generate_ticket_code($pdo);
-            $stmt = $pdo->prepare('INSERT INTO team_tickets(ticket_code, team_id, title, description, urgency, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, "open")');
-            $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate !== '' ? $dueDate : null, $userId]);
+            $defaultStatus = default_open_ticket_status($pdo);
+            $stmt = $pdo->prepare('INSERT INTO team_tickets(ticket_code, team_id, title, description, urgency, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+            $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate !== '' ? $dueDate : null, $userId, $defaultStatus]);
             $flashSuccess = 'Ticket criado com sucesso: ' . $ticketCode;
         }
     }

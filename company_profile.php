@@ -16,13 +16,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $companyEmail = trim((string) ($_POST['company_email'] ?? ''));
         $companyPhone = trim((string) ($_POST['company_phone'] ?? ''));
 
+        $statusValues = $_POST['ticket_status_value'] ?? [];
+        $statusLabels = $_POST['ticket_status_label'] ?? [];
+        $statusCompleted = $_POST['ticket_status_completed'] ?? [];
+        $ticketStatuses = [];
+
+        foreach ($statusValues as $index => $rawValue) {
+            $value = strtolower(trim((string) $rawValue));
+            $label = trim((string) ($statusLabels[$index] ?? ''));
+
+            if ($value === '' && $label === '') {
+                continue;
+            }
+
+            $value = preg_replace('/[^a-z0-9_\-]/', '_', $value) ?: '';
+            if ($value === '' || $label === '') {
+                continue;
+            }
+
+            if (isset($ticketStatuses[$value])) {
+                continue;
+            }
+
+            $ticketStatuses[$value] = [
+                'value' => $value,
+                'label' => $label,
+                'is_completed' => isset($statusCompleted[$index]) && $statusCompleted[$index] === '1',
+            ];
+        }
+
         if ($companyEmail !== '' && filter_var($companyEmail, FILTER_VALIDATE_EMAIL) === false) {
             $flashError = 'Indique um email válido para a empresa.';
+        } elseif (count($ticketStatuses) === 0) {
+            $flashError = 'Defina pelo menos um estado para os tickets.';
+        } elseif (!array_filter($ticketStatuses, static fn (array $status): bool => empty($status['is_completed']))) {
+            $flashError = 'Defina pelo menos um estado não concluído para os tickets.';
         } else {
             set_app_setting($pdo, 'company_name', $companyName);
             set_app_setting($pdo, 'company_address', $companyAddress);
             set_app_setting($pdo, 'company_email', $companyEmail);
             set_app_setting($pdo, 'company_phone', $companyPhone);
+            set_app_setting($pdo, 'ticket_statuses_json', json_encode(array_values($ticketStatuses), JSON_UNESCAPED_UNICODE));
 
             $savedLogos = 0;
             $lightPath = save_brand_logo($_FILES['logo_navbar_light'] ?? [], 'navbar_light');
@@ -50,6 +84,7 @@ $companyEmail = app_setting($pdo, 'company_email', '');
 $companyPhone = app_setting($pdo, 'company_phone', '');
 $navbarLogo = app_setting($pdo, 'logo_navbar_light');
 $reportLogo = app_setting($pdo, 'logo_report_dark');
+$ticketStatuses = ticket_statuses($pdo);
 
 $pageTitle = 'Empresa e Branding';
 require __DIR__ . '/partials/header.php';
@@ -86,10 +121,30 @@ require __DIR__ . '/partials/header.php';
                 <input class="form-control form-control-sm mb-2" type="file" name="logo_navbar_light" accept="image/png,image/jpeg,image/svg+xml,image/webp" <?= !$isAdmin ? 'disabled' : '' ?>>
                 <?php if ($navbarLogo): ?><img src="<?= h($navbarLogo) ?>" alt="Logo navbar" class="img-fluid border rounded p-2 mb-2"><?php endif; ?>
             </div>
-            <div class="col-md-6">
-                <label class="form-label mb-0">Logo escuro (report)</label>
-                <input class="form-control form-control-sm mb-2" type="file" name="logo_report_dark" accept="image/png,image/jpeg,image/svg+xml,image/webp" <?= !$isAdmin ? 'disabled' : '' ?>>
-                <?php if ($reportLogo): ?><img src="<?= h($reportLogo) ?>" alt="Logo report" class="img-fluid border rounded p-2 mb-2"><?php endif; ?>
+            <div class="col-12">
+                <hr>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <label class="form-label mb-0">Estados dos tickets</label>
+                    <?php if ($isAdmin): ?><button type="button" class="btn btn-sm btn-outline-secondary" id="add-ticket-status">Adicionar estado</button><?php endif; ?>
+                </div>
+                <p class="small text-muted mb-2">Defina os estados disponíveis no ticketing e assinale quais contam como concluídos.</p>
+                <div id="ticket-status-list" class="vstack gap-2">
+                    <?php foreach ($ticketStatuses as $index => $status): ?>
+                        <div class="row g-2 align-items-center ticket-status-row">
+                            <div class="col-md-3"><input class="form-control form-control-sm" name="ticket_status_value[]" value="<?= h($status['value']) ?>" placeholder="valor_tecnico" <?= !$isAdmin ? 'readonly' : '' ?>></div>
+                            <div class="col-md-5"><input class="form-control form-control-sm" name="ticket_status_label[]" value="<?= h($status['label']) ?>" placeholder="Etiqueta" <?= !$isAdmin ? 'readonly' : '' ?>></div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="ticket_status_completed[<?= (int) $index ?>]" value="1" <?= !empty($status['is_completed']) ? 'checked' : '' ?> <?= !$isAdmin ? 'disabled' : '' ?>>
+                                    <label class="form-check-label small">Concluído</label>
+                                </div>
+                            </div>
+                            <div class="col-md-1 text-end">
+                                <?php if ($isAdmin): ?><button type="button" class="btn btn-sm btn-outline-danger remove-ticket-status">×</button><?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
             </div>
         </div>
 
@@ -98,4 +153,44 @@ require __DIR__ . '/partials/header.php';
         <?php endif; ?>
     </div>
 </form>
+
+<?php if ($isAdmin): ?>
+<script>
+(function () {
+    const list = document.getElementById('ticket-status-list');
+    const addButton = document.getElementById('add-ticket-status');
+    if (!list || !addButton) {
+        return;
+    }
+
+    const bindRemove = (button) => {
+        button.addEventListener('click', () => {
+            const row = button.closest('.ticket-status-row');
+            if (row) {
+                row.remove();
+            }
+        });
+    };
+
+    list.querySelectorAll('.remove-ticket-status').forEach(bindRemove);
+
+    addButton.addEventListener('click', () => {
+        const index = list.querySelectorAll('.ticket-status-row').length;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'row g-2 align-items-center ticket-status-row';
+        wrapper.innerHTML = `
+            <div class="col-md-3"><input class="form-control form-control-sm" name="ticket_status_value[]" placeholder="valor_tecnico"></div>
+            <div class="col-md-5"><input class="form-control form-control-sm" name="ticket_status_label[]" placeholder="Etiqueta"></div>
+            <div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" name="ticket_status_completed[${index}]" value="1"><label class="form-check-label small">Concluído</label></div></div>
+            <div class="col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger remove-ticket-status">×</button></div>
+        `;
+        list.appendChild(wrapper);
+        const remove = wrapper.querySelector('.remove-ticket-status');
+        if (remove) {
+            bindRemove(remove);
+        }
+    });
+})();
+</script>
+<?php endif; ?>
 <?php require __DIR__ . '/partials/footer.php'; ?>

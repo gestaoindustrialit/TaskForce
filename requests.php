@@ -18,6 +18,7 @@ foreach ($teamRoles as $teamRole) {
     }
 }
 $canManageTeamTickets = $isAdmin || !empty($leaderTeamIds);
+$ticketStatuses = ticket_statuses($pdo);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -36,8 +37,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['flash_error'] = 'Sem permissão para abrir ticket para essa equipa.';
         } else {
             $ticketCode = generate_ticket_code($pdo);
-            $stmt = $pdo->prepare('INSERT INTO team_tickets(ticket_code, team_id, title, description, urgency, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, "open")');
-            $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate !== '' ? $dueDate : null, $userId]);
+            $defaultStatus = default_open_ticket_status($pdo);
+            $stmt = $pdo->prepare('INSERT INTO team_tickets(ticket_code, team_id, title, description, urgency, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+            $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate !== '' ? $dueDate : null, $userId, $defaultStatus]);
             $_SESSION['flash_success'] = 'Ticket submetido com sucesso: ' . $ticketCode;
         }
 
@@ -49,14 +51,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $status = (string) ($_POST['status'] ?? 'open');
         $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
 
-        if (in_array($status, ['open', 'done'], true) && $ticketId > 0) {
+        if (ticket_status_value_exists($pdo, $status) && $ticketId > 0) {
             $teamCheckSql = 'SELECT team_id FROM team_tickets WHERE id = ?';
             $teamCheckStmt = $pdo->prepare($teamCheckSql);
             $teamCheckStmt->execute([$ticketId]);
             $ticketTeamId = (int) ($teamCheckStmt->fetchColumn() ?: 0);
 
             if ($ticketTeamId > 0 && ($isAdmin || in_array($ticketTeamId, $leaderTeamIds, true))) {
-                $completedAt = $status === 'done' ? date('Y-m-d H:i:s') : null;
+                $completedAt = ticket_status_is_completed($pdo, $status) ? date('Y-m-d H:i:s') : null;
                 $stmt = $pdo->prepare('UPDATE team_tickets SET status = ?, assignee_user_id = ?, completed_at = ? WHERE id = ?');
                 $stmt->execute([$status, $assigneeUserId > 0 ? $assigneeUserId : null, $completedAt, $ticketId]);
                 $_SESSION['flash_success'] = 'Ticket atualizado.';
@@ -258,8 +260,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($valid) {
                 $assignee = $assigneeUserId > 0 ? $assigneeUserId : null;
-                $insert = $pdo->prepare('INSERT INTO team_form_entries(form_id, payload_json, created_by, assignee_user_id, status) VALUES (?, ?, ?, ?, "open")');
-                $insert->execute([$formId, json_encode($payload, JSON_UNESCAPED_UNICODE), $userId, $assignee]);
+                $defaultStatus = default_open_ticket_status($pdo);
+                $insert = $pdo->prepare('INSERT INTO team_form_entries(form_id, payload_json, created_by, assignee_user_id, status) VALUES (?, ?, ?, ?, ?)');
+                $insert->execute([$formId, json_encode($payload, JSON_UNESCAPED_UNICODE), $userId, $assignee, $defaultStatus]);
                 $_SESSION['flash_success'] = 'Ticket submetido com sucesso.';
             } else {
                 $_SESSION['flash_error'] = 'Existem campos obrigatórios por preencher.';
@@ -273,8 +276,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $entryId = (int) ($_POST['entry_id'] ?? 0);
         $status = (string) ($_POST['status'] ?? 'open');
         $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
-        if (in_array($status, ['open', 'done'], true) && $entryId > 0) {
-            $completedAt = $status === 'done' ? date('Y-m-d H:i:s') : null;
+        if (ticket_status_value_exists($pdo, $status) && $entryId > 0) {
+            $completedAt = ticket_status_is_completed($pdo, $status) ? date('Y-m-d H:i:s') : null;
             $stmt = $pdo->prepare('UPDATE team_form_entries SET status = ?, assignee_user_id = ?, completed_at = ? WHERE id = ?');
             $stmt->execute([$status, $assigneeUserId > 0 ? $assigneeUserId : null, $completedAt, $entryId]);
             $_SESSION['flash_success'] = 'Ticket atualizado.';
@@ -294,7 +297,22 @@ INNER JOIN teams t ON t.id = tt.team_id
 INNER JOIN users u ON u.id = tt.created_by
 LEFT JOIN users a ON a.id = tt.assignee_user_id';
 
-$openTicketConditions = ['tt.status = "open"'];
+$completedStatusValues = [];
+$activeStatusValues = [];
+foreach ($ticketStatuses as $statusConfig) {
+    if (!empty($statusConfig['is_completed'])) {
+        $completedStatusValues[] = (string) $statusConfig['value'];
+    } else {
+        $activeStatusValues[] = (string) $statusConfig['value'];
+    }
+}
+
+$quotedCompletedStatuses = array_map(static fn (string $value): string => $pdo->quote($value), $completedStatusValues);
+$quotedActiveStatuses = array_map(static fn (string $value): string => $pdo->quote($value), $activeStatusValues);
+$completedStatusSql = count($quotedCompletedStatuses) > 0 ? implode(',', $quotedCompletedStatuses) : "''";
+$activeStatusSql = count($quotedActiveStatuses) > 0 ? implode(',', $quotedActiveStatuses) : "''";
+
+$openTicketConditions = ['tt.status IN (' . $activeStatusSql . ')'];
 if (!$isAdmin) {
     if (!empty($leaderTeamIds)) {
         $openTicketConditions[] = 'tt.team_id IN (' . implode(',', array_map('intval', $leaderTeamIds)) . ')';
@@ -304,7 +322,7 @@ if (!$isAdmin) {
 }
 $openTickets = $pdo->query($ticketSql . ' WHERE ' . implode(' AND ', $openTicketConditions) . ' ORDER BY tt.created_at DESC LIMIT 120')->fetchAll(PDO::FETCH_ASSOC);
 
-$completedTicketConditions = ['tt.status = "done"'];
+$completedTicketConditions = ['tt.status IN (' . $completedStatusSql . ')'];
 if (!$isAdmin) {
     if (!empty($leaderTeamIds)) {
         $completedTicketConditions[] = 'tt.team_id IN (' . implode(',', array_map('intval', $leaderTeamIds)) . ')';
@@ -320,9 +338,9 @@ INNER JOIN team_forms f ON f.id = e.form_id
 INNER JOIN teams t ON t.id = f.team_id
 INNER JOIN users u ON u.id = e.created_by
 LEFT JOIN users a ON a.id = e.assignee_user_id';
-$entriesWhere = $showCompleted ? '' : ' WHERE e.status != "done"';
+$entriesWhere = $showCompleted ? '' : ' WHERE e.status IN (' . $activeStatusSql . ')';
 $entries = $pdo->query($entriesSql . $entriesWhere . ' ORDER BY e.created_at DESC LIMIT 80')->fetchAll(PDO::FETCH_ASSOC);
-$completedEntries = $pdo->query($entriesSql . ' WHERE e.status = "done" ORDER BY COALESCE(e.completed_at, e.created_at) DESC LIMIT 150')->fetchAll(PDO::FETCH_ASSOC);
+$completedEntries = $pdo->query($entriesSql . ' WHERE e.status IN (' . $completedStatusSql . ') ORDER BY COALESCE(e.completed_at, e.created_at) DESC LIMIT 150')->fetchAll(PDO::FETCH_ASSOC);
 
 $pageTitle = 'Pedidos às equipas';
 require __DIR__ . '/partials/header.php';
@@ -472,18 +490,22 @@ require __DIR__ . '/partials/header.php';
                                                 <?php endforeach; ?>
                                             </select>
                                             <select name="status" class="form-select form-select-sm">
-                                                <option value="open" <?= $entry['status'] === 'open' ? 'selected' : '' ?>>Aberto</option>
-                                                <option value="done" <?= $entry['status'] === 'done' ? 'selected' : '' ?>>Concluído</option>
+                                                <?php foreach ($ticketStatuses as $statusOption): ?>
+                                                    <option value="<?= h($statusOption['value']) ?>" <?= $entry['status'] === $statusOption['value'] ? 'selected' : '' ?>><?= h($statusOption['label']) ?></option>
+                                                <?php endforeach; ?>
+                                                <?php if (!ticket_status_value_exists($pdo, (string) $entry['status'])): ?>
+                                                    <option value="<?= h($entry['status']) ?>" selected><?= h(ticket_status_label($pdo, (string) $entry['status'])) ?> (legado)</option>
+                                                <?php endif; ?>
                                             </select>
                                             <button class="btn btn-sm btn-outline-primary">Guardar</button>
                                         </form>
                                     <?php else: ?>
-                                        <span class="badge bg-<?= $entry['status'] === 'done' ? 'success' : 'secondary' ?>"><?= $entry['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
+                                        <span class="badge <?= h(ticket_status_badge_class($pdo, (string) $entry['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $entry['status'])) ?></span>
                                     <?php endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
-                        <?php if (!$openTickets): ?><tr><td colspan="3" class="text-muted">Sem tickets abertos para apresentar.</td></tr><?php endif; ?>
+                        <?php if (!$openTickets): ?><tr><td colspan="3" class="text-muted">Sem tickets ativos para apresentar.</td></tr><?php endif; ?>
                     </tbody>
                 </table>
             </div>

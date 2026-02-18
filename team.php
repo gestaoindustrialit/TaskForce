@@ -7,6 +7,7 @@ $teamId = (int) ($_GET['id'] ?? 0);
 $isAdmin = is_admin($pdo, $userId);
 $flashSuccess = null;
 $flashError = null;
+$ticketStatuses = ticket_statuses($pdo);
 
 if (!$teamId || !team_accessible($pdo, $teamId, $userId)) {
     http_response_code(403);
@@ -112,7 +113,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        if ($ticketId > 0 && in_array($status, ['open', 'done'], true)) {
+        if ($ticketId > 0 && ticket_status_value_exists($pdo, $status)) {
+            $completedAt = ticket_status_is_completed($pdo, $status) ? date('Y-m-d H:i:s') : null;
+            $stmt = $pdo->prepare('UPDATE team_tickets SET status = ?, assignee_user_id = ?, estimated_minutes = ?, actual_minutes = ?, completed_at = ? WHERE id = ? AND team_id = ?');
+            $stmt->execute([$status, $assignee, $estimatedMinutes, $actualMinutes, $completedAt, $ticketId, $teamId]);
+            $flashSuccess = 'Ticket atualizado com sucesso.';
+        }
+    }
+
+    if ($action === 'add_team_ticket_note' && $canManageProjects) {
+        $ticketId = (int) ($_POST['ticket_id'] ?? 0);
+        $note = trim($_POST['note'] ?? '');
+        if ($ticketId > 0 && $note !== '') {
+            $stmt = $pdo->prepare('INSERT INTO team_ticket_notes(ticket_id, note, created_by) SELECT id, ?, ? FROM team_tickets WHERE id = ? AND team_id = ?');
+            $stmt->execute([$note, $userId, $ticketId, $teamId]);
+            $flashSuccess = 'Observação adicionada.';
+        }
+    }
+
+    if ($action === 'upload_team_ticket_attachment' && $canManageProjects) {
+        $ticketId = (int) ($_POST['ticket_id'] ?? 0);
+        $file = $_FILES['attachment'] ?? null;
+        $hasFile = $file && is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK;
+        if ($ticketId > 0 && $hasFile) {
             $ticketCheck = $pdo->prepare('SELECT 1 FROM team_tickets WHERE id = ? AND team_id = ?');
             $ticketCheck->execute([$ticketId, $teamId]);
 
@@ -167,7 +190,7 @@ $membersStmt = $pdo->prepare('SELECT u.id, u.name, u.email, tm.role FROM team_me
 $membersStmt->execute([$teamId]);
 $members = $membersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$teamTasksStmt = $pdo->prepare('SELECT tt.*, u.name AS creator_name, a.name AS assignee_name FROM team_tickets tt INNER JOIN users u ON u.id = tt.created_by LEFT JOIN users a ON a.id = tt.assignee_user_id WHERE tt.team_id = ? ORDER BY CASE WHEN tt.status = "open" THEN 0 ELSE 1 END, tt.created_at DESC');
+$teamTasksStmt = $pdo->prepare('SELECT tt.*, u.name AS creator_name, a.name AS assignee_name FROM team_tickets tt INNER JOIN users u ON u.id = tt.created_by LEFT JOIN users a ON a.id = tt.assignee_user_id WHERE tt.team_id = ? ORDER BY CASE WHEN tt.completed_at IS NULL THEN 0 ELSE 1 END, tt.created_at DESC');
 $teamTasksStmt->execute([$teamId]);
 $teamTasks = $teamTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -258,40 +281,33 @@ require __DIR__ . '/partials/header.php';
                             <small class="text-muted">Urgência: <?= h($task['urgency']) ?> · Prazo: <?= h($task['due_date'] ?: 'Sem data') ?> · Criado por <?= h($task['creator_name']) ?> · Atribuído a <?= h($task['assignee_name'] ?: 'Sem atribuição') ?></small>
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            <span class="badge <?= $task['status'] === 'done' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= $task['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
+                            <span class="badge <?= h(ticket_status_badge_class($pdo, (string) $task['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $task['status'])) ?></span>
                             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#<?= h($collapseId) ?>" aria-expanded="false" aria-controls="<?= h($collapseId) ?>">Detalhes</button>
                         </div>
-                        <span class="badge <?= $task['status'] === 'done' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= $task['status'] === 'done' ? 'Concluído' : 'Aberto' ?></span>
+                        <span class="badge <?= h(ticket_status_badge_class($pdo, (string) $task['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $task['status'])) ?></span>
                     </div>
                     <div class="collapse mt-2" id="<?= h($collapseId) ?>">
                         <?php if ($canManageProjects): ?>
                             <form method="post" enctype="multipart/form-data" class="border rounded p-3 bg-light-subtle">
                                 <input type="hidden" name="action" value="save_team_ticket_details">
                                 <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
-                                <div class="row g-2 align-items-center">
-                                    <div class="col-md-2"><select class="form-select form-select-sm" name="status"><option value="open" <?= $task['status'] === 'open' ? 'selected' : '' ?>>Aberto</option><option value="done" <?= $task['status'] === 'done' ? 'selected' : '' ?>>Concluído</option></select></div>
-                                    <div class="col-md-3">
-                                        <select class="form-select form-select-sm" name="assignee_user_id">
-                                            <option value="0">Sem atribuição</option>
-                                            <?php foreach ($members as $member): ?>
-                                                <option value="<?= (int) $member['id'] ?>" <?= (int) $task['assignee_user_id'] === (int) $member['id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-2"><input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : '' ?>" placeholder="Previsto (min)"></div>
-                                    <div class="col-md-2"><input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : '' ?>" placeholder="Real (min)"></div>
-                                    <div class="col-md-3"><button class="btn btn-sm btn-primary w-100">Guardar alterações</button></div>
+                                <div class="col-md-2">
+                                    <select class="form-select form-select-sm" name="status">
+                                        <?php foreach ($ticketStatuses as $statusOption): ?>
+                                            <option value="<?= h($statusOption['value']) ?>" <?= $task['status'] === $statusOption['value'] ? 'selected' : '' ?>><?= h($statusOption['label']) ?></option>
+                                        <?php endforeach; ?>
+                                        <?php if (!ticket_status_value_exists($pdo, (string) $task['status'])): ?>
+                                            <option value="<?= h($task['status']) ?>" selected><?= h(ticket_status_label($pdo, (string) $task['status'])) ?> (legado)</option>
+                                        <?php endif; ?>
+                                    </select>
                                 </div>
-
-                                <div class="row g-2 mt-2">
-                                    <div class="col-md-6">
-                                        <label class="form-label small mb-1">Nova observação (opcional)</label>
-                                        <input class="form-control form-control-sm" name="note" placeholder="Escreva uma observação...">
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label small mb-1">Anexar documento (opcional)</label>
-                                        <input class="form-control form-control-sm" type="file" name="attachment">
-                                    </div>
+                                <div class="col-md-3">
+                                    <select class="form-select form-select-sm" name="assignee_user_id">
+                                        <option value="0">Sem atribuição</option>
+                                        <?php foreach ($members as $member): ?>
+                                            <option value="<?= (int) $member['id'] ?>" <?= (int) $task['assignee_user_id'] === (int) $member['id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
                                 </div>
                             </form>
 
