@@ -500,7 +500,7 @@ require __DIR__ . '/partials/header.php';
                                             <button class="btn btn-sm btn-outline-primary">Guardar</button>
                                         </form>
                                     <?php else: ?>
-                                        <span class="badge <?= h(ticket_status_badge_class($pdo, (string) $entry['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $entry['status'])) ?></span>
+                                        <span class="badge" style="<?= h(ticket_status_badge_style($pdo, (string) $entry['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $entry['status'])) ?></span>
                                     <?php endif; ?>
                                 </td>
                             </tr>

@@ -520,7 +520,7 @@ require __DIR__ . '/partials/header.php';
                             <small class="text-muted">Urgência: <?= h($task['urgency']) ?> · Prazo: <?= h($task['due_date'] ?: 'Sem data') ?> · Criado por <?= h($task['creator_name']) ?> · Atribuído a <?= h($task['assignee_name'] ?: 'Sem atribuição') ?></small>
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            <span class="badge <?= h(ticket_status_badge_class($pdo, (string) $task['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $task['status'])) ?></span>
+                            <span class="badge" style="<?= h(ticket_status_badge_style($pdo, (string) $task['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $task['status'])) ?></span>
                             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#<?= h($collapseId) ?>" aria-expanded="false" aria-controls="<?= h($collapseId) ?>">Detalhes</button>
                         </div>
                     </div>
