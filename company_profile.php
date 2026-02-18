@@ -19,6 +19,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $statusValues = $_POST['ticket_status_value'] ?? [];
         $statusLabels = $_POST['ticket_status_label'] ?? [];
         $statusCompleted = $_POST['ticket_status_completed'] ?? [];
+        $statusSortOrders = $_POST['ticket_status_sort_order'] ?? [];
+        $statusColors = $_POST['ticket_status_color'] ?? [];
         $ticketStatuses = [];
 
         $recurrenceValues = $_POST['recurrence_value'] ?? [];
@@ -29,6 +31,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($statusValues as $index => $rawValue) {
             $value = strtolower(trim((string) $rawValue));
             $label = trim((string) ($statusLabels[$index] ?? ''));
+            $sortOrder = (int) ($statusSortOrders[$index] ?? 0);
+            $color = strtoupper(trim((string) ($statusColors[$index] ?? '')));
 
             if ($value === '' && $label === '') {
                 continue;
@@ -39,6 +43,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 continue;
             }
 
+            if (!preg_match('/^#[0-9A-F]{6}$/', $color)) {
+                $color = (isset($statusCompleted[$index]) && $statusCompleted[$index] === '1') ? '#22C55E' : '#FACC15';
+            }
+
             if (isset($ticketStatuses[$value])) {
                 continue;
             }
@@ -47,6 +55,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'value' => $value,
                 'label' => $label,
                 'is_completed' => isset($statusCompleted[$index]) && $statusCompleted[$index] === '1',
+                'sort_order' => $sortOrder,
+                'color' => $color,
             ];
         }
 
@@ -165,26 +175,44 @@ require __DIR__ . '/partials/header.php';
                 <input class="form-control form-control-sm mb-2" type="file" name="logo_navbar_light" accept="image/png,image/jpeg,image/svg+xml,image/webp" <?= !$isAdmin ? 'disabled' : '' ?>>
                 <?php if ($navbarLogo): ?><img src="<?= h($navbarLogo) ?>" alt="Logo navbar" class="img-fluid border rounded p-2 mb-2"><?php endif; ?>
             </div>
+            <div class="col-md-6">
+                <label class="form-label mb-0">Logo escuro (relatórios)</label>
+                <input class="form-control form-control-sm mb-2" type="file" name="logo_report_dark" accept="image/png,image/jpeg,image/svg+xml,image/webp" <?= !$isAdmin ? 'disabled' : '' ?>>
+                <?php if ($reportLogo): ?><img src="<?= h($reportLogo) ?>" alt="Logo relatório" class="img-fluid border rounded p-2 mb-2"><?php endif; ?>
+            </div>
             <div class="col-12">
                 <hr>
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <label class="form-label mb-0">Estados dos tickets</label>
                     <?php if ($isAdmin): ?><button type="button" class="btn btn-sm btn-outline-secondary" id="add-ticket-status">Adicionar estado</button><?php endif; ?>
                 </div>
-                <p class="small text-muted mb-2">Defina os estados disponíveis no ticketing e assinale quais contam como concluídos.</p>
+                <p class="small text-muted mb-2">Defina os estados disponíveis no ticketing, a ordem de apresentação e a cor hexadecimal do badge de alerta.</p>
                 <div id="ticket-status-list" class="vstack gap-2">
                     <?php foreach ($ticketStatuses as $index => $status): ?>
-                        <div class="row g-2 align-items-center ticket-status-row">
-                            <div class="col-md-3"><input class="form-control form-control-sm" name="ticket_status_value[]" value="<?= h($status['value']) ?>" placeholder="valor_tecnico" <?= !$isAdmin ? 'readonly' : '' ?>></div>
-                            <div class="col-md-5"><input class="form-control form-control-sm" name="ticket_status_label[]" value="<?= h($status['label']) ?>" placeholder="Etiqueta" <?= !$isAdmin ? 'readonly' : '' ?>></div>
-                            <div class="col-md-3">
+                        <div class="row g-2 align-items-center ticket-status-row border rounded p-2">
+                            <div class="col-md-2"><input class="form-control form-control-sm" name="ticket_status_value[]" value="<?= h($status['value']) ?>" placeholder="valor_tecnico" <?= !$isAdmin ? 'readonly' : '' ?>></div>
+                            <div class="col-md-3"><input class="form-control form-control-sm" name="ticket_status_label[]" value="<?= h($status['label']) ?>" placeholder="Etiqueta" <?= !$isAdmin ? 'readonly' : '' ?>></div>
+                            <div class="col-md-2"><input class="form-control form-control-sm ticket-status-sort-order" type="number" name="ticket_status_sort_order[]" value="<?= (int) ($status['sort_order'] ?? (($index + 1) * 10)) ?>" placeholder="Ordem" <?= !$isAdmin ? 'readonly' : '' ?>></div>
+                            <div class="col-md-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <input class="form-control form-control-color form-control-sm ticket-status-color-picker" type="color" value="<?= h($status['color'] ?? (!empty($status['is_completed']) ? '#22C55E' : '#FACC15')) ?>" title="Cor do badge" <?= !$isAdmin ? 'disabled' : '' ?>>
+                                    <input class="form-control form-control-sm text-uppercase ticket-status-color-hex" name="ticket_status_color[]" value="<?= h($status['color'] ?? (!empty($status['is_completed']) ? '#22C55E' : '#FACC15')) ?>" pattern="^#[0-9A-Fa-f]{6}$" placeholder="#RRGGBB" <?= !$isAdmin ? 'readonly' : '' ?>>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
                                 <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" name="ticket_status_completed[<?= (int) $index ?>]" value="1" <?= !empty($status['is_completed']) ? 'checked' : '' ?> <?= !$isAdmin ? 'disabled' : '' ?>>
+                                    <input class="form-check-input ticket-status-completed" type="checkbox" name="ticket_status_completed[<?= (int) $index ?>]" value="1" <?= !empty($status['is_completed']) ? 'checked' : '' ?> <?= !$isAdmin ? 'disabled' : '' ?>>
                                     <label class="form-check-label small">Concluído</label>
                                 </div>
                             </div>
-                            <div class="col-md-1 text-end">
-                                <?php if ($isAdmin): ?><button type="button" class="btn btn-sm btn-outline-danger remove-ticket-status">×</button><?php endif; ?>
+                            <div class="col-md-1">
+                                <?php if ($isAdmin): ?>
+                                    <div class="d-flex gap-1 justify-content-end">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary move-ticket-status-up" title="Subir">↑</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary move-ticket-status-down" title="Descer">↓</button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger remove-ticket-status">×</button>
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         </div>
                     <?php endforeach; ?>
@@ -227,33 +255,138 @@ require __DIR__ . '/partials/header.php';
         return;
     }
 
+
+    const normalizeRows = () => {
+        list.querySelectorAll('.ticket-status-row').forEach((row, index) => {
+            const sortOrderInput = row.querySelector('.ticket-status-sort-order');
+            if (sortOrderInput) {
+                sortOrderInput.value = String((index + 1) * 10);
+            }
+
+            const completedInput = row.querySelector('.ticket-status-completed');
+            if (completedInput) {
+                completedInput.name = `ticket_status_completed[${index}]`;
+            }
+
+            const upBtn = row.querySelector('.move-ticket-status-up');
+            const downBtn = row.querySelector('.move-ticket-status-down');
+            if (upBtn) {
+                upBtn.disabled = index === 0;
+            }
+            if (downBtn) {
+                downBtn.disabled = index === list.querySelectorAll('.ticket-status-row').length - 1;
+            }
+        });
+    };
+
+    const bindColorSync = (row) => {
+        const picker = row.querySelector('.ticket-status-color-picker');
+        const hex = row.querySelector('.ticket-status-color-hex');
+        if (!picker || !hex) {
+            return;
+        }
+
+        picker.addEventListener('input', () => {
+            hex.value = picker.value.toUpperCase();
+        });
+
+        hex.addEventListener('input', () => {
+            const normalized = hex.value.trim().toUpperCase();
+            if (/^#[0-9A-F]{6}$/.test(normalized)) {
+                picker.value = normalized;
+            }
+        });
+    };
+
+    const bindMove = (button, direction) => {
+        button.addEventListener('click', () => {
+            const row = button.closest('.ticket-status-row');
+            if (!row) {
+                return;
+            }
+
+            if (direction === 'up') {
+                const previous = row.previousElementSibling;
+                if (previous) {
+                    list.insertBefore(row, previous);
+                }
+            } else {
+                const next = row.nextElementSibling;
+                if (next) {
+                    list.insertBefore(next, row);
+                }
+            }
+
+            normalizeRows();
+        });
+    };
+
     const bindRemove = (button) => {
         button.addEventListener('click', () => {
             const row = button.closest('.ticket-status-row');
             if (row) {
                 row.remove();
+                normalizeRows();
             }
         });
     };
 
-    list.querySelectorAll('.remove-ticket-status').forEach(bindRemove);
+    const bindRowControls = (row) => {
+        bindColorSync(row);
+
+        const remove = row.querySelector('.remove-ticket-status');
+        if (remove) {
+            bindRemove(remove);
+        }
+
+        const up = row.querySelector('.move-ticket-status-up');
+        if (up) {
+            bindMove(up, 'up');
+        }
+
+        const down = row.querySelector('.move-ticket-status-down');
+        if (down) {
+            bindMove(down, 'down');
+        }
+    };
+
+    list.querySelectorAll('.ticket-status-row').forEach(bindRowControls);
+    normalizeRows();
 
     addButton.addEventListener('click', () => {
         const index = list.querySelectorAll('.ticket-status-row').length;
         const wrapper = document.createElement('div');
-        wrapper.className = 'row g-2 align-items-center ticket-status-row';
+        wrapper.className = 'row g-2 align-items-center ticket-status-row border rounded p-2';
         wrapper.innerHTML = `
-            <div class="col-md-3"><input class="form-control form-control-sm" name="ticket_status_value[]" placeholder="valor_tecnico"></div>
-            <div class="col-md-5"><input class="form-control form-control-sm" name="ticket_status_label[]" placeholder="Etiqueta"></div>
-            <div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" name="ticket_status_completed[${index}]" value="1"><label class="form-check-label small">Concluído</label></div></div>
-            <div class="col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger remove-ticket-status">×</button></div>
+            <div class="col-md-2"><input class="form-control form-control-sm" name="ticket_status_value[]" placeholder="valor_tecnico"></div>
+            <div class="col-md-3"><input class="form-control form-control-sm" name="ticket_status_label[]" placeholder="Etiqueta"></div>
+            <div class="col-md-2"><input class="form-control form-control-sm ticket-status-sort-order" type="number" name="ticket_status_sort_order[]" value="${(index + 1) * 10}" placeholder="Ordem"></div>
+            <div class="col-md-2">
+                <div class="d-flex align-items-center gap-2">
+                    <input class="form-control form-control-color form-control-sm ticket-status-color-picker" type="color" value="#FACC15" title="Cor do badge">
+                    <input class="form-control form-control-sm text-uppercase ticket-status-color-hex" name="ticket_status_color[]" value="#FACC15" pattern="^#[0-9A-Fa-f]{6}$" placeholder="#RRGGBB">
+                </div>
+            </div>
+            <div class="col-md-2"><div class="form-check"><input class="form-check-input ticket-status-completed" type="checkbox" name="ticket_status_completed[${index}]" value="1"><label class="form-check-label small">Concluído</label></div></div>
+            <div class="col-md-1">
+                <div class="d-flex gap-1 justify-content-end">
+                    <button type="button" class="btn btn-sm btn-outline-secondary move-ticket-status-up" title="Subir">↑</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary move-ticket-status-down" title="Descer">↓</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger remove-ticket-status">×</button>
+                </div>
+            </div>
         `;
         list.appendChild(wrapper);
-        const remove = wrapper.querySelector('.remove-ticket-status');
-        if (remove) {
-            bindRemove(remove);
-        }
+        bindRowControls(wrapper);
+        normalizeRows();
     });
+
+    const form = list.closest('form');
+    if (form) {
+        form.addEventListener('submit', () => {
+            normalizeRows();
+        });
+    }
 })();
 </script>
 <?php endif; ?>
