@@ -7,6 +7,12 @@ body {
     background: linear-gradient(90deg, #111827 0%, #1f2937 100%) !important;
 }
 
+.navbar .navbar-nav .nav-link,
+.navbar .dropdown-menu .dropdown-item,
+.navbar .dropdown-menu .dropdown-item-text {
+    font-size: 0.92rem;
+}
+
 .hero-card {
     background: linear-gradient(120deg, #2563eb 0%, #4f46e5 100%);
     color: #fff;
