@@ -28,6 +28,7 @@ $ticketTypeTemplates = [
             ['name' => 'quantity', 'label' => 'Quantidade', 'type' => 'number', 'required' => true],
             ['name' => 'needed_by', 'label' => 'Necessário até', 'type' => 'date', 'required' => false],
             ['name' => 'supplier', 'label' => 'Fornecedor preferencial', 'type' => 'text', 'required' => false],
+            ['name' => 'attachment', 'label' => 'Anexo do pedido', 'type' => 'file', 'required' => false],
         ],
     ],
     'manutencao' => [
@@ -37,6 +38,7 @@ $ticketTypeTemplates = [
             ['name' => 'failure', 'label' => 'Avaria reportada', 'type' => 'textarea', 'required' => true],
             ['name' => 'stopped', 'label' => 'Máquina parada', 'type' => 'select', 'required' => true, 'options' => ['Sim', 'Não']],
             ['name' => 'location', 'label' => 'Localização', 'type' => 'text', 'required' => false],
+            ['name' => 'attachment', 'label' => 'Anexo da avaria', 'type' => 'file', 'required' => false],
         ],
     ],
     'desenho_tecnico' => [
@@ -46,6 +48,7 @@ $ticketTypeTemplates = [
             ['name' => 'drawing_type', 'label' => 'Tipo de desenho', 'type' => 'select', 'required' => true, 'options' => ['2D', '3D', 'Ambos']],
             ['name' => 'materials', 'label' => 'Materiais', 'type' => 'text', 'required' => false],
             ['name' => 'deadline', 'label' => 'Prazo pretendido', 'type' => 'date', 'required' => false],
+            ['name' => 'attachment', 'label' => 'Anexo técnico', 'type' => 'file', 'required' => false],
         ],
     ],
 ];
@@ -60,6 +63,7 @@ $teamFormPresets = [
             ['label' => 'Quantidade', 'type' => 'number', 'required' => true, 'options' => []],
             ['label' => 'Necessário até', 'type' => 'date', 'required' => false, 'options' => []],
             ['label' => 'Fornecedor preferencial', 'type' => 'text', 'required' => false, 'options' => []],
+            ['label' => 'Anexo do pedido', 'type' => 'file', 'required' => false, 'options' => []],
         ],
     ],
     'manutencao' => [
@@ -71,6 +75,7 @@ $teamFormPresets = [
             ['label' => 'Avaria reportada', 'type' => 'textarea', 'required' => true, 'options' => []],
             ['label' => 'Máquina parada', 'type' => 'select', 'required' => true, 'options' => ['Sim', 'Não']],
             ['label' => 'Localização', 'type' => 'text', 'required' => false, 'options' => []],
+            ['label' => 'Anexo da avaria', 'type' => 'file', 'required' => false, 'options' => []],
         ],
     ],
     'desenho_tecnico' => [
@@ -82,6 +87,7 @@ $teamFormPresets = [
             ['label' => 'Tipo de desenho', 'type' => 'select', 'required' => true, 'options' => ['2D', '3D', 'Ambos']],
             ['label' => 'Materiais', 'type' => 'text', 'required' => false, 'options' => []],
             ['label' => 'Prazo pretendido', 'type' => 'date', 'required' => false, 'options' => []],
+            ['label' => 'Anexo técnico', 'type' => 'file', 'required' => false, 'options' => []],
         ],
     ],
 ];
@@ -108,6 +114,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $extraLines = [];
                 foreach ($template['fields'] as $field) {
                     $fieldName = 'ticket_field_' . $field['name'];
+                    $fieldType = (string) ($field['type'] ?? 'text');
+
+                    if ($fieldType === 'file') {
+                        $file = $_FILES[$fieldName] ?? null;
+                        $hasFile = $file && is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK;
+                        if (!empty($field['required']) && !$hasFile) {
+                            $_SESSION['flash_error'] = 'Preencha os campos obrigatórios para ' . $template['label'] . '.';
+                            redirect('requests.php?show_completed=' . ($showCompleted ? '1' : '0'));
+                        }
+
+                        if ($hasFile) {
+                            $uploadDir = __DIR__ . '/uploads/team_ticket_attachments';
+                            if (!is_dir($uploadDir)) {
+                                mkdir($uploadDir, 0775, true);
+                            }
+                            $ext = pathinfo((string) $file['name'], PATHINFO_EXTENSION);
+                            $safeName = uniqid('ticket_attach_', true) . ($ext ? '.' . strtolower($ext) : '');
+                            $targetPath = $uploadDir . '/' . $safeName;
+                            if (move_uploaded_file((string) $file['tmp_name'], $targetPath)) {
+                                $extraLines[] = ($field['label'] ?? $fieldName) . ': uploads/team_ticket_attachments/' . $safeName;
+                            } elseif (!empty($field['required'])) {
+                                $_SESSION['flash_error'] = 'Não foi possível carregar o ficheiro obrigatório de ' . $template['label'] . '.';
+                                redirect('requests.php?show_completed=' . ($showCompleted ? '1' : '0'));
+                            }
+                        }
+
+                        continue;
+                    }
+
                     $value = trim((string) ($_POST[$fieldName] ?? ''));
                     if (!empty($field['required']) && $value === '') {
                         $_SESSION['flash_error'] = 'Preencha os campos obrigatórios para ' . $template['label'] . '.';
@@ -315,6 +350,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $storedFile = [
                                 'name' => (string) $file['name'],
                                 'path' => 'uploads/tickets/' . $safeName,
+                                'preview_url' => google_docs_excel_preview_url('uploads/tickets/' . $safeName),
                             ];
                         } elseif ($required) {
                             $valid = false;
@@ -552,6 +588,12 @@ require __DIR__ . '/partials/header.php';
                                 <td>
                                     <?= h($entry['title']) ?><br>
                                     <small class="text-muted"><?= h(date('d/m/Y H:i', strtotime($entry['created_at']))) ?> · <?= h($entry['team_name']) ?> · Urgência: <?= h($entry['urgency']) ?></small>
+                                    <?php if (preg_match('/uploads\/team_ticket_attachments\/[A-Za-z0-9_.\-]+/', (string) $entry['description'], $matches)): ?>
+                                        <?php $attachPath = $matches[0]; ?>
+                                        <div class="small mt-1"><a href="<?= h($attachPath) ?>" target="_blank" rel="noopener">Abrir anexo</a></div>
+                                        <?php $previewUrl = google_docs_excel_preview_url($attachPath); ?>
+                                        <?php if ($previewUrl): ?><div class="small"><a href="<?= h($previewUrl) ?>" target="_blank" rel="noopener">Pré-visualizar Excel (Google)</a></div><?php endif; ?>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <?= h($entry['assignee_name'] ?: 'Sem atribuição') ?><br>
@@ -600,7 +642,14 @@ require __DIR__ . '/partials/header.php';
             <tbody>
                 <?php foreach ($completedTickets as $entry): ?>
                     <tr>
-                        <td><?= h($entry['title']) ?><br><small class="text-muted"><?= h($entry['team_name']) ?> · criado por <?= h($entry['creator_name']) ?></small></td>
+                        <td><?= h($entry['title']) ?><br><small class="text-muted"><?= h($entry['team_name']) ?> · criado por <?= h($entry['creator_name']) ?></small>
+                            <?php if (preg_match('/uploads\/team_ticket_attachments\/[A-Za-z0-9_.\-]+/', (string) $entry['description'], $matches)): ?>
+                                <?php $attachPath = $matches[0]; ?>
+                                <div class="small mt-1"><a href="<?= h($attachPath) ?>" target="_blank" rel="noopener">Abrir anexo</a></div>
+                                <?php $previewUrl = google_docs_excel_preview_url($attachPath); ?>
+                                <?php if ($previewUrl): ?><div class="small"><a href="<?= h($previewUrl) ?>" target="_blank" rel="noopener">Pré-visualizar Excel (Google)</a></div><?php endif; ?>
+                            <?php endif; ?>
+                        </td>
                         <td><?= h($entry['assignee_name'] ?: 'Sem atribuição') ?></td>
                         <td><?= h(date('d/m/Y H:i', strtotime($entry['completed_at'] ?: $entry['created_at']))) ?></td>
                     </tr>
@@ -754,6 +803,14 @@ function renderRequestsTicketTypeFields() {
             textarea.rows = 2;
             textarea.required = !!field.required;
             column.appendChild(textarea);
+        } else if (field.type === 'file') {
+            const input = document.createElement('input');
+            input.className = 'form-control';
+            input.type = 'file';
+            input.name = fieldName;
+            input.accept = '.xls,.xlsx,.xlsm,.xlsb,.ods,.csv';
+            input.required = !!field.required;
+            column.appendChild(input);
         } else if (field.type === 'select') {
             const select = document.createElement('select');
             select.className = 'form-select';

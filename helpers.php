@@ -78,6 +78,45 @@ function h(?string $value): string
     return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
 }
 
+function is_excel_file_path(string $filePath): bool
+{
+    $extension = strtolower((string) pathinfo($filePath, PATHINFO_EXTENSION));
+    return in_array($extension, ['xls', 'xlsx', 'xlsm', 'xlsb', 'ods', 'csv'], true);
+}
+
+function absolute_url_for_path(string $relativePath): ?string
+{
+    $host = $_SERVER['HTTP_HOST'] ?? '';
+    if ($host === '') {
+        return null;
+    }
+
+    $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    $scheme = $https ? 'https' : 'http';
+    $basePath = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
+    $cleanPath = ltrim($relativePath, '/');
+
+    if ($basePath === '' || $basePath === '.') {
+        return $scheme . '://' . $host . '/' . $cleanPath;
+    }
+
+    return $scheme . '://' . $host . $basePath . '/' . $cleanPath;
+}
+
+function google_docs_excel_preview_url(string $relativePath): ?string
+{
+    if (!is_excel_file_path($relativePath)) {
+        return null;
+    }
+
+    $absoluteUrl = absolute_url_for_path($relativePath);
+    if ($absoluteUrl === null) {
+        return null;
+    }
+
+    return 'https://docs.google.com/gview?embedded=1&url=' . rawurlencode($absoluteUrl);
+}
+
 
 function log_app_event(PDO $pdo, ?int $userId, string $eventType, string $description, array $context = []): void
 {
