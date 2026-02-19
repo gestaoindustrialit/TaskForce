@@ -299,6 +299,7 @@ $pdo->exec(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         team_id INTEGER NOT NULL,
         project_id INTEGER,
+        assignee_user_id INTEGER,
         title TEXT NOT NULL,
         description TEXT,
         weekday INTEGER,
@@ -309,6 +310,7 @@ $pdo->exec(
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE,
         FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL,
+        FOREIGN KEY(assignee_user_id) REFERENCES users(id) ON DELETE SET NULL,
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
     )'
 );
@@ -322,6 +324,9 @@ if (!in_array('start_date', $recurringColumns, true)) {
 }
 if (!in_array('project_id', $recurringColumns, true)) {
     $pdo->exec('ALTER TABLE team_recurring_tasks ADD COLUMN project_id INTEGER');
+}
+if (!in_array('assignee_user_id', $recurringColumns, true)) {
+    $pdo->exec('ALTER TABLE team_recurring_tasks ADD COLUMN assignee_user_id INTEGER');
 }
 if (in_array('weekday', $recurringColumns, true)) {
     $pdo->exec('UPDATE team_recurring_tasks SET weekday = NULL WHERE weekday NOT BETWEEN 1 AND 7');
