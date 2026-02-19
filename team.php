@@ -9,6 +9,40 @@ $flashSuccess = null;
 $flashError = null;
 $ticketStatuses = ticket_statuses($pdo);
 
+function parse_ticket_description(string $description): array
+{
+    $normalized = str_replace("\r\n", "\n", trim($description));
+    if ($normalized == '') {
+        return ['summary' => '', 'details_title' => '', 'details' => []];
+    }
+
+    if (!preg_match('/\n\nDetalhes de ([^\n:]+):\n((?:- .*\n?)+)/u', $normalized, $matches, PREG_OFFSET_CAPTURE)) {
+        return ['summary' => $normalized, 'details_title' => '', 'details' => []];
+    }
+
+    $markerOffset = (int) $matches[0][1];
+    $summary = trim(substr($normalized, 0, $markerOffset));
+    $detailsTitle = trim($matches[1][0]);
+    $detailsBlock = trim($matches[2][0]);
+
+    $details = [];
+    foreach (preg_split('/\n+/', $detailsBlock) as $line) {
+        $line = trim($line);
+        if (str_starts_with($line, '- ')) {
+            $line = trim(substr($line, 2));
+        }
+        if ($line !== '') {
+            $details[] = $line;
+        }
+    }
+
+    return [
+        'summary' => $summary,
+        'details_title' => $detailsTitle,
+        'details' => $details,
+    ];
+}
+
 if (!$teamId || !team_accessible($pdo, $teamId, $userId)) {
     http_response_code(403);
     exit('Acesso negado à equipa.');
@@ -424,13 +458,28 @@ require __DIR__ . '/partials/header.php';
         <div class="collapse show" id="teamTicketsCollapse">
             <div class="list-group list-group-flush">
             <?php foreach ($teamTasks as $task): ?>
-                <?php $collapseId = 'ticket-details-' . (int) $task['id']; ?>
+                <?php
+                $collapseId = 'ticket-details-' . (int) $task['id'];
+                $ticketDescription = parse_ticket_description((string) $task['description']);
+                ?>
                 <div class="list-group-item py-3">
                     <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
                         <div>
                             <div class="small text-muted">ID <?= h($task['ticket_code']) ?></div>
                             <strong><?= h($task['title']) ?></strong>
-                            <p class="mb-1 small text-muted"><?= h($task['description']) ?></p>
+                            <?php if ($ticketDescription['summary'] !== ''): ?>
+                                <p class="mb-1 small text-muted"><?= h($ticketDescription['summary']) ?></p>
+                            <?php endif; ?>
+                            <?php if (!empty($ticketDescription['details'])): ?>
+                                <div class="small mt-1">
+                                    <span class="text-muted d-block"><?= h($ticketDescription['details_title'] !== '' ? $ticketDescription['details_title'] : 'Campos preenchidos') ?>:</span>
+                                    <ul class="mb-1 ps-3">
+                                        <?php foreach ($ticketDescription['details'] as $detailLine): ?>
+                                            <li><?= h($detailLine) ?></li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
                             <small class="text-muted">Urgência: <?= h($task['urgency']) ?> · Prazo: <?= h($task['due_date'] ?: 'Sem data') ?> · Criado por <?= h($task['creator_name']) ?> · Atribuído a <?= h($task['assignee_name'] ?: 'Sem atribuição') ?></small>
                         </div>
                         <div class="d-flex align-items-center gap-2">
