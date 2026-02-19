@@ -543,9 +543,16 @@ require __DIR__ . '/partials/header.php';
     <div class="card shadow-sm soft-card">
         <div class="card-header d-flex justify-content-between align-items-center bg-white">
             <h2 class="h5 mb-0">Projetos</h2>
-            <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#projectModal">Novo Projeto</button>
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-sm btn-outline-secondary js-collapse-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#teamProjectsCollapse" aria-expanded="true" aria-controls="teamProjectsCollapse" title="Mostrar/Ocultar projetos">
+                    <i class="bi bi-eye" aria-hidden="true"></i>
+                    <span class="visually-hidden">Mostrar/Ocultar projetos</span>
+                </button>
+                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#projectModal">Novo Projeto</button>
+            </div>
         </div>
-        <div class="list-group list-group-flush">
+        <div class="collapse show" id="teamProjectsCollapse">
+            <div class="list-group list-group-flush">
             <?php foreach ($projects as $project): ?>
                 <div class="list-group-item py-3">
                     <div class="d-flex justify-content-between gap-3 align-items-start">
@@ -568,6 +575,7 @@ require __DIR__ . '/partials/header.php';
                 </div>
             <?php endforeach; ?>
             <?php if (!$projects): ?><div class="p-3 text-muted">Ainda não existem projetos.</div><?php endif; ?>
+            </div>
         </div>
     </div>
 
@@ -575,7 +583,10 @@ require __DIR__ . '/partials/header.php';
     <div class="card shadow-sm soft-card">
         <div class="card-header d-flex justify-content-between align-items-center bg-white">
             <h2 class="h5 mb-0">Tickets</h2>
-            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#teamTicketsCollapse" aria-expanded="true" aria-controls="teamTicketsCollapse">Mostrar/Ocultar</button>
+            <button class="btn btn-sm btn-outline-secondary js-collapse-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#teamTicketsCollapse" aria-expanded="true" aria-controls="teamTicketsCollapse" title="Mostrar/Ocultar tickets">
+                <i class="bi bi-eye" aria-hidden="true"></i>
+                <span class="visually-hidden">Mostrar/Ocultar tickets</span>
+            </button>
         </div>
         <div class="collapse show" id="teamTicketsCollapse">
             <div class="list-group list-group-flush">
@@ -676,11 +687,18 @@ require __DIR__ . '/partials/header.php';
     <div class="card shadow-sm soft-card">
         <div class="card-header d-flex justify-content-between align-items-center bg-white flex-wrap gap-2">
             <h2 class="h5 mb-0">Calendário da equipa</h2>
-            <?php if ($canManageProjects): ?>
-                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#recurringTaskModal">Nova tarefa recorrente</button>
-            <?php endif; ?>
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-sm btn-outline-secondary js-collapse-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#teamRecurringTasksCollapse" aria-expanded="true" aria-controls="teamRecurringTasksCollapse" title="Mostrar/Ocultar tarefas recorrentes">
+                    <i class="bi bi-eye" aria-hidden="true"></i>
+                    <span class="visually-hidden">Mostrar/Ocultar tarefas recorrentes</span>
+                </button>
+                <?php if ($canManageProjects): ?>
+                    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#recurringTaskModal">Nova tarefa recorrente</button>
+                <?php endif; ?>
+            </div>
         </div>
-        <div class="card-body">
+        <div class="collapse show" id="teamRecurringTasksCollapse">
+            <div class="card-body">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
                 <div class="btn-group btn-group-sm" role="group" aria-label="Vistas do calendário">
                     <?php foreach ($calendarViewLabels as $viewKey => $viewLabel): ?>
@@ -810,6 +828,7 @@ require __DIR__ . '/partials/header.php';
                     <div class="small text-muted">Sem tarefas recorrentes para o período selecionado.</div>
                 <?php endif; ?>
             <?php endif; ?>
+            </div>
         </div>
     </div>
 

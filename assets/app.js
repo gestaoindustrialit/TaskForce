@@ -54,3 +54,30 @@ if (window.taskPage) {
         });
     });
 }
+
+
+function syncCollapseToggleIcon(button, isShown) {
+    const icon = button.querySelector('i.bi');
+    if (!icon) {
+        return;
+    }
+
+    icon.classList.toggle('bi-eye', isShown);
+    icon.classList.toggle('bi-eye-slash', !isShown);
+}
+
+document.querySelectorAll('.js-collapse-toggle').forEach((button) => {
+    const targetSelector = button.getAttribute('data-bs-target');
+    if (!targetSelector) {
+        return;
+    }
+
+    const target = document.querySelector(targetSelector);
+    if (!target) {
+        return;
+    }
+
+    syncCollapseToggleIcon(button, target.classList.contains('show'));
+    target.addEventListener('shown.bs.collapse', () => syncCollapseToggleIcon(button, true));
+    target.addEventListener('hidden.bs.collapse', () => syncCollapseToggleIcon(button, false));
+});
