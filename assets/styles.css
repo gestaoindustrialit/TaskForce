@@ -97,3 +97,39 @@ body {
 .ticket-status-color-hex {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
+
+
+.auth-row {
+    min-height: calc(100vh - 170px);
+}
+
+.auth-card {
+    border: 0;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 20px 45px rgba(15, 23, 42, 0.12) !important;
+}
+
+.auth-logo {
+    max-height: 46px;
+    width: auto;
+    max-width: 220px;
+    object-fit: contain;
+}
+
+
+.auth-card .form-control {
+    border-radius: 10px;
+    border-color: rgba(148, 163, 184, 0.45);
+}
+
+.auth-card .form-control:focus {
+    border-color: rgba(79, 70, 229, 0.55);
+    box-shadow: 0 0 0 .25rem rgba(79, 70, 229, 0.15);
+}
+
+.auth-card .btn-primary {
+    border-radius: 10px;
+    font-weight: 600;
+    box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
+}
