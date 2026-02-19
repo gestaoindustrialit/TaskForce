@@ -15,6 +15,7 @@ $ticketTypeTemplates = [
             ['name' => 'quantity', 'label' => 'Quantidade', 'type' => 'number', 'required' => true, 'placeholder' => 'Ex.: 120'],
             ['name' => 'needed_by', 'label' => 'Necessário até', 'type' => 'date', 'required' => false, 'placeholder' => ''],
             ['name' => 'supplier', 'label' => 'Fornecedor preferencial', 'type' => 'text', 'required' => false, 'placeholder' => 'Opcional'],
+            ['name' => 'attachment', 'label' => 'Anexo do pedido', 'type' => 'file', 'required' => false],
         ],
     ],
     'manutencao' => [
@@ -24,6 +25,7 @@ $ticketTypeTemplates = [
             ['name' => 'failure', 'label' => 'Avaria reportada', 'type' => 'textarea', 'required' => true, 'placeholder' => 'Descreve o problema'],
             ['name' => 'stopped', 'label' => 'Máquina parada', 'type' => 'select', 'required' => true, 'options' => ['Sim', 'Não']],
             ['name' => 'location', 'label' => 'Localização', 'type' => 'text', 'required' => false, 'placeholder' => 'Zona/Linha'],
+            ['name' => 'attachment', 'label' => 'Anexo da avaria', 'type' => 'file', 'required' => false],
         ],
     ],
     'desenho_tecnico' => [
@@ -33,6 +35,7 @@ $ticketTypeTemplates = [
             ['name' => 'drawing_type', 'label' => 'Tipo de desenho', 'type' => 'select', 'required' => true, 'options' => ['2D', '3D', 'Ambos']],
             ['name' => 'materials', 'label' => 'Materiais', 'type' => 'text', 'required' => false, 'placeholder' => 'Ex.: Aço S275'],
             ['name' => 'deadline', 'label' => 'Prazo pretendido', 'type' => 'date', 'required' => false, 'placeholder' => ''],
+            ['name' => 'attachment', 'label' => 'Anexo técnico', 'type' => 'file', 'required' => false],
         ],
     ],
 ];
@@ -203,6 +206,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $extraLines = [];
                 foreach ($template['fields'] as $field) {
                     $fieldName = 'ticket_field_' . $field['name'];
+                    $fieldType = (string) ($field['type'] ?? 'text');
+
+                    if ($fieldType === 'file') {
+                        $file = $_FILES[$fieldName] ?? null;
+                        $hasFile = $file && is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK;
+
+                        if (!empty($field['required']) && !$hasFile) {
+                            $flashError = 'Preencha os campos obrigatórios para ' . $template['label'] . '.';
+                            $canCreateTicket = false;
+                            break;
+                        }
+
+                        if ($hasFile) {
+                            $uploadDir = __DIR__ . '/uploads/team_ticket_attachments';
+                            if (!is_dir($uploadDir)) {
+                                mkdir($uploadDir, 0775, true);
+                            }
+
+                            $ext = pathinfo((string) $file['name'], PATHINFO_EXTENSION);
+                            $safeName = uniqid('ticket_attach_', true) . ($ext ? '.' . strtolower($ext) : '');
+                            $targetPath = $uploadDir . '/' . $safeName;
+                            if (move_uploaded_file((string) $file['tmp_name'], $targetPath)) {
+                                $extraLines[] = ($field['label'] ?? $fieldName) . ': uploads/team_ticket_attachments/' . $safeName;
+                            } elseif (!empty($field['required'])) {
+                                $flashError = 'Não foi possível carregar o ficheiro obrigatório de ' . $template['label'] . '.';
+                                $canCreateTicket = false;
+                                break;
+                            }
+                        }
+
+                        continue;
+                    }
+
                     $value = trim((string) ($_POST[$fieldName] ?? ''));
                     if (!empty($field['required']) && $value === '') {
                         $flashError = 'Preencha os campos obrigatórios para ' . $template['label'] . '.';
@@ -269,7 +305,7 @@ require __DIR__ . '/partials/header.php';
             <div class="card-header bg-white border-0 pt-4 px-4"><h2 class="h4 mb-0">Novo ticket de equipa</h2></div>
             <div class="card-body p-4">
                 <p class="small text-muted">Cria tarefas para equipas fora de qualquer projeto.</p>
-                <form method="post" class="vstack gap-2">
+                <form method="post" enctype="multipart/form-data" class="vstack gap-2">
                     <input type="hidden" name="action" value="create_team_ticket">
                     <div>
                         <label class="form-label mb-1">Equipa responsável</label>
@@ -387,6 +423,14 @@ function buildDashboardTicketTypeFields() {
             textarea.rows = 3;
             textarea.placeholder = field.placeholder || '';
             fieldWrapper.appendChild(textarea);
+        } else if (field.type === 'file') {
+            const input = document.createElement('input');
+            input.className = 'form-control';
+            input.type = 'file';
+            input.name = inputName;
+            input.required = !!field.required;
+            input.accept = '.xls,.xlsx,.xlsm,.xlsb,.ods,.csv';
+            fieldWrapper.appendChild(input);
         } else if (field.type === 'select') {
             const select = document.createElement('select');
             select.className = 'form-select';
