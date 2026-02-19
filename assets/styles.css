@@ -117,13 +117,6 @@ body {
     object-fit: contain;
 }
 
-.auth-logo-dark {
-    display: none;
-}
-
-.auth-logo-dark-visible {
-    display: inline-block;
-}
 
 .auth-card .form-control {
     border-radius: 10px;

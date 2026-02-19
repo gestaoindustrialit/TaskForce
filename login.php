@@ -35,10 +35,10 @@ require __DIR__ . '/partials/header.php';
         <div class="card shadow-sm auth-card">
             <div class="card-body p-4 p-md-5">
                 <div class="text-center mb-4">
-                    <?php if ($hasLightLogo): ?>
-                        <img src="<?= h($logoLight) ?>" alt="Logótipo empresa" class="auth-logo auth-logo-light mb-3">
-                    <?php elseif ($hasDarkLogo): ?>
-                        <img src="<?= h($logoDark) ?>" alt="Logótipo empresa" class="auth-logo auth-logo-dark auth-logo-dark-visible mb-3">
+                    <?php if ($hasDarkLogo): ?>
+                        <img src="<?= h($logoDark) ?>" alt="Logótipo empresa" class="auth-logo mb-3">
+                    <?php elseif ($hasLightLogo): ?>
+                        <img src="<?= h($logoLight) ?>" alt="Logótipo empresa" class="auth-logo mb-3">
                     <?php endif; ?>
                     <h1 class="h4 mb-1">Entrar</h1>
                     <p class="text-secondary small mb-0">Bem-vindo de volta ao TaskForce.</p>
