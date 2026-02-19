@@ -178,6 +178,94 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'update_recurring_task' && $canManageProjects) {
+        $recurringTaskId = (int) ($_POST['recurring_task_id'] ?? 0);
+        $title = trim($_POST['title'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $recurrenceType = (string) ($_POST['recurrence_type'] ?? 'weekly');
+        $startDate = trim($_POST['start_date'] ?? date('Y-m-d'));
+        $projectId = (int) ($_POST['project_id'] ?? 0);
+        $timeOfDay = trim($_POST['time_of_day'] ?? '');
+        $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
+
+        if (!array_key_exists($recurrenceType, recurring_task_recurrence_options($pdo))) {
+            $recurrenceType = 'weekly';
+        }
+
+        if ($title === '') {
+            $flashError = 'A tarefa recorrente deve ter um título.';
+        } else {
+            $startDateObj = DateTimeImmutable::createFromFormat('Y-m-d', $startDate);
+            if (!$startDateObj || $startDateObj->format('Y-m-d') !== $startDate) {
+                $flashError = 'Data de início inválida para a tarefa recorrente.';
+            } else {
+                if ($timeOfDay !== '' && !preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $timeOfDay)) {
+                    $timeOfDay = '';
+                }
+
+                $projectIdValue = null;
+                if ($projectId > 0) {
+                    $projectCheckStmt = $pdo->prepare('SELECT 1 FROM projects WHERE id = ? AND team_id = ?');
+                    $projectCheckStmt->execute([$projectId, $teamId]);
+                    if ($projectCheckStmt->fetchColumn()) {
+                        $projectIdValue = $projectId;
+                    }
+                }
+
+                $assigneeUserIdValue = null;
+                if ($assigneeUserId > 0) {
+                    $assigneeStmt = $pdo->prepare('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?');
+                    $assigneeStmt->execute([$teamId, $assigneeUserId]);
+                    if ($assigneeStmt->fetchColumn()) {
+                        $assigneeUserIdValue = $assigneeUserId;
+                    }
+                }
+
+                $weekday = (int) $startDateObj->format('N');
+                $stmt = $pdo->prepare('UPDATE team_recurring_tasks SET project_id = ?, assignee_user_id = ?, title = ?, description = ?, weekday = ?, recurrence_type = ?, start_date = ?, time_of_day = ? WHERE id = ? AND team_id = ?');
+                $stmt->execute([$projectIdValue, $assigneeUserIdValue, $title, $description, $weekday, $recurrenceType, $startDateObj->format('Y-m-d'), $timeOfDay !== '' ? $timeOfDay : null, $recurringTaskId, $teamId]);
+
+                if ($stmt->rowCount() > 0) {
+                    $flashSuccess = 'Tarefa recorrente atualizada com sucesso.';
+                } else {
+                    $flashError = 'Não foi possível atualizar a tarefa recorrente selecionada.';
+                }
+            }
+        }
+    }
+
+    if ($action === 'complete_recurring_task') {
+        $recurringTaskId = (int) ($_POST['recurring_task_id'] ?? 0);
+        $occurrenceDateInput = trim($_POST['occurrence_date'] ?? '');
+        $occurrenceDate = DateTimeImmutable::createFromFormat('Y-m-d', $occurrenceDateInput);
+
+        if (!$occurrenceDate || $occurrenceDate->format('Y-m-d') !== $occurrenceDateInput) {
+            $flashError = 'Data inválida para concluir tarefa recorrente.';
+        } else {
+            $taskStmt = $pdo->prepare('SELECT * FROM team_recurring_tasks WHERE id = ? AND team_id = ?');
+            $taskStmt->execute([$recurringTaskId, $teamId]);
+            $task = $taskStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$task) {
+                $flashError = 'Tarefa recorrente inválida.';
+            } else {
+                $occurrences = recurring_task_occurrences($pdo, $task, $occurrenceDate, $occurrenceDate);
+                if (!$occurrences) {
+                    $flashError = 'Esta tarefa não está agendada para a data selecionada.';
+                } else {
+                    $completeStmt = $pdo->prepare('INSERT OR IGNORE INTO team_recurring_task_completions(recurring_task_id, occurrence_date, completed_by) VALUES (?, ?, ?)');
+                    $completeStmt->execute([$recurringTaskId, $occurrenceDate->format('Y-m-d'), $userId]);
+
+                    if ($completeStmt->rowCount() > 0) {
+                        $flashSuccess = 'Tarefa recorrente concluída com sucesso.';
+                    } else {
+                        $flashError = 'Esta ocorrência já tinha sido concluída.';
+                    }
+                }
+            }
+        }
+    }
+
     if ($action === 'delete_recurring_task' && $canManageProjects) {
         $recurringTaskId = (int) ($_POST['recurring_task_id'] ?? 0);
         $stmt = $pdo->prepare('DELETE FROM team_recurring_tasks WHERE id = ? AND team_id = ?');
@@ -338,6 +426,23 @@ $recurringTasksStmt = $pdo->prepare('SELECT rt.*, u.name AS creator_name, p.name
 $recurringTasksStmt->execute([$teamId]);
 $recurringTasks = $recurringTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$recurringCompletionsByTaskAndDate = [];
+$recurringTaskIds = array_values(array_unique(array_map(static fn (array $task): int => (int) $task['id'], $recurringTasks)));
+if ($recurringTaskIds) {
+    $completionParams = [$calendarPeriodStart->format('Y-m-d'), $calendarPeriodEnd->format('Y-m-d')];
+    $completionParams = array_merge($completionParams, $recurringTaskIds);
+    $completionPlaceholders = implode(',', array_fill(0, count($recurringTaskIds), '?'));
+    $completionStmt = $pdo->prepare('SELECT c.recurring_task_id, c.occurrence_date, c.completed_at, u.name AS completed_by_name FROM team_recurring_task_completions c INNER JOIN users u ON u.id = c.completed_by WHERE c.occurrence_date BETWEEN ? AND ? AND c.recurring_task_id IN (' . $completionPlaceholders . ')');
+    $completionStmt->execute($completionParams);
+
+    foreach ($completionStmt->fetchAll(PDO::FETCH_ASSOC) as $completion) {
+        $recurringCompletionsByTaskAndDate[(int) $completion['recurring_task_id'] . '|' . (string) $completion['occurrence_date']] = [
+            'completed_at' => (string) $completion['completed_at'],
+            'completed_by_name' => (string) $completion['completed_by_name'],
+        ];
+    }
+}
+
 $calendarOccurrences = [];
 foreach ($recurringTasks as $recurringTask) {
     $occurrenceDates = recurring_task_occurrences($pdo, $recurringTask, $calendarPeriodStart, $calendarPeriodEnd);
@@ -347,8 +452,12 @@ foreach ($recurringTasks as $recurringTask) {
             $calendarOccurrences[$dateKey] = [];
         }
 
+        $completionKey = (int) $recurringTask['id'] . '|' . $dateKey;
+        $completion = $recurringCompletionsByTaskAndDate[$completionKey] ?? null;
+
         $calendarOccurrences[$dateKey][] = [
             'id' => (int) $recurringTask['id'],
+            'occurrence_date' => $dateKey,
             'title' => (string) $recurringTask['title'],
             'description' => (string) ($recurringTask['description'] ?? ''),
             'time_of_day' => (string) ($recurringTask['time_of_day'] ?? ''),
@@ -357,6 +466,8 @@ foreach ($recurringTasks as $recurringTask) {
             'assignee_name' => (string) ($recurringTask['assignee_name'] ?? ''),
             'recurrence_label' => recurring_task_recurrence_label($pdo, (string) ($recurringTask['recurrence_type'] ?? 'weekly')),
             'start_date' => (string) ($recurringTask['start_date'] ?? ''),
+            'completed_at' => $completion['completed_at'] ?? null,
+            'completed_by_name' => $completion['completed_by_name'] ?? null,
         ];
     }
 }
@@ -600,20 +711,39 @@ require __DIR__ . '/partials/header.php';
                                         <?php foreach ($calendarOccurrences[$weekDate['key']] as $occurrence): ?>
                                             <div class="border rounded p-2 bg-white">
                                                 <div class="d-flex justify-content-between gap-2">
-                                                    <strong class="small"><?= h($occurrence['title']) ?></strong>
+                                                    <?php if ($canManageProjects): ?>
+                                                        <button type="button" class="btn btn-link btn-sm text-start p-0 text-decoration-none fw-semibold small" data-bs-toggle="modal" data-bs-target="#editRecurringTaskModal<?= (int) $occurrence['id'] ?>"><?= h($occurrence['title']) ?></button>
+                                                    <?php else: ?>
+                                                        <strong class="small"><?= h($occurrence['title']) ?></strong>
+                                                    <?php endif; ?>
                                                     <span class="text-muted small"><?= h($occurrence['time_of_day'] !== '' ? $occurrence['time_of_day'] : 'Sem hora') ?></span>
                                                 </div>
                                                 <div class="small text-muted"><?= h($occurrence['recurrence_label']) ?><?= $occurrence['project_name'] !== '' ? ' · Projeto: ' . h($occurrence['project_name']) : '' ?><?= $occurrence['assignee_name'] !== '' ? ' · Atribuído a ' . h($occurrence['assignee_name']) : '' ?></div>
                                                 <?php if ($occurrence['description'] !== ''): ?><p class="mb-1 small text-muted"><?= h($occurrence['description']) ?></p><?php endif; ?>
-                                                <div class="d-flex justify-content-between align-items-center">
+                                                <?php if ($occurrence['completed_at']): ?>
+                                                    <div class="small text-success-emphasis">Concluída por <?= h((string) $occurrence['completed_by_name']) ?> em <?= h(date('d/m/Y H:i', strtotime((string) $occurrence['completed_at']))) ?></div>
+                                                <?php endif; ?>
+                                                <div class="d-flex justify-content-between align-items-center gap-2 mt-1">
                                                     <small class="text-muted">Criado por <?= h($occurrence['creator_name']) ?></small>
-                                                    <?php if ($canManageProjects): ?>
-                                                        <form method="post" onsubmit="return confirm('Remover esta tarefa recorrente?');">
-                                                            <input type="hidden" name="action" value="delete_recurring_task">
-                                                            <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
-                                                            <button class="btn btn-sm btn-outline-danger py-0 px-2">Remover</button>
-                                                        </form>
-                                                    <?php endif; ?>
+                                                    <div class="d-flex align-items-center gap-1">
+                                                        <?php if (!$occurrence['completed_at']): ?>
+                                                            <form method="post" class="m-0">
+                                                                <input type="hidden" name="action" value="complete_recurring_task">
+                                                                <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
+                                                                <input type="hidden" name="occurrence_date" value="<?= h($occurrence['occurrence_date']) ?>">
+                                                                <button class="btn btn-sm btn-outline-success py-0 px-2" title="Marcar como concluída">✓</button>
+                                                            </form>
+                                                        <?php else: ?>
+                                                            <button class="btn btn-sm btn-success py-0 px-2" disabled title="Concluída">✓</button>
+                                                        <?php endif; ?>
+                                                        <?php if ($canManageProjects): ?>
+                                                            <form method="post" class="m-0" onsubmit="return confirm('Remover esta tarefa recorrente?');">
+                                                                <input type="hidden" name="action" value="delete_recurring_task">
+                                                                <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
+                                                                <button class="btn btn-sm btn-outline-danger py-0 px-2">Remover</button>
+                                                            </form>
+                                                        <?php endif; ?>
+                                                    </div>
                                                 </div>
                                             </div>
                                         <?php endforeach; ?>
@@ -636,20 +766,39 @@ require __DIR__ . '/partials/header.php';
                                     <?php foreach ($occurrences as $occurrence): ?>
                                         <div class="border rounded p-2 bg-white">
                                             <div class="d-flex justify-content-between gap-2">
-                                                <strong class="small"><?= h($occurrence['title']) ?></strong>
+                                                <?php if ($canManageProjects): ?>
+                                                    <button type="button" class="btn btn-link btn-sm text-start p-0 text-decoration-none fw-semibold small" data-bs-toggle="modal" data-bs-target="#editRecurringTaskModal<?= (int) $occurrence['id'] ?>"><?= h($occurrence['title']) ?></button>
+                                                <?php else: ?>
+                                                    <strong class="small"><?= h($occurrence['title']) ?></strong>
+                                                <?php endif; ?>
                                                 <span class="text-muted small"><?= h($occurrence['time_of_day'] !== '' ? $occurrence['time_of_day'] : 'Sem hora') ?></span>
                                             </div>
                                             <div class="small text-muted"><?= h($occurrence['recurrence_label']) ?><?= $occurrence['project_name'] !== '' ? ' · Projeto: ' . h($occurrence['project_name']) : '' ?><?= $occurrence['assignee_name'] !== '' ? ' · Atribuído a ' . h($occurrence['assignee_name']) : '' ?></div>
                                             <?php if ($occurrence['description'] !== ''): ?><p class="mb-1 small text-muted"><?= h($occurrence['description']) ?></p><?php endif; ?>
-                                            <div class="d-flex justify-content-between align-items-center">
+                                            <?php if ($occurrence['completed_at']): ?>
+                                                <div class="small text-success-emphasis">Concluída por <?= h((string) $occurrence['completed_by_name']) ?> em <?= h(date('d/m/Y H:i', strtotime((string) $occurrence['completed_at']))) ?></div>
+                                            <?php endif; ?>
+                                            <div class="d-flex justify-content-between align-items-center gap-2 mt-1">
                                                 <small class="text-muted">Criado por <?= h($occurrence['creator_name']) ?></small>
-                                                <?php if ($canManageProjects): ?>
-                                                    <form method="post" onsubmit="return confirm('Remover esta tarefa recorrente?');">
-                                                        <input type="hidden" name="action" value="delete_recurring_task">
-                                                        <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
-                                                        <button class="btn btn-sm btn-outline-danger py-0 px-2">Remover</button>
-                                                    </form>
-                                                <?php endif; ?>
+                                                <div class="d-flex align-items-center gap-1">
+                                                    <?php if (!$occurrence['completed_at']): ?>
+                                                        <form method="post" class="m-0">
+                                                            <input type="hidden" name="action" value="complete_recurring_task">
+                                                            <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
+                                                            <input type="hidden" name="occurrence_date" value="<?= h($occurrence['occurrence_date']) ?>">
+                                                            <button class="btn btn-sm btn-outline-success py-0 px-2" title="Marcar como concluída">✓</button>
+                                                        </form>
+                                                    <?php else: ?>
+                                                        <button class="btn btn-sm btn-success py-0 px-2" disabled title="Concluída">✓</button>
+                                                    <?php endif; ?>
+                                                    <?php if ($canManageProjects): ?>
+                                                        <form method="post" class="m-0" onsubmit="return confirm('Remover esta tarefa recorrente?');">
+                                                            <input type="hidden" name="action" value="delete_recurring_task">
+                                                            <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
+                                                            <button class="btn btn-sm btn-outline-danger py-0 px-2">Remover</button>
+                                                        </form>
+                                                    <?php endif; ?>
+                                                </div>
                                             </div>
                                         </div>
                                     <?php endforeach; ?>
@@ -714,6 +863,61 @@ require __DIR__ . '/partials/header.php';
                         </select>
                     </div>
                     <div class="modal-footer"><button class="btn btn-primary">Guardar alterações</button></div>
+                </form>
+            </div>
+        </div>
+    <?php endforeach; ?>
+
+    <?php foreach ($recurringTasks as $recurringTask): ?>
+        <div class="modal fade" id="editRecurringTaskModal<?= (int) $recurringTask['id'] ?>" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog">
+                <form class="modal-content" method="post">
+                    <input type="hidden" name="recurring_task_id" value="<?= (int) $recurringTask['id'] ?>">
+                    <div class="modal-header"><h5 class="modal-title">Editar tarefa recorrente</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                    <div class="modal-body vstack gap-3">
+                        <input class="form-control" name="title" value="<?= h($recurringTask['title']) ?>" required>
+                        <textarea class="form-control" name="description" placeholder="Descrição (opcional)"><?= h((string) ($recurringTask['description'] ?? '')) ?></textarea>
+                        <div>
+                            <label class="form-label small text-muted mb-1">Projeto (opcional)</label>
+                            <select class="form-select" name="project_id">
+                                <option value="0">Sem projeto</option>
+                                <?php foreach ($projects as $project): ?>
+                                    <option value="<?= (int) $project['id'] ?>" <?= (int) $project['id'] === (int) $recurringTask['project_id'] ? 'selected' : '' ?>><?= h($project['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label small text-muted mb-1">Atribuir a (opcional)</label>
+                            <select class="form-select" name="assignee_user_id">
+                                <option value="0">Sem atribuição</option>
+                                <?php foreach ($members as $member): ?>
+                                    <option value="<?= (int) $member['id'] ?>" <?= (int) $member['id'] === (int) $recurringTask['assignee_user_id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted mb-1">Recorrência</label>
+                                <select class="form-select" name="recurrence_type" required>
+                                    <?php foreach ($recurrenceOptions as $recurrenceValue => $recurrenceLabel): ?>
+                                        <option value="<?= h($recurrenceValue) ?>" <?= $recurrenceValue === (string) ($recurringTask['recurrence_type'] ?? 'weekly') ? 'selected' : '' ?>><?= h($recurrenceLabel) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small text-muted mb-1">Início</label>
+                                <input class="form-control" type="date" name="start_date" value="<?= h((string) ($recurringTask['start_date'] ?? date('Y-m-d'))) ?>" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small text-muted mb-1">Hora</label>
+                                <input class="form-control" type="time" name="time_of_day" value="<?= h((string) ($recurringTask['time_of_day'] ?? '')) ?>">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer justify-content-between">
+                        <button class="btn btn-primary" name="action" value="update_recurring_task">Guardar alterações</button>
+                        <button class="btn btn-outline-danger" name="action" value="delete_recurring_task" onclick="return confirm('Remover esta tarefa recorrente?');">Eliminar recorrência</button>
+                    </div>
                 </form>
             </div>
         </div>
