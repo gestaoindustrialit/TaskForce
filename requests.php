@@ -455,25 +455,6 @@ require __DIR__ . '/partials/header.php';
 
 <div class="row g-4">
     <div class="col-12">
-        <div class="card soft-card shadow-sm">
-            <div class="card-header bg-white"><h3 class="h5 mb-0">Submeter ticket</h3></div>
-            <div class="card-body">
-                <form method="post" class="row g-2">
-                    <input type="hidden" name="action" value="create_team_ticket">
-                    <div class="col-md-3"><label class="form-label small">Equipa</label><select class="form-select" name="team_id" required><option value="">Selecionar...</option><?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>"><?= h($team['name']) ?></option><?php endforeach; ?></select></div>
-                    <div class="col-md-3"><label class="form-label small">Assunto</label><input class="form-control" name="title" required></div>
-                    <div class="col-md-2"><label class="form-label small">Urgência</label><select class="form-select" name="urgency"><option>Baixa</option><option selected>Média</option><option>Alta</option><option>Crítica</option></select></div>
-                    <div class="col-md-2"><label class="form-label small">Data entrega</label><input class="form-control" type="date" name="due_date"></div>
-                    <div class="col-md-3"><label class="form-label small">Tipo de pedido</label><select class="form-select" name="ticket_type" id="requestsTicketType"><option value="">Geral</option><?php foreach ($ticketTypeTemplates as $templateKey => $template): ?><option value="<?= h($templateKey) ?>"><?= h($template['label']) ?></option><?php endforeach; ?></select></div>
-                    <div class="col-md-12" id="requestsTicketTypeFields"></div>
-                    <div class="col-md-12"><label class="form-label small">Detalhe do ticket</label><textarea class="form-control" name="description" rows="3" required></textarea></div>
-                    <div class="col-md-12"><button class="btn btn-primary">Submeter ticket</button></div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-lg-7">
         <div class="card soft-card shadow-sm h-100">
             <div class="card-header bg-white"><h3 class="h5 mb-0">Formulários de pedidos de tarefas (separado de tickets)</h3></div>
             <div class="list-group list-group-flush" id="forms-list">
@@ -498,10 +479,21 @@ require __DIR__ . '/partials/header.php';
                                     </form>
                                 </div>
                             <?php endif; ?>
+                                <button
+                                    class="btn btn-sm btn-outline-primary"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#team-form-collapse-<?= (int) $form['id'] ?>"
+                                    aria-expanded="false"
+                                    aria-controls="team-form-collapse-<?= (int) $form['id'] ?>"
+                                >
+                                    Abrir formulário
+                                </button>
                             </div>
                         </div>
 
-                        <div class="border rounded p-3 mt-3 bg-light-subtle">
+                        <div class="collapse mt-3" id="team-form-collapse-<?= (int) $form['id'] ?>">
+                        <div class="border rounded p-3 bg-light-subtle">
                             <form method="post" enctype="multipart/form-data" class="vstack gap-2">
                                 <input type="hidden" name="action" value="submit_team_form">
                                 <input type="hidden" name="form_id" value="<?= (int) $form['id'] ?>">
@@ -540,6 +532,7 @@ require __DIR__ . '/partials/header.php';
                                 <button class="btn btn-primary btn-sm mt-2">Submeter ticket</button>
                             </form>
                         </div>
+                        </div>
                     </div>
                 <?php endforeach; ?>
                 <?php if (!$forms): ?><div class="list-group-item text-muted">Não existem formulários ativos. O admin pode gerar formulários globais.</div><?php endif; ?>
@@ -547,7 +540,7 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 
-    <div class="col-lg-5">
+    <div class="col-12">
         <div class="card soft-card shadow-sm h-100">
             <div class="card-header bg-white"><h3 class="h5 mb-0">Tickets abertos por equipa</h3></div>
             <div class="table-responsive">
