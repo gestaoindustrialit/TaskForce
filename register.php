@@ -18,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare('INSERT INTO users(name, email, password) VALUES (?, ?, ?)');
             $stmt->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT)]);
             $_SESSION['user_id'] = (int) $pdo->lastInsertId();
+            log_app_event($pdo, (int) $_SESSION['user_id'], 'auth.register', 'Novo utilizador registado.', ['email' => $email]);
             redirect('dashboard.php');
         } catch (PDOException $e) {
             $error = 'Email já está em uso.';

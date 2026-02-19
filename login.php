@@ -16,9 +16,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($user && password_verify($password, $user['password'])) {
         $_SESSION['user_id'] = (int) $user['id'];
+        log_app_event($pdo, (int) $user['id'], 'auth.login_success', 'Login com sucesso.');
         redirect('dashboard.php');
     }
 
+    log_app_event($pdo, null, 'auth.login_failed', 'Tentativa de login falhada.', ['email' => $email]);
     $error = 'Credenciais inválidas.';
 }
 

@@ -92,6 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $teamId = (int) $pdo->lastInsertId();
             $pdo->prepare('INSERT INTO team_members(team_id, user_id, role) VALUES (?, ?, "owner")')->execute([$teamId, $userId]);
             $pdo->commit();
+            log_app_event($pdo, $userId, 'team.create', 'Nova equipa criada no dashboard.', ['team_id' => $teamId, 'team_name' => $name]);
             redirect('team.php?id=' . $teamId);
         }
         $flashError = 'Indique um nome para a equipa.';
@@ -108,6 +109,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $stmt = $pdo->prepare('INSERT INTO users(name, email, password, is_admin) VALUES (?, ?, ?, ?)');
                 $stmt->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), (int) ($_POST['is_admin'] ?? 0)]);
+                $createdUserId = (int) $pdo->lastInsertId();
+                log_app_event($pdo, $userId, 'user.create', 'Utilizador criado por administrador.', ['target_user_id' => $createdUserId, 'email' => $email]);
                 $flashSuccess = 'Novo utilizador criado com sucesso.';
             } catch (PDOException $e) {
                 $flashError = 'Não foi possível criar utilizador (email duplicado).';
@@ -134,6 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $pdo->prepare('UPDATE users SET name = ?, email = ?, is_admin = ? WHERE id = ?');
                     $stmt->execute([$name, $email, $isTargetAdmin, $targetUserId]);
                 }
+                log_app_event($pdo, $userId, 'user.update', 'Utilizador atualizado por administrador.', ['target_user_id' => $targetUserId, 'email' => $email, 'is_admin' => $isTargetAdmin]);
                 $flashSuccess = 'Utilizador atualizado com sucesso.';
             } catch (PDOException $e) {
                 $flashError = 'Não foi possível atualizar utilizador (email duplicado).';
@@ -156,6 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($saved > 0) {
+            log_app_event($pdo, $userId, 'branding.update', 'Logótipos da empresa atualizados.', ['total_files' => $saved]);
             $flashSuccess = 'Logotipos atualizados com sucesso.';
         } else {
             $flashError = 'Nenhum ficheiro válido enviado (PNG, JPG, SVG ou WEBP).';
@@ -220,6 +225,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $defaultStatus = default_open_ticket_status($pdo);
                 $stmt = $pdo->prepare('INSERT INTO team_tickets(ticket_code, team_id, title, description, urgency, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
                 $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate !== '' ? $dueDate : null, $userId, $defaultStatus]);
+                $ticketId = (int) $pdo->lastInsertId();
+                log_app_event($pdo, $userId, 'ticket.create', 'Novo ticket de equipa criado no dashboard.', ['ticket_id' => $ticketId, 'ticket_code' => $ticketCode, 'team_id' => $teamId]);
                 $flashSuccess = 'Ticket criado com sucesso.';
             }
         }
