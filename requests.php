@@ -20,6 +20,72 @@ foreach ($teamRoles as $teamRole) {
 $canManageTeamTickets = $isAdmin || !empty($leaderTeamIds);
 $ticketStatuses = ticket_statuses($pdo);
 
+$ticketTypeTemplates = [
+    'compras' => [
+        'label' => 'Compras',
+        'fields' => [
+            ['name' => 'item_name', 'label' => 'Item a comprar', 'type' => 'text', 'required' => true],
+            ['name' => 'quantity', 'label' => 'Quantidade', 'type' => 'number', 'required' => true],
+            ['name' => 'needed_by', 'label' => 'Necessário até', 'type' => 'date', 'required' => false],
+            ['name' => 'supplier', 'label' => 'Fornecedor preferencial', 'type' => 'text', 'required' => false],
+        ],
+    ],
+    'manutencao' => [
+        'label' => 'Manutenção',
+        'fields' => [
+            ['name' => 'equipment', 'label' => 'Equipamento', 'type' => 'text', 'required' => true],
+            ['name' => 'failure', 'label' => 'Avaria reportada', 'type' => 'textarea', 'required' => true],
+            ['name' => 'stopped', 'label' => 'Máquina parada', 'type' => 'select', 'required' => true, 'options' => ['Sim', 'Não']],
+            ['name' => 'location', 'label' => 'Localização', 'type' => 'text', 'required' => false],
+        ],
+    ],
+    'desenho_tecnico' => [
+        'label' => 'Desenho técnico',
+        'fields' => [
+            ['name' => 'project_ref', 'label' => 'Referência do projeto', 'type' => 'text', 'required' => true],
+            ['name' => 'drawing_type', 'label' => 'Tipo de desenho', 'type' => 'select', 'required' => true, 'options' => ['2D', '3D', 'Ambos']],
+            ['name' => 'materials', 'label' => 'Materiais', 'type' => 'text', 'required' => false],
+            ['name' => 'deadline', 'label' => 'Prazo pretendido', 'type' => 'date', 'required' => false],
+        ],
+    ],
+];
+
+$teamFormPresets = [
+    'compras' => [
+        'title' => 'Pedido de Compras',
+        'description' => 'Formulário base para pedidos de compras.',
+        'department' => 'Compras',
+        'fields' => [
+            ['label' => 'Item a comprar', 'type' => 'text', 'required' => true, 'options' => []],
+            ['label' => 'Quantidade', 'type' => 'number', 'required' => true, 'options' => []],
+            ['label' => 'Necessário até', 'type' => 'date', 'required' => false, 'options' => []],
+            ['label' => 'Fornecedor preferencial', 'type' => 'text', 'required' => false, 'options' => []],
+        ],
+    ],
+    'manutencao' => [
+        'title' => 'Pedido de Manutenção',
+        'description' => 'Formulário base para avarias e manutenção.',
+        'department' => 'Manutenção',
+        'fields' => [
+            ['label' => 'Equipamento', 'type' => 'text', 'required' => true, 'options' => []],
+            ['label' => 'Avaria reportada', 'type' => 'textarea', 'required' => true, 'options' => []],
+            ['label' => 'Máquina parada', 'type' => 'select', 'required' => true, 'options' => ['Sim', 'Não']],
+            ['label' => 'Localização', 'type' => 'text', 'required' => false, 'options' => []],
+        ],
+    ],
+    'desenho_tecnico' => [
+        'title' => 'Pedido de Desenho Técnico',
+        'description' => 'Formulário base para solicitações de desenho técnico.',
+        'department' => 'Desenho técnico',
+        'fields' => [
+            ['label' => 'Referência do projeto', 'type' => 'text', 'required' => true, 'options' => []],
+            ['label' => 'Tipo de desenho', 'type' => 'select', 'required' => true, 'options' => ['2D', '3D', 'Ambos']],
+            ['label' => 'Materiais', 'type' => 'text', 'required' => false, 'options' => []],
+            ['label' => 'Prazo pretendido', 'type' => 'date', 'required' => false, 'options' => []],
+        ],
+    ],
+];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -36,11 +102,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!in_array($teamId, $memberTeamIds, true) && !$isAdmin) {
             $_SESSION['flash_error'] = 'Sem permissão para abrir ticket para essa equipa.';
         } else {
+            $ticketType = (string) ($_POST['ticket_type'] ?? '');
+            if (array_key_exists($ticketType, $ticketTypeTemplates)) {
+                $template = $ticketTypeTemplates[$ticketType];
+                $extraLines = [];
+                foreach ($template['fields'] as $field) {
+                    $fieldName = 'ticket_field_' . $field['name'];
+                    $value = trim((string) ($_POST[$fieldName] ?? ''));
+                    if (!empty($field['required']) && $value === '') {
+                        $_SESSION['flash_error'] = 'Preencha os campos obrigatórios para ' . $template['label'] . '.';
+                        redirect('requests.php?show_completed=' . ($showCompleted ? '1' : '0'));
+                    }
+                    if ($value !== '') {
+                        $extraLines[] = ($field['label'] ?? $fieldName) . ': ' . $value;
+                    }
+                }
+
+                if (count($extraLines) > 0) {
+                    $description .= "\n\nDetalhes de " . $template['label'] . ":\n- " . implode("\n- ", $extraLines);
+                }
+            }
+
             $ticketCode = generate_ticket_code($pdo);
             $defaultStatus = default_open_ticket_status($pdo);
             $stmt = $pdo->prepare('INSERT INTO team_tickets(ticket_code, team_id, title, description, urgency, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
             $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate !== '' ? $dueDate : null, $userId, $defaultStatus]);
-            $_SESSION['flash_success'] = 'Ticket submetido com sucesso: ' . $ticketCode;
+            $_SESSION['flash_success'] = 'Ticket submetido com sucesso.';
         }
 
         redirect('requests.php?show_completed=' . ($showCompleted ? '1' : '0'));
@@ -378,6 +465,8 @@ require __DIR__ . '/partials/header.php';
                         <div class="col-md-3"><label class="form-label small">Assunto</label><input class="form-control" name="title" required></div>
                         <div class="col-md-2"><label class="form-label small">Urgência</label><select class="form-select" name="urgency"><option>Baixa</option><option selected>Média</option><option>Alta</option><option>Crítica</option></select></div>
                         <div class="col-md-2"><label class="form-label small">Data entrega</label><input class="form-control" type="date" name="due_date"></div>
+                        <div class="col-md-3"><label class="form-label small">Tipo de pedido</label><select class="form-select" name="ticket_type" id="requestsTicketType"><option value="">Geral</option><?php foreach ($ticketTypeTemplates as $templateKey => $template): ?><option value="<?= h($templateKey) ?>"><?= h($template['label']) ?></option><?php endforeach; ?></select></div>
+                        <div class="col-md-12" id="requestsTicketTypeFields"></div>
                         <div class="col-md-12"><label class="form-label small">Detalhe do ticket</label><textarea class="form-control" name="description" rows="3" required></textarea></div>
                         <div class="col-md-12"><button class="btn btn-primary">Submeter ticket</button></div>
                     </form>
@@ -471,7 +560,7 @@ require __DIR__ . '/partials/header.php';
                         <?php foreach ($openTickets as $entry): ?>
                             <tr>
                                 <td>
-                                    <?= h($entry['ticket_code']) ?> · <?= h($entry['title']) ?><br>
+                                    <?= h($entry['title']) ?><br>
                                     <small class="text-muted"><?= h(date('d/m/Y H:i', strtotime($entry['created_at']))) ?> · <?= h($entry['team_name']) ?> · Urgência: <?= h($entry['urgency']) ?></small>
                                 </td>
                                 <td>
@@ -521,7 +610,7 @@ require __DIR__ . '/partials/header.php';
             <tbody>
                 <?php foreach ($completedTickets as $entry): ?>
                     <tr>
-                        <td><?= h($entry['ticket_code']) ?> · <?= h($entry['title']) ?><br><small class="text-muted"><?= h($entry['team_name']) ?> · criado por <?= h($entry['creator_name']) ?></small></td>
+                        <td><?= h($entry['title']) ?><br><small class="text-muted"><?= h($entry['team_name']) ?> · criado por <?= h($entry['creator_name']) ?></small></td>
                         <td><?= h($entry['assignee_name'] ?: 'Sem atribuição') ?></td>
                         <td><?= h(date('d/m/Y H:i', strtotime($entry['completed_at'] ?: $entry['created_at']))) ?></td>
                     </tr>
@@ -535,7 +624,7 @@ require __DIR__ . '/partials/header.php';
 <?php if ($isAdmin): ?>
 <div class="modal fade" id="createTeamFormModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
-        <form class="modal-content" method="post">
+        <form class="modal-content" method="post" id="createTeamFormForm">
             <input type="hidden" name="action" value="create_team_form">
             <div class="modal-header"><h5 class="modal-title">Gerar formulário global (Admin)</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body vstack gap-3">
@@ -546,6 +635,13 @@ require __DIR__ . '/partials/header.php';
                     <?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>"><?= h($team['name']) ?></option><?php endforeach; ?>
                 </select>
                 <input class="form-control" name="department" placeholder="Departamento (ex: Tornearia)">
+                <div>
+                    <label class="form-label small">Base rápida</label>
+                    <select class="form-select" id="createFormPreset">
+                        <option value="">Sem base</option>
+                        <?php foreach ($teamFormPresets as $presetKey => $preset): ?><option value="<?= h($presetKey) ?>"><?= h($preset['title']) ?></option><?php endforeach; ?>
+                    </select>
+                </div>
                 <div class="border rounded p-3">
                     <h6>Campos personalizados</h6>
                     <?php for ($i = 0; $i < 6; $i++): ?>
@@ -628,5 +724,132 @@ require __DIR__ . '/partials/header.php';
     </div>
 <?php endforeach; ?>
 <?php endif; ?>
+
+<script>
+const requestsTicketTypeTemplates = <?= json_encode($ticketTypeTemplates, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const teamFormPresets = <?= json_encode($teamFormPresets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+
+const requestsTicketTypeSelect = document.getElementById('requestsTicketType');
+const requestsTicketTypeFields = document.getElementById('requestsTicketTypeFields');
+
+function renderRequestsTicketTypeFields() {
+    if (!requestsTicketTypeSelect || !requestsTicketTypeFields) {
+        return;
+    }
+
+    requestsTicketTypeFields.innerHTML = '';
+    const selectedKey = requestsTicketTypeSelect.value;
+    const template = requestsTicketTypeTemplates[selectedKey];
+    if (!template || !Array.isArray(template.fields)) {
+        return;
+    }
+
+    const row = document.createElement('div');
+    row.className = 'row g-2';
+
+    template.fields.forEach((field) => {
+        const column = document.createElement('div');
+        column.className = field.type === 'textarea' ? 'col-md-12' : 'col-md-3';
+
+        const label = document.createElement('label');
+        label.className = 'form-label small';
+        label.textContent = field.label || 'Campo';
+        column.appendChild(label);
+
+        const fieldName = `ticket_field_${field.name}`;
+        if (field.type === 'textarea') {
+            const textarea = document.createElement('textarea');
+            textarea.className = 'form-control';
+            textarea.name = fieldName;
+            textarea.rows = 2;
+            textarea.required = !!field.required;
+            column.appendChild(textarea);
+        } else if (field.type === 'select') {
+            const select = document.createElement('select');
+            select.className = 'form-select';
+            select.name = fieldName;
+            select.required = !!field.required;
+            const empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = 'Selecionar...';
+            select.appendChild(empty);
+            (field.options || []).forEach((optionValue) => {
+                const option = document.createElement('option');
+                option.value = optionValue;
+                option.textContent = optionValue;
+                select.appendChild(option);
+            });
+            column.appendChild(select);
+        } else {
+            const input = document.createElement('input');
+            input.className = 'form-control';
+            input.type = field.type || 'text';
+            input.name = fieldName;
+            input.required = !!field.required;
+            column.appendChild(input);
+        }
+
+        row.appendChild(column);
+    });
+
+    requestsTicketTypeFields.appendChild(row);
+}
+
+function applyPresetToForm(formElement, presetKey) {
+    if (!formElement) {
+        return;
+    }
+
+    const preset = teamFormPresets[presetKey];
+    if (!preset) {
+        return;
+    }
+
+    const titleInput = formElement.querySelector('input[name="title"]');
+    const descriptionInput = formElement.querySelector('textarea[name="description"]');
+    const departmentInput = formElement.querySelector('input[name="department"]');
+    const labels = formElement.querySelectorAll('input[name="field_label[]"]');
+    const types = formElement.querySelectorAll('select[name="field_type[]"]');
+    const requireds = formElement.querySelectorAll('select[name="field_required[]"]');
+    const options = formElement.querySelectorAll('input[name="field_options[]"]');
+
+    if (titleInput) titleInput.value = preset.title || '';
+    if (descriptionInput) descriptionInput.value = preset.description || '';
+    if (departmentInput) departmentInput.value = preset.department || '';
+
+    labels.forEach((input, idx) => {
+        const field = preset.fields[idx] || null;
+        input.value = field ? (field.label || '') : '';
+    });
+    types.forEach((input, idx) => {
+        const field = preset.fields[idx] || null;
+        input.value = field ? (field.type || 'text') : 'text';
+    });
+    requireds.forEach((input, idx) => {
+        const field = preset.fields[idx] || null;
+        input.value = field && field.required ? '1' : '0';
+    });
+    options.forEach((input, idx) => {
+        const field = preset.fields[idx] || null;
+        input.value = field ? ((field.options || []).join(',')) : '';
+    });
+}
+
+if (requestsTicketTypeSelect) {
+    requestsTicketTypeSelect.addEventListener('change', renderRequestsTicketTypeFields);
+    renderRequestsTicketTypeFields();
+}
+
+const createFormPreset = document.getElementById('createFormPreset');
+const createTeamFormForm = document.getElementById('createTeamFormForm');
+if (createFormPreset && createTeamFormForm) {
+    createFormPreset.addEventListener('change', () => {
+        const presetKey = createFormPreset.value;
+        if (presetKey !== '') {
+            applyPresetToForm(createTeamFormForm, presetKey);
+        }
+    });
+}
+</script>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>

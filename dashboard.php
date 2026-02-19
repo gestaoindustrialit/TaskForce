@@ -7,6 +7,36 @@ $isAdmin = is_admin($pdo, $userId);
 $flashSuccess = null;
 $flashError = null;
 
+$ticketTypeTemplates = [
+    'compras' => [
+        'label' => 'Compras',
+        'fields' => [
+            ['name' => 'item_name', 'label' => 'Item a comprar', 'type' => 'text', 'required' => true, 'placeholder' => 'Ex.: Parafusos M8 inox'],
+            ['name' => 'quantity', 'label' => 'Quantidade', 'type' => 'number', 'required' => true, 'placeholder' => 'Ex.: 120'],
+            ['name' => 'needed_by', 'label' => 'Necessário até', 'type' => 'date', 'required' => false, 'placeholder' => ''],
+            ['name' => 'supplier', 'label' => 'Fornecedor preferencial', 'type' => 'text', 'required' => false, 'placeholder' => 'Opcional'],
+        ],
+    ],
+    'manutencao' => [
+        'label' => 'Manutenção',
+        'fields' => [
+            ['name' => 'equipment', 'label' => 'Equipamento', 'type' => 'text', 'required' => true, 'placeholder' => 'Ex.: CNC Haas VF-2'],
+            ['name' => 'failure', 'label' => 'Avaria reportada', 'type' => 'textarea', 'required' => true, 'placeholder' => 'Descreve o problema'],
+            ['name' => 'stopped', 'label' => 'Máquina parada', 'type' => 'select', 'required' => true, 'options' => ['Sim', 'Não']],
+            ['name' => 'location', 'label' => 'Localização', 'type' => 'text', 'required' => false, 'placeholder' => 'Zona/Linha'],
+        ],
+    ],
+    'desenho_tecnico' => [
+        'label' => 'Desenho técnico',
+        'fields' => [
+            ['name' => 'project_ref', 'label' => 'Referência do projeto', 'type' => 'text', 'required' => true, 'placeholder' => 'Ex.: PRJ-2026-014'],
+            ['name' => 'drawing_type', 'label' => 'Tipo de desenho', 'type' => 'select', 'required' => true, 'options' => ['2D', '3D', 'Ambos']],
+            ['name' => 'materials', 'label' => 'Materiais', 'type' => 'text', 'required' => false, 'placeholder' => 'Ex.: Aço S275'],
+            ['name' => 'deadline', 'label' => 'Prazo pretendido', 'type' => 'date', 'required' => false, 'placeholder' => ''],
+        ],
+    ],
+];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -107,11 +137,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!in_array($teamId, $allowedTeamIds, true) && !$isAdmin) {
             $flashError = 'Sem permissão para abrir ticket para essa equipa.';
         } else {
-            $ticketCode = generate_ticket_code($pdo);
-            $defaultStatus = default_open_ticket_status($pdo);
-            $stmt = $pdo->prepare('INSERT INTO team_tickets(ticket_code, team_id, title, description, urgency, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-            $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate !== '' ? $dueDate : null, $userId, $defaultStatus]);
-            $flashSuccess = 'Ticket criado com sucesso: ' . $ticketCode;
+            $canCreateTicket = true;
+            $ticketType = (string) ($_POST['ticket_type'] ?? '');
+            if (!array_key_exists($ticketType, $ticketTypeTemplates)) {
+                $ticketType = '';
+            }
+
+            if ($ticketType !== '') {
+                $template = $ticketTypeTemplates[$ticketType];
+                $extraLines = [];
+                foreach ($template['fields'] as $field) {
+                    $fieldName = 'ticket_field_' . $field['name'];
+                    $value = trim((string) ($_POST[$fieldName] ?? ''));
+                    if (!empty($field['required']) && $value === '') {
+                        $flashError = 'Preencha os campos obrigatórios para ' . $template['label'] . '.';
+                        $canCreateTicket = false;
+                        break;
+                    }
+
+                    if ($value !== '') {
+                        $extraLines[] = ($field['label'] ?? $fieldName) . ': ' . $value;
+                    }
+                }
+
+                if ($flashError === null && count($extraLines) > 0) {
+                    $description .= "\n\nDetalhes de " . $template['label'] . ":\n- " . implode("\n- ", $extraLines);
+                }
+            }
+
+            if ($canCreateTicket) {
+                $ticketCode = generate_ticket_code($pdo);
+                $defaultStatus = default_open_ticket_status($pdo);
+                $stmt = $pdo->prepare('INSERT INTO team_tickets(ticket_code, team_id, title, description, urgency, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+                $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate !== '' ? $dueDate : null, $userId, $defaultStatus]);
+                $flashSuccess = 'Ticket criado com sucesso.';
+            }
         }
     }
 }
@@ -146,13 +206,9 @@ require __DIR__ . '/partials/header.php';
         <div class="card shadow-sm soft-card h-100">
             <div class="card-header bg-white border-0 pt-4 px-4"><h2 class="h4 mb-0">Novo ticket de equipa</h2></div>
             <div class="card-body p-4">
-                <p class="small text-muted">Cria tarefas para equipas fora de qualquer projeto. O ID é gerado automaticamente.</p>
+                <p class="small text-muted">Cria tarefas para equipas fora de qualquer projeto.</p>
                 <form method="post" class="vstack gap-2">
                     <input type="hidden" name="action" value="create_team_ticket">
-                    <div>
-                        <label class="form-label mb-1">ID do ticket</label>
-                        <input type="text" class="form-control" value="Automático ao guardar" disabled>
-                    </div>
                     <div>
                         <label class="form-label mb-1">Equipa responsável</label>
                         <select class="form-select" name="team_id" required>
@@ -166,6 +222,16 @@ require __DIR__ . '/partials/header.php';
                         <label class="form-label mb-1">Nome do pedido</label>
                         <input class="form-control" name="title" placeholder="Ex.: Corrigir integração com faturação" required>
                     </div>
+                    <div>
+                        <label class="form-label mb-1">Tipo de pedido</label>
+                        <select class="form-select" name="ticket_type" id="dashboardTicketType">
+                            <option value="">Geral</option>
+                            <?php foreach ($ticketTypeTemplates as $templateKey => $template): ?>
+                                <option value="<?= h($templateKey) ?>"><?= h($template['label']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div id="dashboardTicketTypeFields" class="vstack gap-2"></div>
                     <div>
                         <label class="form-label mb-1">Descrição do ticket</label>
                         <textarea class="form-control" name="description" rows="5" placeholder="Descreve o pedido com contexto e impacto" required></textarea>
@@ -215,11 +281,78 @@ require __DIR__ . '/partials/header.php';
             </div>
         </div>
 
-        <?php if ($isAdmin): ?>
-            <div class="card shadow-sm soft-card mt-4"><div class="card-body p-4"><h3 class="h5">Empresa & Branding</h3><p class="small text-muted">Configure nome, morada, email, telefone e os dois logotipos numa página dedicada.</p><a class="btn btn-outline-primary btn-sm" href="company_profile.php">Abrir configurações da empresa</a></div></div>
-        <?php endif; ?>
     </div>
 </div>
+
+<script>
+const dashboardTicketTypeTemplates = <?= json_encode($ticketTypeTemplates, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const dashboardTicketTypeSelect = document.getElementById('dashboardTicketType');
+const dashboardTicketTypeFields = document.getElementById('dashboardTicketTypeFields');
+
+function buildDashboardTicketTypeFields() {
+    if (!dashboardTicketTypeSelect || !dashboardTicketTypeFields) {
+        return;
+    }
+
+    const selected = dashboardTicketTypeSelect.value;
+    const config = dashboardTicketTypeTemplates[selected];
+    dashboardTicketTypeFields.innerHTML = '';
+
+    if (!config || !Array.isArray(config.fields)) {
+        return;
+    }
+
+    config.fields.forEach((field) => {
+        const fieldWrapper = document.createElement('div');
+        const label = document.createElement('label');
+        label.className = 'form-label mb-1';
+        label.textContent = field.label || 'Campo';
+        fieldWrapper.appendChild(label);
+
+        const inputName = `ticket_field_${field.name}`;
+        if (field.type === 'textarea') {
+            const textarea = document.createElement('textarea');
+            textarea.className = 'form-control';
+            textarea.name = inputName;
+            textarea.required = !!field.required;
+            textarea.rows = 3;
+            textarea.placeholder = field.placeholder || '';
+            fieldWrapper.appendChild(textarea);
+        } else if (field.type === 'select') {
+            const select = document.createElement('select');
+            select.className = 'form-select';
+            select.name = inputName;
+            select.required = !!field.required;
+            const empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = 'Selecionar...';
+            select.appendChild(empty);
+            (field.options || []).forEach((optionValue) => {
+                const option = document.createElement('option');
+                option.value = optionValue;
+                option.textContent = optionValue;
+                select.appendChild(option);
+            });
+            fieldWrapper.appendChild(select);
+        } else {
+            const input = document.createElement('input');
+            input.className = 'form-control';
+            input.type = field.type || 'text';
+            input.name = inputName;
+            input.required = !!field.required;
+            input.placeholder = field.placeholder || '';
+            fieldWrapper.appendChild(input);
+        }
+
+        dashboardTicketTypeFields.appendChild(fieldWrapper);
+    });
+}
+
+if (dashboardTicketTypeSelect) {
+    dashboardTicketTypeSelect.addEventListener('change', buildDashboardTicketTypeFields);
+    buildDashboardTicketTypeFields();
+}
+</script>
 
 <div class="modal fade" id="teamModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post"><input type="hidden" name="action" value="create_team"><div class="modal-header"><h5 class="modal-title">Criar Equipa</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body vstack gap-3"><input class="form-control" name="name" placeholder="Nome da equipa" required><textarea class="form-control" name="description" placeholder="Descrição"></textarea></div><div class="modal-footer"><button class="btn btn-primary">Criar</button></div></form></div></div>
 
