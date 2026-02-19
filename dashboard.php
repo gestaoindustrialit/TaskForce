@@ -180,6 +180,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $canCreateTicket = true;
             $ticketType = (string) ($_POST['ticket_type'] ?? '');
+
+            $selectedTeamNameStmt = $pdo->prepare('SELECT name FROM teams WHERE id = ? LIMIT 1');
+            $selectedTeamNameStmt->execute([$teamId]);
+            $selectedTeamName = (string) $selectedTeamNameStmt->fetchColumn();
+            $teamPreset = infer_team_ticket_preset($selectedTeamName);
+            if (($teamPreset['ticket_type'] ?? '') !== '') {
+                $ticketType = (string) $teamPreset['ticket_type'];
+            }
+
             if (!array_key_exists($ticketType, $ticketTypeTemplates)) {
                 $ticketType = '';
             }
@@ -276,6 +285,7 @@ require __DIR__ . '/partials/header.php';
                                 <option value="<?= h($templateKey) ?>"><?= h($template['label']) ?></option>
                             <?php endforeach; ?>
                         </select>
+                        <div id="dashboardTicketTypeHint" class="form-text d-none"></div>
                     </div>
                     <div id="dashboardTicketTypeFields" class="vstack gap-2"></div>
                     <div>
@@ -336,6 +346,7 @@ const dashboardTeamTicketPresets = <?= json_encode($teamTicketPresets, JSON_UNES
 const dashboardTeamSelect = document.getElementById('dashboardTeamSelect');
 const dashboardTicketTypeSelect = document.getElementById('dashboardTicketType');
 const dashboardTicketTypeFields = document.getElementById('dashboardTicketTypeFields');
+const dashboardTicketTypeHint = document.getElementById('dashboardTicketTypeHint');
 const dashboardUrgencySelect = document.getElementById('dashboardUrgencySelect');
 const dashboardTicketTitle = document.getElementById('dashboardTicketTitle');
 const dashboardTicketDescription = document.getElementById('dashboardTicketDescription');
@@ -414,6 +425,18 @@ function applyTeamPresetToDashboardForm() {
 
     if (dashboardTicketTypeSelect) {
         dashboardTicketTypeSelect.value = preset.ticket_type || '';
+        dashboardTicketTypeSelect.disabled = !!preset.ticket_type;
+
+        if (dashboardTicketTypeHint) {
+            if (preset.ticket_type && dashboardTicketTypeTemplates[preset.ticket_type]) {
+                dashboardTicketTypeHint.textContent = `Tipo definido automaticamente pela equipa selecionada (${dashboardTicketTypeTemplates[preset.ticket_type].label}).`;
+                dashboardTicketTypeHint.classList.remove('d-none');
+            } else {
+                dashboardTicketTypeHint.textContent = '';
+                dashboardTicketTypeHint.classList.add('d-none');
+            }
+        }
+
         buildDashboardTicketTypeFields();
     }
 
