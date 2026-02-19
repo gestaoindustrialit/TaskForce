@@ -37,6 +37,47 @@ $ticketTypeTemplates = [
     ],
 ];
 
+function infer_team_ticket_preset(string $teamName): array
+{
+    $normalized = function_exists('mb_strtolower')
+        ? mb_strtolower($teamName, 'UTF-8')
+        : strtolower($teamName);
+
+    if (str_contains($normalized, 'desenho')) {
+        return [
+            'ticket_type' => 'desenho_tecnico',
+            'urgency' => 'Média',
+            'title_placeholder' => 'Ex.: Atualizar desenho de peça',
+            'description_placeholder' => 'Descreve alterações, materiais e referências do desenho',
+        ];
+    }
+
+    if (str_contains($normalized, 'manuten')) {
+        return [
+            'ticket_type' => 'manutencao',
+            'urgency' => 'Alta',
+            'title_placeholder' => 'Ex.: Avaria na linha de produção',
+            'description_placeholder' => 'Indica equipamento, impacto e estado atual da avaria',
+        ];
+    }
+
+    if (str_contains($normalized, 'compra') || str_contains($normalized, 'logíst') || str_contains($normalized, 'logist')) {
+        return [
+            'ticket_type' => 'compras',
+            'urgency' => 'Média',
+            'title_placeholder' => 'Ex.: Pedido de consumíveis',
+            'description_placeholder' => 'Detalha item, quantidade e prazo necessário',
+        ];
+    }
+
+    return [
+        'ticket_type' => '',
+        'urgency' => 'Média',
+        'title_placeholder' => 'Ex.: Corrigir integração com faturação',
+        'description_placeholder' => 'Descreve o pedido com contexto e impacto',
+    ];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -180,6 +221,11 @@ $teamsStmt = $pdo->prepare('SELECT t.*, tm.role, (SELECT COUNT(*) FROM projects 
 $teamsStmt->execute([$userId]);
 $teams = $teamsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$teamTicketPresets = [];
+foreach ($teams as $team) {
+    $teamTicketPresets[(string) $team['id']] = infer_team_ticket_preset((string) $team['name']);
+}
+
 $statsStmt = $pdo->prepare('SELECT (SELECT COUNT(*) FROM team_members WHERE user_id = ?) AS total_teams, (SELECT COUNT(*) FROM users) AS total_users, (SELECT COUNT(*) FROM projects p INNER JOIN team_members tm ON tm.team_id = p.team_id WHERE tm.user_id = ?) AS total_projects');
 $statsStmt->execute([$userId, $userId]);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
@@ -211,7 +257,7 @@ require __DIR__ . '/partials/header.php';
                     <input type="hidden" name="action" value="create_team_ticket">
                     <div>
                         <label class="form-label mb-1">Equipa responsável</label>
-                        <select class="form-select" name="team_id" required>
+                        <select class="form-select" name="team_id" id="dashboardTeamSelect" required>
                             <option value="">Selecionar equipa</option>
                             <?php foreach ($teams as $team): ?>
                                 <option value="<?= (int) $team['id'] ?>"><?= h($team['name']) ?></option>
@@ -220,7 +266,7 @@ require __DIR__ . '/partials/header.php';
                     </div>
                     <div>
                         <label class="form-label mb-1">Nome do pedido</label>
-                        <input class="form-control" name="title" placeholder="Ex.: Corrigir integração com faturação" required>
+                        <input class="form-control" name="title" id="dashboardTicketTitle" placeholder="Ex.: Corrigir integração com faturação" required>
                     </div>
                     <div>
                         <label class="form-label mb-1">Tipo de pedido</label>
@@ -234,12 +280,12 @@ require __DIR__ . '/partials/header.php';
                     <div id="dashboardTicketTypeFields" class="vstack gap-2"></div>
                     <div>
                         <label class="form-label mb-1">Descrição do ticket</label>
-                        <textarea class="form-control" name="description" rows="5" placeholder="Descreve o pedido com contexto e impacto" required></textarea>
+                        <textarea class="form-control" name="description" id="dashboardTicketDescription" rows="5" placeholder="Descreve o pedido com contexto e impacto" required></textarea>
                     </div>
                     <div class="row g-2">
                         <div class="col-md-6">
                             <label class="form-label mb-1">Nível de urgência</label>
-                            <select class="form-select" name="urgency">
+                            <select class="form-select" name="urgency" id="dashboardUrgencySelect">
                                 <option value="Baixa">Baixa</option>
                                 <option value="Média" selected>Média</option>
                                 <option value="Alta">Alta</option>
@@ -286,8 +332,13 @@ require __DIR__ . '/partials/header.php';
 
 <script>
 const dashboardTicketTypeTemplates = <?= json_encode($ticketTypeTemplates, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const dashboardTeamTicketPresets = <?= json_encode($teamTicketPresets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const dashboardTeamSelect = document.getElementById('dashboardTeamSelect');
 const dashboardTicketTypeSelect = document.getElementById('dashboardTicketType');
 const dashboardTicketTypeFields = document.getElementById('dashboardTicketTypeFields');
+const dashboardUrgencySelect = document.getElementById('dashboardUrgencySelect');
+const dashboardTicketTitle = document.getElementById('dashboardTicketTitle');
+const dashboardTicketDescription = document.getElementById('dashboardTicketDescription');
 
 function buildDashboardTicketTypeFields() {
     if (!dashboardTicketTypeSelect || !dashboardTicketTypeFields) {
@@ -348,9 +399,48 @@ function buildDashboardTicketTypeFields() {
     });
 }
 
+function applyTeamPresetToDashboardForm() {
+    if (!dashboardTeamSelect) {
+        return;
+    }
+
+    const selectedTeamId = dashboardTeamSelect.value;
+    const preset = dashboardTeamTicketPresets[selectedTeamId] || {
+        ticket_type: '',
+        urgency: 'Média',
+        title_placeholder: 'Ex.: Corrigir integração com faturação',
+        description_placeholder: 'Descreve o pedido com contexto e impacto',
+    };
+
+    if (dashboardTicketTypeSelect) {
+        dashboardTicketTypeSelect.value = preset.ticket_type || '';
+        buildDashboardTicketTypeFields();
+    }
+
+    if (dashboardUrgencySelect) {
+        const targetUrgency = preset.urgency || 'Média';
+        if (Array.from(dashboardUrgencySelect.options).some((option) => option.value === targetUrgency)) {
+            dashboardUrgencySelect.value = targetUrgency;
+        }
+    }
+
+    if (dashboardTicketTitle) {
+        dashboardTicketTitle.placeholder = preset.title_placeholder || 'Ex.: Corrigir integração com faturação';
+    }
+
+    if (dashboardTicketDescription) {
+        dashboardTicketDescription.placeholder = preset.description_placeholder || 'Descreve o pedido com contexto e impacto';
+    }
+}
+
 if (dashboardTicketTypeSelect) {
     dashboardTicketTypeSelect.addEventListener('change', buildDashboardTicketTypeFields);
     buildDashboardTicketTypeFields();
+}
+
+if (dashboardTeamSelect) {
+    dashboardTeamSelect.addEventListener('change', applyTeamPresetToDashboardForm);
+    applyTeamPresetToDashboardForm();
 }
 </script>
 
