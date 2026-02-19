@@ -78,6 +78,21 @@ function h(?string $value): string
     return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
 }
 
+
+function log_app_event(PDO $pdo, ?int $userId, string $eventType, string $description, array $context = []): void
+{
+    $contextJson = null;
+    if (count($context) > 0) {
+        $encoded = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($encoded !== false) {
+            $contextJson = $encoded;
+        }
+    }
+
+    $stmt = $pdo->prepare('INSERT INTO app_logs(user_id, event_type, description, context_json) VALUES (?, ?, ?, ?)');
+    $stmt->execute([$userId, $eventType, $description, $contextJson]);
+}
+
 function task_badge_class(string $status): string
 {
     return match ($status) {

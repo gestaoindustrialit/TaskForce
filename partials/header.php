@@ -51,6 +51,9 @@ header('Content-Type: text/html; charset=UTF-8');
                 </div>
                 <a class="nav-link" href="daily_report.php">Relat&oacute;rio di&aacute;rio</a>
                 <a class="nav-link" href="company_profile.php">Empresa &amp; Branding</a>
+                <?php if ((int) $user['is_admin'] === 1): ?>
+                    <a class="nav-link" href="app_logs.php">Logs</a>
+                <?php endif; ?>
             </div>
         <?php endif; ?>
         <div class="ms-auto d-flex align-items-center gap-3 text-white">

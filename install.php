@@ -19,6 +19,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasSqlite) {
         if ($usersCount === 0) {
             $insert = $pdo->prepare('INSERT INTO users(name, email, password, is_admin) VALUES (?, ?, ?, 1)');
             $insert->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT)]);
+            $adminId = (int) $pdo->lastInsertId();
+            log_app_event($pdo, $adminId, 'system.install', 'Instalação inicial concluída.', ['admin_email' => $email]);
             $success = 'Instalação concluída. Admin criado com sucesso.';
         } else {
             $error = 'A instalação já foi executada (já existem utilizadores criados).';
