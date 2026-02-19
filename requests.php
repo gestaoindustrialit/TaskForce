@@ -440,37 +440,35 @@ require __DIR__ . '/partials/header.php';
 <?php if (!empty($_SESSION['flash_success'])): ?><div class="alert alert-success"><?= h($_SESSION['flash_success']) ?></div><?php unset($_SESSION['flash_success']); endif; ?>
 <?php if (!empty($_SESSION['flash_error'])): ?><div class="alert alert-danger"><?= h($_SESSION['flash_error']) ?></div><?php unset($_SESSION['flash_error']); endif; ?>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-2 mb-3">
     <h2 class="h4 mb-0">Pedidos e tickets</h2>
-    <div class="d-flex align-items-center gap-3">
-        <a href="#forms-list" class="btn btn-outline-secondary btn-sm">Visão dos formulários</a>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        <a href="#forms-list" class="btn btn-outline-secondary btn-sm">Ir para formulários</a>
         <form method="get" class="form-check form-switch mb-0">
             <input type="hidden" name="show_completed" value="0">
             <input class="form-check-input" type="checkbox" id="showCompleted" name="show_completed" value="1" <?= $showCompleted ? 'checked' : '' ?> onchange="this.form.submit()">
             <label class="form-check-label small" for="showCompleted">Mostrar concluídos na vista principal</label>
         </form>
-        <?php if ($isAdmin): ?><button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createTeamFormModal">Gerar formulário (admin)</button><?php endif; ?>
+        <?php if ($isAdmin): ?><button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createTeamFormModal">Gerar formulário (admin)</button><?php endif; ?>
     </div>
 </div>
 
 <div class="row g-4">
     <div class="col-12">
         <div class="card soft-card shadow-sm">
-            <div class="card-header bg-white d-flex justify-content-between align-items-center"><h3 class="h5 mb-0">Submeter ticket</h3><button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#ticketFormCollapse" aria-expanded="false" aria-controls="ticketFormCollapse">Expandir</button></div>
-            <div class="collapse" id="ticketFormCollapse">
-                <div class="card-body">
-                    <form method="post" class="row g-2">
-                        <input type="hidden" name="action" value="create_team_ticket">
-                        <div class="col-md-3"><label class="form-label small">Equipa</label><select class="form-select" name="team_id" required><option value="">Selecionar...</option><?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>"><?= h($team['name']) ?></option><?php endforeach; ?></select></div>
-                        <div class="col-md-3"><label class="form-label small">Assunto</label><input class="form-control" name="title" required></div>
-                        <div class="col-md-2"><label class="form-label small">Urgência</label><select class="form-select" name="urgency"><option>Baixa</option><option selected>Média</option><option>Alta</option><option>Crítica</option></select></div>
-                        <div class="col-md-2"><label class="form-label small">Data entrega</label><input class="form-control" type="date" name="due_date"></div>
-                        <div class="col-md-3"><label class="form-label small">Tipo de pedido</label><select class="form-select" name="ticket_type" id="requestsTicketType"><option value="">Geral</option><?php foreach ($ticketTypeTemplates as $templateKey => $template): ?><option value="<?= h($templateKey) ?>"><?= h($template['label']) ?></option><?php endforeach; ?></select></div>
-                        <div class="col-md-12" id="requestsTicketTypeFields"></div>
-                        <div class="col-md-12"><label class="form-label small">Detalhe do ticket</label><textarea class="form-control" name="description" rows="3" required></textarea></div>
-                        <div class="col-md-12"><button class="btn btn-primary">Submeter ticket</button></div>
-                    </form>
-                </div>
+            <div class="card-header bg-white"><h3 class="h5 mb-0">Submeter ticket</h3></div>
+            <div class="card-body">
+                <form method="post" class="row g-2">
+                    <input type="hidden" name="action" value="create_team_ticket">
+                    <div class="col-md-3"><label class="form-label small">Equipa</label><select class="form-select" name="team_id" required><option value="">Selecionar...</option><?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>"><?= h($team['name']) ?></option><?php endforeach; ?></select></div>
+                    <div class="col-md-3"><label class="form-label small">Assunto</label><input class="form-control" name="title" required></div>
+                    <div class="col-md-2"><label class="form-label small">Urgência</label><select class="form-select" name="urgency"><option>Baixa</option><option selected>Média</option><option>Alta</option><option>Crítica</option></select></div>
+                    <div class="col-md-2"><label class="form-label small">Data entrega</label><input class="form-control" type="date" name="due_date"></div>
+                    <div class="col-md-3"><label class="form-label small">Tipo de pedido</label><select class="form-select" name="ticket_type" id="requestsTicketType"><option value="">Geral</option><?php foreach ($ticketTypeTemplates as $templateKey => $template): ?><option value="<?= h($templateKey) ?>"><?= h($template['label']) ?></option><?php endforeach; ?></select></div>
+                    <div class="col-md-12" id="requestsTicketTypeFields"></div>
+                    <div class="col-md-12"><label class="form-label small">Detalhe do ticket</label><textarea class="form-control" name="description" rows="3" required></textarea></div>
+                    <div class="col-md-12"><button class="btn btn-primary">Submeter ticket</button></div>
+                </form>
             </div>
         </div>
     </div>
@@ -490,7 +488,6 @@ require __DIR__ . '/partials/header.php';
                                 <small class="text-muted d-block">Criado por <?= h($form['creator_name']) ?></small>
                             </div>
                             <div class="d-flex gap-2 align-items-start">
-                                <a href="#forms-list" class="btn btn-sm btn-outline-primary">Visão dos formulários</a>
                             <?php if ($isAdmin): ?>
                                 <div class="d-flex gap-2">
                                     <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editFormModal<?= (int) $form['id'] ?>">Editar</button>
