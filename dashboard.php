@@ -283,6 +283,24 @@ $statsStmt->execute([$userId, $userId]);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 $users = $pdo->query('SELECT id, name, email, is_admin FROM users ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
 
+$scheduledTasksStmt = $pdo->prepare("SELECT tt.id, tt.title, tt.status, tt.urgency, tt.due_date, tt.created_at, t.id AS team_id, t.name AS team_name
+    FROM team_tickets tt
+    INNER JOIN teams t ON t.id = tt.team_id
+    WHERE tt.assignee_user_id = ?
+    ORDER BY
+        CASE WHEN tt.due_date IS NULL THEN 1 ELSE 0 END ASC,
+        tt.due_date ASC,
+        CASE tt.urgency
+            WHEN 'Crítica' THEN 4
+            WHEN 'Alta' THEN 3
+            WHEN 'Média' THEN 2
+            WHEN 'Baixa' THEN 1
+            ELSE 0
+        END DESC,
+        tt.created_at DESC");
+$scheduledTasksStmt->execute([$userId]);
+$scheduledTasks = $scheduledTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+
 $pageTitle = 'Dashboard';
 require __DIR__ . '/partials/header.php';
 ?>
@@ -301,6 +319,33 @@ require __DIR__ . '/partials/header.php';
 
 <div class="row g-4">
     <div class="col-lg-8">
+        <div class="card shadow-sm soft-card mb-4">
+            <div class="card-header bg-white border-0 pt-4 px-4">
+                <h2 class="h4 mb-0">Tarefas programadas para ti</h2>
+            </div>
+            <div class="card-body p-4">
+                <?php if ($scheduledTasks): ?>
+                    <div class="vstack gap-2">
+                        <?php foreach ($scheduledTasks as $task): ?>
+                            <div class="border rounded p-3">
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+                                    <div>
+                                        <strong><?= h($task['title']) ?></strong>
+                                        <div class="small text-muted">Equipa: <?= h($task['team_name']) ?> · Estado: <?= h($task['status']) ?></div>
+                                    </div>
+                                    <span class="badge text-bg-light border"><?= h($task['urgency']) ?></span>
+                                </div>
+                                <div class="small text-muted mt-1">Prazo: <?= h($task['due_date'] ? date('d/m/Y', strtotime((string) $task['due_date'])) : 'Sem data') ?></div>
+                                <a class="btn btn-link btn-sm px-0 mt-1" href="team.php?id=<?= (int) $task['team_id'] ?>">Ver tarefa na equipa</a>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <p class="text-muted mb-0">Ainda não tens tarefas atribuídas.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+
         <div class="card shadow-sm soft-card h-100">
             <div class="card-header bg-white border-0 pt-4 px-4"><h2 class="h4 mb-0">Novo ticket de equipa</h2></div>
             <div class="card-body p-4">
