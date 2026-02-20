@@ -21,14 +21,56 @@ if ($userId !== (int) $report['user_id'] && !$allowedStmt->fetchColumn()) {
     exit('Sem acesso ao relatório.');
 }
 
-$pageTitle = 'Relatório diário A4';
-require __DIR__ . '/partials/header.php';
+header('Content-Type: text/html; charset=UTF-8');
 ?>
-<div class="d-flex justify-content-between align-items-center mb-3 no-print">
-    <h1 class="h4 mb-0">Relatório diário A4</h1>
-    <button class="btn btn-outline-primary" onclick="window.print()">Gerar PDF (imprimir A4)</button>
-</div>
-<div class="report-sheet">
-    <?= $report['html_content'] ?>
-</div>
-<?php require __DIR__ . '/partials/footer.php'; ?>
+<!doctype html>
+<html lang="pt">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Relatório diário A4 · TaskForce</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="assets/styles.css" rel="stylesheet">
+    <style>
+        body {
+            background: #f3f4f6;
+        }
+
+        @media print {
+            body {
+                background: white !important;
+            }
+
+            .no-print {
+                display: none !important;
+            }
+
+            .report-sheet {
+                box-shadow: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                max-width: none !important;
+            }
+
+            @page {
+                size: A4;
+                margin: 12mm;
+            }
+        }
+    </style>
+</head>
+<body>
+<main class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 no-print">
+        <h1 class="h4 mb-0">Relatório diário A4</h1>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary" href="daily_report.php">Voltar</a>
+            <button class="btn btn-outline-primary" onclick="window.print()">Gerar PDF (imprimir A4)</button>
+        </div>
+    </div>
+    <div class="report-sheet">
+        <?= $report['html_content'] ?>
+    </div>
+</main>
+</body>
+</html>
