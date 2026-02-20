@@ -41,6 +41,12 @@ function require_login(): void
 
 function team_accessible(PDO $pdo, int $teamId, int $userId): bool
 {
+    if (is_admin($pdo, $userId)) {
+        $teamExistsStmt = $pdo->prepare('SELECT 1 FROM teams WHERE id = ?');
+        $teamExistsStmt->execute([$teamId]);
+        return (bool) $teamExistsStmt->fetchColumn();
+    }
+
     $stmt = $pdo->prepare('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?');
     $stmt->execute([$teamId, $userId]);
 
