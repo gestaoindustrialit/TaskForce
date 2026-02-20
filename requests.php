@@ -2,6 +2,53 @@
 require_once __DIR__ . '/helpers.php';
 require_login();
 
+
+if (!function_exists('is_excel_file_path')) {
+    function is_excel_file_path(string $filePath): bool
+    {
+        $extension = strtolower((string) pathinfo($filePath, PATHINFO_EXTENSION));
+        return in_array($extension, ['xls', 'xlsx', 'xlsm', 'xlsb', 'ods', 'csv'], true);
+    }
+}
+
+if (!function_exists('absolute_url_for_path')) {
+    function absolute_url_for_path(string $relativePath): ?string
+    {
+        $host = $_SERVER['HTTP_HOST'] ?? '';
+        if ($host === '') {
+            return null;
+        }
+
+        $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+        $scheme = $https ? 'https' : 'http';
+        $scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '/');
+        $basePath = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
+        $cleanPath = ltrim($relativePath, '/');
+
+        if ($basePath === '' || $basePath === '.') {
+            return $scheme . '://' . $host . '/' . $cleanPath;
+        }
+
+        return $scheme . '://' . $host . $basePath . '/' . $cleanPath;
+    }
+}
+
+if (!function_exists('google_docs_excel_preview_url')) {
+    function google_docs_excel_preview_url(string $relativePath): ?string
+    {
+        if (!is_excel_file_path($relativePath)) {
+            return null;
+        }
+
+        $absoluteUrl = absolute_url_for_path($relativePath);
+        if ($absoluteUrl === null) {
+            return null;
+        }
+
+        return 'https://docs.google.com/gview?embedded=1&url=' . rawurlencode($absoluteUrl);
+    }
+}
+
 $userId = (int) $_SESSION['user_id'];
 $isAdmin = is_admin($pdo, $userId);
 $showCompleted = (int) ($_GET['show_completed'] ?? 0) === 1;
