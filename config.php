@@ -340,6 +340,27 @@ $pdo->exec(
     )'
 );
 
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS team_recurring_task_overrides (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recurring_task_id INTEGER NOT NULL,
+        occurrence_date DATE NOT NULL,
+        project_id INTEGER,
+        assignee_user_id INTEGER,
+        title TEXT NOT NULL,
+        description TEXT,
+        time_of_day TEXT,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(recurring_task_id) REFERENCES team_recurring_tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL,
+        FOREIGN KEY(assignee_user_id) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE(recurring_task_id, occurrence_date)
+    )'
+);
+
 $recurringColumns = $pdo->query('PRAGMA table_info(team_recurring_tasks)')->fetchAll(PDO::FETCH_COLUMN, 1);
 if (!in_array('recurrence_type', $recurringColumns, true)) {
     $pdo->exec('ALTER TABLE team_recurring_tasks ADD COLUMN recurrence_type TEXT NOT NULL DEFAULT "weekly"');
