@@ -170,6 +170,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'update_scheduled_task') {
+        $ticketId = (int) ($_POST['ticket_id'] ?? 0);
+        $status = trim((string) ($_POST['status'] ?? ''));
+        $urgency = trim((string) ($_POST['urgency'] ?? 'Média'));
+        $dueDateInput = trim((string) ($_POST['due_date'] ?? ''));
+        $estimatedMinutes = ($_POST['estimated_minutes'] ?? '') !== '' ? max(0, (int) $_POST['estimated_minutes']) : null;
+        $actualMinutes = ($_POST['actual_minutes'] ?? '') !== '' ? max(0, (int) $_POST['actual_minutes']) : null;
+
+        $allowedUrgencies = ['Baixa', 'Média', 'Alta', 'Crítica'];
+        if ($ticketId <= 0 || !ticket_status_value_exists($pdo, $status) || !in_array($urgency, $allowedUrgencies, true)) {
+            $flashError = 'Dados inválidos para atualizar tarefa.';
+        } else {
+            $checkStmt = $pdo->prepare('SELECT tt.id FROM team_tickets tt INNER JOIN team_members tm ON tm.team_id = tt.team_id WHERE tt.id = ? AND tt.assignee_user_id = ? AND tm.user_id = ? LIMIT 1');
+            $checkStmt->execute([$ticketId, $userId, $userId]);
+            $canUpdateOwnTicket = (bool) $checkStmt->fetchColumn();
+
+            if (!$canUpdateOwnTicket) {
+                $flashError = 'Sem permissão para atualizar esta tarefa.';
+            } else {
+                $dueDate = null;
+                if ($dueDateInput !== '') {
+                    $parsedDate = DateTimeImmutable::createFromFormat('Y-m-d', $dueDateInput);
+                    if (!$parsedDate || $parsedDate->format('Y-m-d') !== $dueDateInput) {
+                        $flashError = 'Data limite inválida.';
+                    } else {
+                        $dueDate = $dueDateInput;
+                    }
+                }
+
+                if ($flashError === null) {
+                    $completedAt = ticket_status_is_completed($pdo, $status) ? date('Y-m-d H:i:s') : null;
+                    $updateStmt = $pdo->prepare('UPDATE team_tickets SET status = ?, urgency = ?, due_date = ?, estimated_minutes = ?, actual_minutes = ?, completed_at = ? WHERE id = ? AND assignee_user_id = ?');
+                    $updateStmt->execute([$status, $urgency, $dueDate, $estimatedMinutes, $actualMinutes, $completedAt, $ticketId, $userId]);
+                    if ($updateStmt->rowCount() > 0) {
+                        log_app_event($pdo, $userId, 'ticket.update.self', 'Tarefa atribuída atualizada no dashboard.', ['ticket_id' => $ticketId, 'status' => $status, 'urgency' => $urgency]);
+                        $flashSuccess = 'Tarefa atualizada com sucesso.';
+                    }
+                }
+            }
+        }
+    }
+
     if ($action === 'create_team_ticket') {
         $teamId = (int) ($_POST['team_id'] ?? 0);
         $title = trim($_POST['title'] ?? '');
@@ -283,6 +325,26 @@ $statsStmt->execute([$userId, $userId]);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 $users = $pdo->query('SELECT id, name, email, is_admin FROM users ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
 
+$scheduledTasksStmt = $pdo->prepare("SELECT tt.id, tt.title, tt.status, tt.urgency, tt.due_date, tt.created_at, tt.estimated_minutes, tt.actual_minutes, t.id AS team_id, t.name AS team_name
+    FROM team_tickets tt
+    INNER JOIN teams t ON t.id = tt.team_id
+    INNER JOIN team_members tm ON tm.team_id = t.id
+    WHERE tt.assignee_user_id = ? AND tm.user_id = ?
+    ORDER BY
+        CASE WHEN tt.due_date IS NULL THEN 1 ELSE 0 END ASC,
+        tt.due_date ASC,
+        CASE tt.urgency
+            WHEN 'Crítica' THEN 4
+            WHEN 'Alta' THEN 3
+            WHEN 'Média' THEN 2
+            WHEN 'Baixa' THEN 1
+            ELSE 0
+        END DESC,
+        tt.created_at DESC");
+$scheduledTasksStmt->execute([$userId, $userId]);
+$scheduledTasks = $scheduledTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+$ticketStatuses = ticket_statuses($pdo);
+
 $pageTitle = 'Dashboard';
 require __DIR__ . '/partials/header.php';
 ?>
@@ -301,6 +363,69 @@ require __DIR__ . '/partials/header.php';
 
 <div class="row g-4">
     <div class="col-lg-8">
+        <div class="card shadow-sm soft-card mb-4">
+            <div class="card-header bg-white border-0 pt-4 px-4">
+                <h2 class="h4 mb-0">Tarefas programadas para ti</h2>
+            </div>
+            <div class="card-body p-4">
+                <?php if ($scheduledTasks): ?>
+                    <div class="vstack gap-3">
+                        <?php foreach ($scheduledTasks as $task): ?>
+                            <form method="post" class="border rounded p-3 vstack gap-2">
+                                <input type="hidden" name="action" value="update_scheduled_task">
+                                <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+                                    <div>
+                                        <strong><?= h($task['title']) ?></strong>
+                                        <div class="small text-muted">Equipa: <?= h($task['team_name']) ?></div>
+                                    </div>
+                                    <span class="badge" style="<?= h(ticket_status_badge_style($pdo, (string) $task['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $task['status'])) ?></span>
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-md-4">
+                                        <label class="form-label mb-1 small">Estado</label>
+                                        <select class="form-select form-select-sm" name="status">
+                                            <?php foreach ($ticketStatuses as $statusOption): ?>
+                                                <option value="<?= h((string) $statusOption['value']) ?>" <?= (string) $task['status'] === (string) $statusOption['value'] ? 'selected' : '' ?>><?= h((string) $statusOption['label']) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label mb-1 small">Urgência</label>
+                                        <select class="form-select form-select-sm" name="urgency">
+                                            <?php foreach (['Baixa', 'Média', 'Alta', 'Crítica'] as $urgencyOption): ?>
+                                                <option value="<?= h($urgencyOption) ?>" <?= (string) $task['urgency'] === $urgencyOption ? 'selected' : '' ?>><?= h($urgencyOption) ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label mb-1 small">Data limite</label>
+                                        <input class="form-control form-control-sm" type="date" name="due_date" value="<?= h((string) ($task['due_date'] ?? '')) ?>">
+                                    </div>
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label mb-1 small">Previsto (min)</label>
+                                        <input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : '' ?>">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label mb-1 small">Real (min)</label>
+                                        <input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : '' ?>">
+                                    </div>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <a class="btn btn-link btn-sm px-0" href="team.php?id=<?= (int) $task['team_id'] ?>">Abrir equipa</a>
+                                    <button class="btn btn-sm btn-primary">Guardar alterações</button>
+                                </div>
+                            </form>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <p class="text-muted mb-0">Ainda não tens tarefas atribuídas.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+
         <div class="card shadow-sm soft-card h-100">
             <div class="card-header bg-white border-0 pt-4 px-4"><h2 class="h4 mb-0">Novo ticket de equipa</h2></div>
             <div class="card-body p-4">
