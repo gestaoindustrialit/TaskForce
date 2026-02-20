@@ -4,6 +4,10 @@ require_login();
 
 $userId = (int) $_SESSION['user_id'];
 $isAdmin = is_admin($pdo, $userId);
+if (!$isAdmin) {
+    redirect('dashboard.php');
+}
+
 $flashSuccess = null;
 $flashError = null;
 
