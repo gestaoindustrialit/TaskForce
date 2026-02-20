@@ -344,6 +344,73 @@ $scheduledTasksStmt = $pdo->prepare("SELECT tt.id, tt.title, tt.status, tt.urgen
 $scheduledTasksStmt->execute([$userId, $userId]);
 $scheduledTasks = $scheduledTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 $ticketStatuses = ticket_statuses($pdo);
+$completedStatusValues = [];
+foreach ($ticketStatuses as $status) {
+    if (!empty($status['is_completed'])) {
+        $completedStatusValues[] = (string) $status['value'];
+    }
+}
+
+$pendingTasksByPreset = [
+    'desenho_tecnico' => [],
+    'manutencao' => [],
+];
+
+if ($isAdmin) {
+    $teamPendingTicketsStmt = $pdo->query("SELECT tt.id, tt.title, tt.status, tt.urgency, tt.due_date, t.id AS team_id, t.name AS team_name
+        FROM team_tickets tt
+        INNER JOIN teams t ON t.id = tt.team_id
+        ORDER BY
+            CASE WHEN tt.due_date IS NULL THEN 1 ELSE 0 END ASC,
+            tt.due_date ASC,
+            CASE tt.urgency
+                WHEN 'Crítica' THEN 4
+                WHEN 'Alta' THEN 3
+                WHEN 'Média' THEN 2
+                WHEN 'Baixa' THEN 1
+                ELSE 0
+            END DESC,
+            tt.created_at DESC");
+    $teamPendingTickets = $teamPendingTicketsStmt->fetchAll(PDO::FETCH_ASSOC);
+} else {
+    $teamPendingTicketsStmt = $pdo->prepare("SELECT tt.id, tt.title, tt.status, tt.urgency, tt.due_date, t.id AS team_id, t.name AS team_name
+        FROM team_tickets tt
+        INNER JOIN teams t ON t.id = tt.team_id
+        INNER JOIN team_members tm ON tm.team_id = t.id
+        WHERE tm.user_id = ?
+        ORDER BY
+            CASE WHEN tt.due_date IS NULL THEN 1 ELSE 0 END ASC,
+            tt.due_date ASC,
+            CASE tt.urgency
+                WHEN 'Crítica' THEN 4
+                WHEN 'Alta' THEN 3
+                WHEN 'Média' THEN 2
+                WHEN 'Baixa' THEN 1
+                ELSE 0
+            END DESC,
+            tt.created_at DESC");
+    $teamPendingTicketsStmt->execute([$userId]);
+    $teamPendingTickets = $teamPendingTicketsStmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+foreach ($teamPendingTickets as $pendingTask) {
+    if (in_array((string) $pendingTask['status'], $completedStatusValues, true)) {
+        continue;
+    }
+
+    $presetType = (string) (infer_team_ticket_preset((string) $pendingTask['team_name'])['ticket_type'] ?? '');
+    if (!array_key_exists($presetType, $pendingTasksByPreset)) {
+        continue;
+    }
+
+    $pendingTasksByPreset[$presetType][] = [
+        'title' => (string) $pendingTask['title'],
+        'team_name' => (string) $pendingTask['team_name'],
+        'urgency' => (string) $pendingTask['urgency'],
+        'due_date' => $pendingTask['due_date'] !== null ? (string) $pendingTask['due_date'] : '',
+        'team_id' => (int) $pendingTask['team_id'],
+    ];
+}
 
 $pageTitle = 'Dashboard';
 require __DIR__ . '/partials/header.php';
@@ -364,14 +431,24 @@ require __DIR__ . '/partials/header.php';
 <div class="row g-4">
     <div class="col-lg-8">
         <div class="card shadow-sm soft-card mb-4">
-            <div class="card-header bg-white border-0 pt-4 px-4">
+            <div class="card-header bg-white border-0 pt-4 px-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
                 <h2 class="h4 mb-0">Tarefas programadas para ti</h2>
+                <div class="d-flex align-items-center gap-3 ms-auto">
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" role="switch" id="toggleCompletedTasks">
+                        <label class="form-check-label small" for="toggleCompletedTasks">Ocultar concluídas</label>
+                    </div>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#scheduledTasksContent" aria-expanded="true" aria-controls="scheduledTasksContent" id="scheduledTasksVisibilityBtn" title="Colapsar/expandir">
+                        <i class="bi bi-eye"></i>
+                    </button>
+                </div>
             </div>
+            <div class="collapse show" id="scheduledTasksContent">
             <div class="card-body p-4">
                 <?php if ($scheduledTasks): ?>
-                    <div class="vstack gap-3">
+                    <div class="vstack gap-3" id="scheduledTasksList">
                         <?php foreach ($scheduledTasks as $task): ?>
-                            <form method="post" class="border rounded p-3 vstack gap-2">
+                            <form method="post" class="border rounded p-3 vstack gap-2 js-scheduled-task" data-is-completed="<?= ticket_status_is_completed($pdo, (string) $task['status']) ? '1' : '0' ?>">
                                 <input type="hidden" name="action" value="update_scheduled_task">
                                 <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
                                 <div class="d-flex justify-content-between align-items-start gap-3">
@@ -420,9 +497,33 @@ require __DIR__ . '/partials/header.php';
                             </form>
                         <?php endforeach; ?>
                     </div>
+                    <p class="text-muted mb-0 d-none" id="scheduledTasksEmptyState">Sem tarefas pendentes com o filtro atual.</p>
                 <?php else: ?>
                     <p class="text-muted mb-0">Ainda não tens tarefas atribuídas.</p>
                 <?php endif; ?>
+            </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm soft-card mb-4">
+            <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center gap-3">
+                <h2 class="h5 mb-0">Pendentes por equipa técnica</h2>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#pendingByTypeContent" aria-expanded="false" aria-controls="pendingByTypeContent" id="pendingByTypeVisibilityBtn" title="Colapsar/expandir">
+                    <i class="bi bi-eye-slash"></i>
+                </button>
+            </div>
+            <div class="collapse" id="pendingByTypeContent">
+                <div class="card-body p-4 vstack gap-3">
+                    <div>
+                        <label class="form-label mb-1" for="pendingBoardFilter">Ver pendentes de</label>
+                        <select class="form-select" id="pendingBoardFilter">
+                            <option value="desenho_tecnico">Desenho técnico</option>
+                            <option value="manutencao">Manutenção</option>
+                        </select>
+                    </div>
+                    <ul class="list-group" id="pendingBoardList"></ul>
+                    <p class="text-muted mb-0 d-none" id="pendingBoardEmpty">Não existem tarefas pendentes neste grupo.</p>
+                </div>
             </div>
         </div>
 
@@ -511,6 +612,7 @@ require __DIR__ . '/partials/header.php';
 <script>
 const dashboardTicketTypeTemplates = <?= json_encode($ticketTypeTemplates, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const dashboardTeamTicketPresets = <?= json_encode($teamTicketPresets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const dashboardPendingTasksByPreset = <?= json_encode($pendingTasksByPreset, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const dashboardTeamSelect = document.getElementById('dashboardTeamSelect');
 const dashboardTicketTypeSelect = document.getElementById('dashboardTicketType');
 const dashboardTicketTypeFields = document.getElementById('dashboardTicketTypeFields');
@@ -518,6 +620,74 @@ const dashboardTicketTypeHint = document.getElementById('dashboardTicketTypeHint
 const dashboardUrgencySelect = document.getElementById('dashboardUrgencySelect');
 const dashboardTicketTitle = document.getElementById('dashboardTicketTitle');
 const dashboardTicketDescription = document.getElementById('dashboardTicketDescription');
+const toggleCompletedTasks = document.getElementById('toggleCompletedTasks');
+const scheduledTaskRows = document.querySelectorAll('.js-scheduled-task');
+const scheduledTasksEmptyState = document.getElementById('scheduledTasksEmptyState');
+const scheduledTasksVisibilityBtn = document.getElementById('scheduledTasksVisibilityBtn');
+const pendingByTypeVisibilityBtn = document.getElementById('pendingByTypeVisibilityBtn');
+const pendingByTypeFilter = document.getElementById('pendingBoardFilter');
+const pendingByTypeList = document.getElementById('pendingBoardList');
+const pendingByTypeEmpty = document.getElementById('pendingBoardEmpty');
+
+function refreshScheduledTasksVisibility() {
+    if (!toggleCompletedTasks || scheduledTaskRows.length === 0) {
+        return;
+    }
+
+    let visibleCount = 0;
+    scheduledTaskRows.forEach((taskRow) => {
+        const isCompleted = taskRow.dataset.isCompleted === '1';
+        const shouldHide = toggleCompletedTasks.checked && isCompleted;
+        taskRow.classList.toggle('d-none', shouldHide);
+        if (!shouldHide) {
+            visibleCount += 1;
+        }
+    });
+
+    if (scheduledTasksEmptyState) {
+        scheduledTasksEmptyState.classList.toggle('d-none', visibleCount > 0);
+    }
+}
+
+function updateCollapseEyeIcon(buttonElement, isExpanded) {
+    if (!buttonElement) {
+        return;
+    }
+
+    const icon = buttonElement.querySelector('i');
+    if (!icon) {
+        return;
+    }
+
+    icon.classList.toggle('bi-eye', isExpanded);
+    icon.classList.toggle('bi-eye-slash', !isExpanded);
+}
+
+function renderPendingTasksByPreset() {
+    if (!pendingByTypeFilter || !pendingByTypeList || !pendingByTypeEmpty) {
+        return;
+    }
+
+    const selectedPreset = pendingByTypeFilter.value;
+    const tasks = dashboardPendingTasksByPreset[selectedPreset] || [];
+    pendingByTypeList.innerHTML = '';
+
+    tasks.forEach((task) => {
+        const dueDateLabel = task.due_date ? ` · Até ${task.due_date}` : '';
+        const listItem = document.createElement('li');
+        listItem.className = 'list-group-item d-flex justify-content-between align-items-start gap-3';
+        listItem.innerHTML = `
+            <div>
+                <strong>${task.title}</strong>
+                <div class="small text-muted">${task.team_name} · ${task.urgency}${dueDateLabel}</div>
+            </div>
+            <a class="btn btn-sm btn-outline-primary" href="team.php?id=${task.team_id}">Abrir</a>
+        `;
+        pendingByTypeList.appendChild(listItem);
+    });
+
+    pendingByTypeEmpty.classList.toggle('d-none', tasks.length > 0);
+}
 
 function buildDashboardTicketTypeFields() {
     if (!dashboardTicketTypeSelect || !dashboardTicketTypeFields) {
@@ -640,6 +810,28 @@ if (dashboardTicketTypeSelect) {
 if (dashboardTeamSelect) {
     dashboardTeamSelect.addEventListener('change', applyTeamPresetToDashboardForm);
     applyTeamPresetToDashboardForm();
+}
+
+if (toggleCompletedTasks) {
+    toggleCompletedTasks.addEventListener('change', refreshScheduledTasksVisibility);
+    refreshScheduledTasksVisibility();
+}
+
+const scheduledTasksCollapse = document.getElementById('scheduledTasksContent');
+if (scheduledTasksCollapse) {
+    scheduledTasksCollapse.addEventListener('shown.bs.collapse', () => updateCollapseEyeIcon(scheduledTasksVisibilityBtn, true));
+    scheduledTasksCollapse.addEventListener('hidden.bs.collapse', () => updateCollapseEyeIcon(scheduledTasksVisibilityBtn, false));
+}
+
+const pendingByTypeCollapse = document.getElementById('pendingByTypeContent');
+if (pendingByTypeCollapse) {
+    pendingByTypeCollapse.addEventListener('shown.bs.collapse', () => updateCollapseEyeIcon(pendingByTypeVisibilityBtn, true));
+    pendingByTypeCollapse.addEventListener('hidden.bs.collapse', () => updateCollapseEyeIcon(pendingByTypeVisibilityBtn, false));
+}
+
+if (pendingByTypeFilter) {
+    pendingByTypeFilter.addEventListener('change', renderPendingTasksByPreset);
+    renderPendingTasksByPreset();
 }
 </script>
 
