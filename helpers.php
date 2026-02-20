@@ -78,7 +78,6 @@ function h(?string $value): string
     return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
 }
 
-
 function log_app_event(PDO $pdo, ?int $userId, string $eventType, string $description, array $context = []): void
 {
     $contextJson = null;
