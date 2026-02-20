@@ -244,8 +244,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if (!$occurrences) {
                                 $flashError = 'Esta tarefa não está agendada para a data selecionada.';
                             } else {
-                                $overrideStmt = $pdo->prepare('INSERT INTO team_recurring_task_overrides(recurring_task_id, occurrence_date, project_id, assignee_user_id, title, description, time_of_day, created_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(recurring_task_id, occurrence_date) DO UPDATE SET project_id = excluded.project_id, assignee_user_id = excluded.assignee_user_id, title = excluded.title, description = excluded.description, time_of_day = excluded.time_of_day, updated_at = CURRENT_TIMESTAMP');
-                                $overrideStmt->execute([$recurringTaskId, $occurrenceDate->format('Y-m-d'), $projectIdValue, $assigneeUserIdValue, $title, $description, $timeOfDay !== '' ? $timeOfDay : null, $userId]);
+                                $occurrenceDateValue = $occurrenceDate->format('Y-m-d');
+                                $existingOverrideStmt = $pdo->prepare('SELECT id FROM team_recurring_task_overrides WHERE recurring_task_id = ? AND occurrence_date = ?');
+                                $existingOverrideStmt->execute([$recurringTaskId, $occurrenceDateValue]);
+                                $existingOverrideId = $existingOverrideStmt->fetchColumn();
+
+                                if ($existingOverrideId) {
+                                    $overrideStmt = $pdo->prepare('UPDATE team_recurring_task_overrides SET project_id = ?, assignee_user_id = ?, title = ?, description = ?, time_of_day = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+                                    $overrideStmt->execute([$projectIdValue, $assigneeUserIdValue, $title, $description, $timeOfDay !== '' ? $timeOfDay : null, (int) $existingOverrideId]);
+                                } else {
+                                    $overrideStmt = $pdo->prepare('INSERT INTO team_recurring_task_overrides(recurring_task_id, occurrence_date, project_id, assignee_user_id, title, description, time_of_day, created_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)');
+                                    $overrideStmt->execute([$recurringTaskId, $occurrenceDateValue, $projectIdValue, $assigneeUserIdValue, $title, $description, $timeOfDay !== '' ? $timeOfDay : null, $userId]);
+                                }
+
                                 $flashSuccess = 'Ocorrência desta tarefa recorrente atualizada com sucesso.';
                             }
                         }
