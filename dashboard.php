@@ -356,24 +356,42 @@ $pendingTasksByPreset = [
     'manutencao' => [],
 ];
 
-$teamPendingTicketsStmt = $pdo->prepare("SELECT tt.id, tt.title, tt.status, tt.urgency, tt.due_date, t.id AS team_id, t.name AS team_name
-    FROM team_tickets tt
-    INNER JOIN teams t ON t.id = tt.team_id
-    INNER JOIN team_members tm ON tm.team_id = t.id
-    WHERE tm.user_id = ?
-    ORDER BY
-        CASE WHEN tt.due_date IS NULL THEN 1 ELSE 0 END ASC,
-        tt.due_date ASC,
-        CASE tt.urgency
-            WHEN 'Crítica' THEN 4
-            WHEN 'Alta' THEN 3
-            WHEN 'Média' THEN 2
-            WHEN 'Baixa' THEN 1
-            ELSE 0
-        END DESC,
-        tt.created_at DESC");
-$teamPendingTicketsStmt->execute([$userId]);
-$teamPendingTickets = $teamPendingTicketsStmt->fetchAll(PDO::FETCH_ASSOC);
+if ($isAdmin) {
+    $teamPendingTicketsStmt = $pdo->query("SELECT tt.id, tt.title, tt.status, tt.urgency, tt.due_date, t.id AS team_id, t.name AS team_name
+        FROM team_tickets tt
+        INNER JOIN teams t ON t.id = tt.team_id
+        ORDER BY
+            CASE WHEN tt.due_date IS NULL THEN 1 ELSE 0 END ASC,
+            tt.due_date ASC,
+            CASE tt.urgency
+                WHEN 'Crítica' THEN 4
+                WHEN 'Alta' THEN 3
+                WHEN 'Média' THEN 2
+                WHEN 'Baixa' THEN 1
+                ELSE 0
+            END DESC,
+            tt.created_at DESC");
+    $teamPendingTickets = $teamPendingTicketsStmt->fetchAll(PDO::FETCH_ASSOC);
+} else {
+    $teamPendingTicketsStmt = $pdo->prepare("SELECT tt.id, tt.title, tt.status, tt.urgency, tt.due_date, t.id AS team_id, t.name AS team_name
+        FROM team_tickets tt
+        INNER JOIN teams t ON t.id = tt.team_id
+        INNER JOIN team_members tm ON tm.team_id = t.id
+        WHERE tm.user_id = ?
+        ORDER BY
+            CASE WHEN tt.due_date IS NULL THEN 1 ELSE 0 END ASC,
+            tt.due_date ASC,
+            CASE tt.urgency
+                WHEN 'Crítica' THEN 4
+                WHEN 'Alta' THEN 3
+                WHEN 'Média' THEN 2
+                WHEN 'Baixa' THEN 1
+                ELSE 0
+            END DESC,
+            tt.created_at DESC");
+    $teamPendingTicketsStmt->execute([$userId]);
+    $teamPendingTickets = $teamPendingTicketsStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 foreach ($teamPendingTickets as $pendingTask) {
     if (in_array((string) $pendingTask['status'], $completedStatusValues, true)) {
