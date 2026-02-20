@@ -14,7 +14,7 @@ header('Content-Type: text/html; charset=UTF-8');
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link href="assets/styles.css" rel="stylesheet">
 </head>
-<body class="bg-light">
+<body class="<?= isset($bodyClass) ? h($bodyClass) : 'bg-light' ?>">
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container">
         <a class="navbar-brand d-flex align-items-center gap-2" href="dashboard.php">

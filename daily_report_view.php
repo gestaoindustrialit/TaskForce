@@ -22,6 +22,7 @@ if ($userId !== (int) $report['user_id'] && !$allowedStmt->fetchColumn()) {
 }
 
 $pageTitle = 'Relatório diário A4';
+$bodyClass = 'bg-light print-report-page';
 require __DIR__ . '/partials/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-3 no-print">

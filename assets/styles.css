@@ -87,6 +87,15 @@ body {
     body { background: white !important; }
     .no-print { display: none !important; }
     .report-sheet { box-shadow: none; padding: 0; }
+
+    .print-report-page .navbar {
+        display: none !important;
+    }
+
+    .print-report-page main.container {
+        max-width: none !important;
+        padding: 0 !important;
+    }
 }
 
 .ticket-status-row {
