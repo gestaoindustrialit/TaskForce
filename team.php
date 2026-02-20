@@ -187,9 +187,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $projectId = (int) ($_POST['project_id'] ?? 0);
         $timeOfDay = trim($_POST['time_of_day'] ?? '');
         $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
+        $updateScope = (string) ($_POST['update_scope'] ?? 'all');
+        $occurrenceDateInput = trim($_POST['occurrence_date'] ?? '');
 
         if (!array_key_exists($recurrenceType, recurring_task_recurrence_options($pdo))) {
             $recurrenceType = 'weekly';
+        }
+
+        if (!in_array($updateScope, ['single', 'all'], true)) {
+            $updateScope = 'all';
         }
 
         if ($title === '') {
@@ -221,14 +227,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
-                $weekday = (int) $startDateObj->format('N');
-                $stmt = $pdo->prepare('UPDATE team_recurring_tasks SET project_id = ?, assignee_user_id = ?, title = ?, description = ?, weekday = ?, recurrence_type = ?, start_date = ?, time_of_day = ? WHERE id = ? AND team_id = ?');
-                $stmt->execute([$projectIdValue, $assigneeUserIdValue, $title, $description, $weekday, $recurrenceType, $startDateObj->format('Y-m-d'), $timeOfDay !== '' ? $timeOfDay : null, $recurringTaskId, $teamId]);
+                if ($updateScope === 'single') {
+                    $occurrenceDate = DateTimeImmutable::createFromFormat('Y-m-d', $occurrenceDateInput);
 
-                if ($stmt->rowCount() > 0) {
-                    $flashSuccess = 'Tarefa recorrente atualizada com sucesso.';
+                    if (!$occurrenceDate || $occurrenceDate->format('Y-m-d') !== $occurrenceDateInput) {
+                        $flashError = 'Data inválida para atualizar apenas esta ocorrência.';
+                    } else {
+                        $taskStmt = $pdo->prepare('SELECT * FROM team_recurring_tasks WHERE id = ? AND team_id = ?');
+                        $taskStmt->execute([$recurringTaskId, $teamId]);
+                        $task = $taskStmt->fetch(PDO::FETCH_ASSOC);
+
+                        if (!$task) {
+                            $flashError = 'Não foi possível atualizar a tarefa recorrente selecionada.';
+                        } else {
+                            $occurrences = recurring_task_occurrences($pdo, $task, $occurrenceDate, $occurrenceDate);
+                            if (!$occurrences) {
+                                $flashError = 'Esta tarefa não está agendada para a data selecionada.';
+                            } else {
+                                $overrideStmt = $pdo->prepare('INSERT INTO team_recurring_task_overrides(recurring_task_id, occurrence_date, project_id, assignee_user_id, title, description, time_of_day, created_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(recurring_task_id, occurrence_date) DO UPDATE SET project_id = excluded.project_id, assignee_user_id = excluded.assignee_user_id, title = excluded.title, description = excluded.description, time_of_day = excluded.time_of_day, updated_at = CURRENT_TIMESTAMP');
+                                $overrideStmt->execute([$recurringTaskId, $occurrenceDate->format('Y-m-d'), $projectIdValue, $assigneeUserIdValue, $title, $description, $timeOfDay !== '' ? $timeOfDay : null, $userId]);
+                                $flashSuccess = 'Ocorrência desta tarefa recorrente atualizada com sucesso.';
+                            }
+                        }
+                    }
                 } else {
-                    $flashError = 'Não foi possível atualizar a tarefa recorrente selecionada.';
+                    $weekday = (int) $startDateObj->format('N');
+                    $stmt = $pdo->prepare('UPDATE team_recurring_tasks SET project_id = ?, assignee_user_id = ?, title = ?, description = ?, weekday = ?, recurrence_type = ?, start_date = ?, time_of_day = ? WHERE id = ? AND team_id = ?');
+                    $stmt->execute([$projectIdValue, $assigneeUserIdValue, $title, $description, $weekday, $recurrenceType, $startDateObj->format('Y-m-d'), $timeOfDay !== '' ? $timeOfDay : null, $recurringTaskId, $teamId]);
+
+                    if ($stmt->rowCount() > 0) {
+                        $flashSuccess = 'Tarefa recorrente atualizada com sucesso.';
+                    } else {
+                        $flashError = 'Não foi possível atualizar a tarefa recorrente selecionada.';
+                    }
                 }
             }
         }
@@ -427,6 +458,7 @@ $recurringTasksStmt->execute([$teamId]);
 $recurringTasks = $recurringTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $recurringCompletionsByTaskAndDate = [];
+$recurringOverridesByTaskAndDate = [];
 $recurringTaskIds = array_values(array_unique(array_map(static fn (array $task): int => (int) $task['id'], $recurringTasks)));
 if ($recurringTaskIds) {
     $completionParams = [$calendarPeriodStart->format('Y-m-d'), $calendarPeriodEnd->format('Y-m-d')];
@@ -439,6 +471,21 @@ if ($recurringTaskIds) {
         $recurringCompletionsByTaskAndDate[(int) $completion['recurring_task_id'] . '|' . (string) $completion['occurrence_date']] = [
             'completed_at' => (string) $completion['completed_at'],
             'completed_by_name' => (string) $completion['completed_by_name'],
+        ];
+    }
+
+    $overrideStmt = $pdo->prepare('SELECT o.*, p.name AS project_name, a.name AS assignee_name FROM team_recurring_task_overrides o LEFT JOIN projects p ON p.id = o.project_id LEFT JOIN users a ON a.id = o.assignee_user_id WHERE o.occurrence_date BETWEEN ? AND ? AND o.recurring_task_id IN (' . $completionPlaceholders . ')');
+    $overrideStmt->execute($completionParams);
+
+    foreach ($overrideStmt->fetchAll(PDO::FETCH_ASSOC) as $override) {
+        $recurringOverridesByTaskAndDate[(int) $override['recurring_task_id'] . '|' . (string) $override['occurrence_date']] = [
+            'project_id' => $override['project_id'] !== null ? (int) $override['project_id'] : null,
+            'assignee_user_id' => $override['assignee_user_id'] !== null ? (int) $override['assignee_user_id'] : null,
+            'title' => (string) $override['title'],
+            'description' => (string) ($override['description'] ?? ''),
+            'time_of_day' => (string) ($override['time_of_day'] ?? ''),
+            'project_name' => (string) ($override['project_name'] ?? ''),
+            'assignee_name' => (string) ($override['assignee_name'] ?? ''),
         ];
     }
 }
@@ -454,16 +501,19 @@ foreach ($recurringTasks as $recurringTask) {
 
         $completionKey = (int) $recurringTask['id'] . '|' . $dateKey;
         $completion = $recurringCompletionsByTaskAndDate[$completionKey] ?? null;
+        $override = $recurringOverridesByTaskAndDate[$completionKey] ?? null;
 
         $calendarOccurrences[$dateKey][] = [
             'id' => (int) $recurringTask['id'],
             'occurrence_date' => $dateKey,
-            'title' => (string) $recurringTask['title'],
-            'description' => (string) ($recurringTask['description'] ?? ''),
-            'time_of_day' => (string) ($recurringTask['time_of_day'] ?? ''),
+            'project_id' => $override['project_id'] ?? ($recurringTask['project_id'] !== null ? (int) $recurringTask['project_id'] : null),
+            'assignee_user_id' => $override['assignee_user_id'] ?? ($recurringTask['assignee_user_id'] !== null ? (int) $recurringTask['assignee_user_id'] : null),
+            'title' => $override['title'] ?? (string) $recurringTask['title'],
+            'description' => $override['description'] ?? (string) ($recurringTask['description'] ?? ''),
+            'time_of_day' => $override['time_of_day'] ?? (string) ($recurringTask['time_of_day'] ?? ''),
             'creator_name' => (string) $recurringTask['creator_name'],
-            'project_name' => (string) ($recurringTask['project_name'] ?? ''),
-            'assignee_name' => (string) ($recurringTask['assignee_name'] ?? ''),
+            'project_name' => $override['project_name'] ?? (string) ($recurringTask['project_name'] ?? ''),
+            'assignee_name' => $override['assignee_name'] ?? (string) ($recurringTask['assignee_name'] ?? ''),
             'recurrence_label' => recurring_task_recurrence_label($pdo, (string) ($recurringTask['recurrence_type'] ?? 'weekly')),
             'start_date' => (string) ($recurringTask['start_date'] ?? ''),
             'completed_at' => $completion['completed_at'] ?? null,
@@ -730,7 +780,7 @@ require __DIR__ . '/partials/header.php';
                                             <div class="border rounded p-2 bg-white">
                                                 <div class="d-flex justify-content-between gap-2">
                                                     <?php if ($canManageProjects): ?>
-                                                        <button type="button" class="btn btn-link btn-sm text-start p-0 text-decoration-none fw-semibold small" data-bs-toggle="modal" data-bs-target="#editRecurringTaskModal<?= (int) $occurrence['id'] ?>"><?= h($occurrence['title']) ?></button>
+                                                        <button type="button" class="btn btn-link btn-sm text-start p-0 text-decoration-none fw-semibold small" data-bs-toggle="modal" data-bs-target="#editRecurringTaskModal<?= (int) $occurrence['id'] ?>" data-occurrence-date="<?= h($occurrence['occurrence_date']) ?>" data-occurrence-title="<?= h($occurrence['title']) ?>" data-occurrence-description="<?= h($occurrence['description']) ?>" data-occurrence-time="<?= h($occurrence['time_of_day']) ?>" data-occurrence-project-id="<?= $occurrence['project_id'] !== null ? (int) $occurrence['project_id'] : 0 ?>" data-occurrence-assignee-id="<?= $occurrence['assignee_user_id'] !== null ? (int) $occurrence['assignee_user_id'] : 0 ?>"><?= h($occurrence['title']) ?></button>
                                                     <?php else: ?>
                                                         <strong class="small"><?= h($occurrence['title']) ?></strong>
                                                     <?php endif; ?>
@@ -785,7 +835,7 @@ require __DIR__ . '/partials/header.php';
                                         <div class="border rounded p-2 bg-white">
                                             <div class="d-flex justify-content-between gap-2">
                                                 <?php if ($canManageProjects): ?>
-                                                    <button type="button" class="btn btn-link btn-sm text-start p-0 text-decoration-none fw-semibold small" data-bs-toggle="modal" data-bs-target="#editRecurringTaskModal<?= (int) $occurrence['id'] ?>"><?= h($occurrence['title']) ?></button>
+                                                    <button type="button" class="btn btn-link btn-sm text-start p-0 text-decoration-none fw-semibold small" data-bs-toggle="modal" data-bs-target="#editRecurringTaskModal<?= (int) $occurrence['id'] ?>" data-occurrence-date="<?= h($occurrence['occurrence_date']) ?>" data-occurrence-title="<?= h($occurrence['title']) ?>" data-occurrence-description="<?= h($occurrence['description']) ?>" data-occurrence-time="<?= h($occurrence['time_of_day']) ?>" data-occurrence-project-id="<?= $occurrence['project_id'] !== null ? (int) $occurrence['project_id'] : 0 ?>" data-occurrence-assignee-id="<?= $occurrence['assignee_user_id'] !== null ? (int) $occurrence['assignee_user_id'] : 0 ?>"><?= h($occurrence['title']) ?></button>
                                                 <?php else: ?>
                                                     <strong class="small"><?= h($occurrence['title']) ?></strong>
                                                 <?php endif; ?>
@@ -890,8 +940,9 @@ require __DIR__ . '/partials/header.php';
     <?php foreach ($recurringTasks as $recurringTask): ?>
         <div class="modal fade" id="editRecurringTaskModal<?= (int) $recurringTask['id'] ?>" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog">
-                <form class="modal-content" method="post">
+                <form class="modal-content recurring-task-edit-form" method="post" data-default-title="<?= h($recurringTask['title']) ?>" data-default-description="<?= h((string) ($recurringTask['description'] ?? '')) ?>" data-default-time="<?= h((string) ($recurringTask['time_of_day'] ?? '')) ?>" data-default-project-id="<?= $recurringTask['project_id'] !== null ? (int) $recurringTask['project_id'] : 0 ?>" data-default-assignee-id="<?= $recurringTask['assignee_user_id'] !== null ? (int) $recurringTask['assignee_user_id'] : 0 ?>">
                     <input type="hidden" name="recurring_task_id" value="<?= (int) $recurringTask['id'] ?>">
+                    <input type="hidden" name="occurrence_date" value="">
                     <div class="modal-header"><h5 class="modal-title">Editar tarefa recorrente</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                     <div class="modal-body vstack gap-3">
                         <input class="form-control" name="title" value="<?= h($recurringTask['title']) ?>" required>
@@ -913,6 +964,17 @@ require __DIR__ . '/partials/header.php';
                                     <option value="<?= (int) $member['id'] ?>" <?= (int) $member['id'] === (int) $recurringTask['assignee_user_id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option>
                                 <?php endforeach; ?>
                             </select>
+                        </div>
+                        <div class="border rounded p-2 bg-light-subtle">
+                            <div class="small fw-semibold mb-1">Aplicar alterações</div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="update_scope" value="single" id="updateScopeSingle<?= (int) $recurringTask['id'] ?>">
+                                <label class="form-check-label" for="updateScopeSingle<?= (int) $recurringTask['id'] ?>">Apenas neste dia</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="update_scope" value="all" id="updateScopeAll<?= (int) $recurringTask['id'] ?>" checked>
+                                <label class="form-check-label" for="updateScopeAll<?= (int) $recurringTask['id'] ?>">Em todos os eventos</label>
+                            </div>
                         </div>
                         <div class="row g-2">
                             <div class="col-md-6">
@@ -1011,4 +1073,71 @@ require __DIR__ . '/partials/header.php';
         </form>
     </div>
 </div>
+<script>
+document.querySelectorAll('.modal[id^="editRecurringTaskModal"]').forEach((modalEl) => {
+    modalEl.addEventListener('show.bs.modal', (event) => {
+        const trigger = event.relatedTarget;
+        const form = modalEl.querySelector('.recurring-task-edit-form');
+        if (!form) {
+            return;
+        }
+
+        const titleField = form.querySelector('input[name="title"]');
+        const descriptionField = form.querySelector('textarea[name="description"]');
+        const timeField = form.querySelector('input[name="time_of_day"]');
+        const projectField = form.querySelector('select[name="project_id"]');
+        const assigneeField = form.querySelector('select[name="assignee_user_id"]');
+        const occurrenceDateField = form.querySelector('input[name="occurrence_date"]');
+        const singleScopeField = form.querySelector('input[name="update_scope"][value="single"]');
+        const allScopeField = form.querySelector('input[name="update_scope"][value="all"]');
+
+        const defaultTitle = form.dataset.defaultTitle ?? '';
+        const defaultDescription = form.dataset.defaultDescription ?? '';
+        const defaultTime = form.dataset.defaultTime ?? '';
+        const defaultProjectId = form.dataset.defaultProjectId ?? '0';
+        const defaultAssigneeId = form.dataset.defaultAssigneeId ?? '0';
+
+        let occurrenceDate = '';
+        let title = defaultTitle;
+        let description = defaultDescription;
+        let timeOfDay = defaultTime;
+        let projectId = defaultProjectId;
+        let assigneeId = defaultAssigneeId;
+
+        if (trigger && trigger.dataset && trigger.dataset.occurrenceDate) {
+            occurrenceDate = trigger.dataset.occurrenceDate;
+            title = trigger.dataset.occurrenceTitle ?? title;
+            description = trigger.dataset.occurrenceDescription ?? description;
+            timeOfDay = trigger.dataset.occurrenceTime ?? timeOfDay;
+            projectId = trigger.dataset.occurrenceProjectId ?? projectId;
+            assigneeId = trigger.dataset.occurrenceAssigneeId ?? assigneeId;
+            if (singleScopeField) {
+                singleScopeField.checked = true;
+            }
+        } else if (allScopeField) {
+            allScopeField.checked = true;
+        }
+
+        if (titleField) {
+            titleField.value = title;
+        }
+        if (descriptionField) {
+            descriptionField.value = description;
+        }
+        if (timeField) {
+            timeField.value = timeOfDay;
+        }
+        if (projectField) {
+            projectField.value = projectId;
+        }
+        if (assigneeField) {
+            assigneeField.value = assigneeId;
+        }
+        if (occurrenceDateField) {
+            occurrenceDateField.value = occurrenceDate;
+        }
+    });
+});
+</script>
+
 <?php require __DIR__ . '/partials/footer.php'; ?>
