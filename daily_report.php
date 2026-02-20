@@ -58,17 +58,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'send_
         $companyDetails[] = 'Telefone: ' . h($companyPhone);
     }
 
-    $htmlContent = '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;gap:12px">'
+    $topMetaLine = '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:10px">'
+        . '<span><strong>Colaborador:</strong> ' . h((string) ($currentUser['name'] ?? '')) . '</span>'
+        . '<span><strong>Data:</strong> ' . h($selectedDate) . '</span>'
+        . '</div>';
+
+    $companyFooter = '';
+    if ($companyName !== '' || $companyDetails) {
+        $companyFooter = '<p style="margin:12px 0 0 0;font-size:10px;line-height:1.3">'
+            . ($companyName !== '' ? '<strong>Empresa:</strong> ' . h($companyName) . ' ' : '')
+            . ($companyDetails ? implode(' · ', $companyDetails) : '')
+            . '</p>';
+    }
+
+    $htmlContent = $topMetaLine
+        . '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;gap:12px">'
         . '<div><h1 style="margin:0">Relatório diário do colaborador</h1>'
-        . '<p style="margin:4px 0 0 0">Data: ' . h($selectedDate) . '</p>'
-        . '<p style="margin:4px 0 0 0">Colaborador: ' . h((string) ($currentUser['name'] ?? '')) . '</p>'
-        . ($companyName !== '' ? '<p style="margin:8px 0 0 0"><strong>Empresa:</strong> ' . h($companyName) . '</p>' : '')
-        . ($companyDetails ? '<p style="margin:4px 0 0 0">' . implode('<br>', $companyDetails) . '</p>' : '')
         . '</div>'
         . ($reportLogo ? '<img src="' . h(app_base_url() . '/' . $reportLogo) . '" alt="logo" style="max-height:55px">' : '')
         . '</div>'
         . '<p><strong>Resumo:</strong> ' . h($summaryText !== '' ? $summaryText : 'Sem notas adicionais.') . '</p>'
-        . '<table border="1" cellpadding="8" cellspacing="0" width="100%"><thead><tr><th>Projeto</th><th>Tarefa</th><th>Previsto</th><th>Real</th><th>Discrepância</th><th>Link</th></tr></thead><tbody>' . $rowsHtml . '</tbody></table>';
+        . '<table border="1" cellpadding="8" cellspacing="0" width="100%"><thead><tr><th>Projeto</th><th>Tarefa</th><th>Previsto</th><th>Real</th><th>Discrepância</th><th>Link</th></tr></thead><tbody>' . $rowsHtml . '</tbody></table>'
+        . $companyFooter;
 
     $stmt = $pdo->prepare('INSERT INTO daily_reports(user_id, report_date, summary, html_content) VALUES (?, ?, ?, ?)');
     $stmt->execute([$userId, $selectedDate, $summaryText, $htmlContent]);
