@@ -23,10 +23,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $priority = $_POST['priority'] ?? 'normal';
         $dueDate = $_POST['due_date'] ?: null;
         $estimatedMinutes = ($_POST['estimated_minutes'] ?? '') !== '' ? max(0, (int) $_POST['estimated_minutes']) : null;
+        $templateId = (int) ($_POST['checklist_template_id'] ?? 0);
+        $newChecklistItemsRaw = trim((string) ($_POST['new_checklist_items'] ?? ''));
 
         if ($title !== '') {
             $stmt = $pdo->prepare('INSERT INTO tasks(project_id, parent_task_id, title, description, status, priority, due_date, created_by, estimated_minutes, actual_minutes, updated_at, updated_by) VALUES (?, NULL, ?, ?, "todo", ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, ?)');
             $stmt->execute([$projectId, $title, $description, $priority, $dueDate, $userId, $estimatedMinutes, $userId]);
+            $taskId = (int) $pdo->lastInsertId();
+
+            if ($templateId > 0) {
+                $templateItemsStmt = $pdo->prepare('SELECT content FROM checklist_template_items WHERE template_id = ? ORDER BY position ASC, id ASC');
+                $templateItemsStmt->execute([$templateId]);
+                foreach ($templateItemsStmt->fetchAll(PDO::FETCH_COLUMN) as $templateContent) {
+                    $content = trim((string) $templateContent);
+                    if ($content === '') {
+                        continue;
+                    }
+                    $pdo->prepare('INSERT INTO checklist_items(task_id, content) VALUES (?, ?)')->execute([$taskId, $content]);
+                }
+            }
+
+            if ($newChecklistItemsRaw !== '') {
+                $lines = preg_split('/\r\n|\r|\n/', $newChecklistItemsRaw) ?: [];
+                foreach ($lines as $line) {
+                    $content = trim((string) $line);
+                    if ($content === '') {
+                        continue;
+                    }
+                    $pdo->prepare('INSERT INTO checklist_items(task_id, content) VALUES (?, ?)')->execute([$taskId, $content]);
+                }
+            }
         }
     }
 
@@ -168,6 +194,9 @@ foreach ($taskAttachStmt->fetchAll(PDO::FETCH_ASSOC) as $taskAttachment) {
     $taskAttachmentsByTask[$taskAttachment['task_id']][] = $taskAttachment;
 }
 
+$checklistTemplatesStmt = $pdo->query('SELECT ct.id, ct.name, ct.description, u.name AS creator_name, COUNT(cti.id) AS items_count FROM checklist_templates ct INNER JOIN users u ON u.id = ct.created_by LEFT JOIN checklist_template_items cti ON cti.template_id = ct.id GROUP BY ct.id ORDER BY ct.name COLLATE NOCASE ASC');
+$checklistTemplates = $checklistTemplatesStmt->fetchAll(PDO::FETCH_ASSOC);
+
 $pageTitle = 'Projeto ' . $project['name'];
 require __DIR__ . '/partials/header.php';
 ?>
@@ -194,6 +223,16 @@ require __DIR__ . '/partials/header.php';
             <div class="col-md-3"><input class="form-control" name="title" placeholder="Título" required></div>
             <div class="col-md-3"><input class="form-control" name="description" placeholder="Descrição"></div>
             <div class="col-md-2"><input class="form-control" type="number" min="0" name="estimated_minutes" placeholder="Previsto (min)"></div>
+            <div class="col-md-4">
+                <select class="form-select" name="checklist_template_id">
+                    <option value="0">Checklist: sem modelo</option>
+                    <?php foreach ($checklistTemplates as $template): ?>
+                        <option value="<?= (int) $template['id'] ?>"><?= h($template['name']) ?> (<?= (int) $template['items_count'] ?> itens)</option>
+                    <?php endforeach; ?>
+                </select>
+                <small class="text-muted">Pode gerir modelos em <a href="checklists.php">Checklists</a>.</small>
+            </div>
+            <div class="col-12"><textarea class="form-control" name="new_checklist_items" rows="2" placeholder="Ou escreva novos itens de checklist (1 por linha)"></textarea></div>
             <div class="col-md-2"><button class="btn btn-primary w-100">Criar</button></div>
         </form>
     </div>

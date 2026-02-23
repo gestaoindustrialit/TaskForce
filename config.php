@@ -153,6 +153,28 @@ $pdo->exec(
 );
 
 $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS checklist_templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS checklist_template_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        template_id INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(template_id) REFERENCES checklist_templates(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
     'CREATE TABLE IF NOT EXISTS team_forms (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         team_id INTEGER NOT NULL,
@@ -374,9 +396,26 @@ if (!in_array('project_id', $recurringColumns, true)) {
 if (!in_array('assignee_user_id', $recurringColumns, true)) {
     $pdo->exec('ALTER TABLE team_recurring_tasks ADD COLUMN assignee_user_id INTEGER');
 }
+if (!in_array('checklist_template_id', $recurringColumns, true)) {
+    $pdo->exec('ALTER TABLE team_recurring_tasks ADD COLUMN checklist_template_id INTEGER');
+}
 if (in_array('weekday', $recurringColumns, true)) {
     $pdo->exec('UPDATE team_recurring_tasks SET weekday = NULL WHERE weekday NOT BETWEEN 1 AND 7');
 }
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS team_recurring_task_checklist_states (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recurring_task_id INTEGER NOT NULL,
+        occurrence_date DATE NOT NULL,
+        checklist_state_json TEXT NOT NULL,
+        updated_by INTEGER NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(recurring_task_id) REFERENCES team_recurring_tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE(recurring_task_id, occurrence_date)
+    )'
+);
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS team_form_entry_notes (

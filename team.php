@@ -136,6 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $projectId = (int) ($_POST['project_id'] ?? 0);
         $timeOfDay = trim($_POST['time_of_day'] ?? '');
         $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
+        $checklistTemplateId = (int) ($_POST['checklist_template_id'] ?? 0);
 
         if (!array_key_exists($recurrenceType, recurring_task_recurrence_options($pdo))) {
             $recurrenceType = 'weekly';
@@ -170,9 +171,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
+                $checklistTemplateIdValue = null;
+                if ($checklistTemplateId > 0) {
+                    $templateStmt = $pdo->prepare('SELECT 1 FROM checklist_templates WHERE id = ?');
+                    $templateStmt->execute([$checklistTemplateId]);
+                    if ($templateStmt->fetchColumn()) {
+                        $checklistTemplateIdValue = $checklistTemplateId;
+                    }
+                }
+
                 $weekday = (int) $startDateObj->format('N');
-                $stmt = $pdo->prepare('INSERT INTO team_recurring_tasks(team_id, project_id, assignee_user_id, title, description, weekday, recurrence_type, start_date, time_of_day, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-                $stmt->execute([$teamId, $projectIdValue, $assigneeUserIdValue, $title, $description, $weekday, $recurrenceType, $startDateObj->format('Y-m-d'), $timeOfDay !== '' ? $timeOfDay : null, $userId]);
+                $stmt = $pdo->prepare('INSERT INTO team_recurring_tasks(team_id, project_id, assignee_user_id, checklist_template_id, title, description, weekday, recurrence_type, start_date, time_of_day, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                $stmt->execute([$teamId, $projectIdValue, $assigneeUserIdValue, $checklistTemplateIdValue, $title, $description, $weekday, $recurrenceType, $startDateObj->format('Y-m-d'), $timeOfDay !== '' ? $timeOfDay : null, $userId]);
                 $flashSuccess = 'Tarefa recorrente adicionada ao calendário da equipa.';
             }
         }
@@ -187,6 +197,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $projectId = (int) ($_POST['project_id'] ?? 0);
         $timeOfDay = trim($_POST['time_of_day'] ?? '');
         $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
+        $checklistTemplateId = (int) ($_POST['checklist_template_id'] ?? 0);
         $updateScope = (string) ($_POST['update_scope'] ?? 'all');
         $occurrenceDateInput = trim($_POST['occurrence_date'] ?? '');
 
@@ -227,6 +238,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
+                $checklistTemplateIdValue = null;
+                if ($checklistTemplateId > 0) {
+                    $templateStmt = $pdo->prepare('SELECT 1 FROM checklist_templates WHERE id = ?');
+                    $templateStmt->execute([$checklistTemplateId]);
+                    if ($templateStmt->fetchColumn()) {
+                        $checklistTemplateIdValue = $checklistTemplateId;
+                    }
+                }
+
                 if ($updateScope === 'single') {
                     $occurrenceDate = DateTimeImmutable::createFromFormat('Y-m-d', $occurrenceDateInput);
 
@@ -263,8 +283,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 } else {
                     $weekday = (int) $startDateObj->format('N');
-                    $stmt = $pdo->prepare('UPDATE team_recurring_tasks SET project_id = ?, assignee_user_id = ?, title = ?, description = ?, weekday = ?, recurrence_type = ?, start_date = ?, time_of_day = ? WHERE id = ? AND team_id = ?');
-                    $stmt->execute([$projectIdValue, $assigneeUserIdValue, $title, $description, $weekday, $recurrenceType, $startDateObj->format('Y-m-d'), $timeOfDay !== '' ? $timeOfDay : null, $recurringTaskId, $teamId]);
+                    $stmt = $pdo->prepare('UPDATE team_recurring_tasks SET project_id = ?, assignee_user_id = ?, checklist_template_id = ?, title = ?, description = ?, weekday = ?, recurrence_type = ?, start_date = ?, time_of_day = ? WHERE id = ? AND team_id = ?');
+                    $stmt->execute([$projectIdValue, $assigneeUserIdValue, $checklistTemplateIdValue, $title, $description, $weekday, $recurrenceType, $startDateObj->format('Y-m-d'), $timeOfDay !== '' ? $timeOfDay : null, $recurringTaskId, $teamId]);
 
                     if ($stmt->rowCount() > 0) {
                         $flashSuccess = 'Tarefa recorrente atualizada com sucesso.';
@@ -302,6 +322,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $flashSuccess = 'Tarefa recorrente concluída com sucesso.';
                     } else {
                         $flashError = 'Esta ocorrência já tinha sido concluída.';
+                    }
+                }
+            }
+        }
+    }
+
+
+    if ($action === 'save_recurring_task_checklist_state') {
+        $recurringTaskId = (int) ($_POST['recurring_task_id'] ?? 0);
+        $occurrenceDateInput = trim((string) ($_POST['occurrence_date'] ?? ''));
+        $checkedItems = $_POST['checked_items'] ?? [];
+        if (!is_array($checkedItems)) {
+            $checkedItems = [];
+        }
+
+        $occurrenceDate = DateTimeImmutable::createFromFormat('Y-m-d', $occurrenceDateInput);
+        if (!$occurrenceDate || $occurrenceDate->format('Y-m-d') !== $occurrenceDateInput) {
+            $flashError = 'Data inválida para guardar checklist da recorrência.';
+        } else {
+            $taskStmt = $pdo->prepare('SELECT * FROM team_recurring_tasks WHERE id = ? AND team_id = ?');
+            $taskStmt->execute([$recurringTaskId, $teamId]);
+            $task = $taskStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$task) {
+                $flashError = 'Tarefa recorrente inválida para guardar checklist.';
+            } else {
+                $templateId = (int) ($task['checklist_template_id'] ?? 0);
+                if ($templateId <= 0) {
+                    $flashError = 'Esta recorrência não tem checklist associada.';
+                } else {
+                    $templateItemsStmt = $pdo->prepare('SELECT id, content FROM checklist_template_items WHERE template_id = ? ORDER BY position ASC, id ASC');
+                    $templateItemsStmt->execute([$templateId]);
+                    $templateItems = $templateItemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                    $allowedIds = [];
+                    foreach ($templateItems as $templateItem) {
+                        $allowedIds[(int) $templateItem['id']] = true;
+                    }
+
+                    $state = [];
+                    foreach ($templateItems as $templateItem) {
+                        $itemId = (int) $templateItem['id'];
+                        $state[] = [
+                            'item_id' => $itemId,
+                            'content' => (string) $templateItem['content'],
+                            'is_done' => isset($checkedItems[(string) $itemId]) && isset($allowedIds[$itemId]),
+                        ];
+                    }
+
+                    $stateJson = json_encode($state, JSON_UNESCAPED_UNICODE);
+                    if ($stateJson === false) {
+                        $flashError = 'Não foi possível guardar o estado da checklist.';
+                    } else {
+                        $saveStmt = $pdo->prepare('INSERT INTO team_recurring_task_checklist_states(recurring_task_id, occurrence_date, checklist_state_json, updated_by, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(recurring_task_id, occurrence_date) DO UPDATE SET checklist_state_json = excluded.checklist_state_json, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP');
+                        $saveStmt->execute([$recurringTaskId, $occurrenceDate->format('Y-m-d'), $stateJson, $userId]);
+                        $flashSuccess = 'Checklist da recorrência guardada com sucesso.';
                     }
                 }
             }
@@ -426,6 +502,8 @@ $weekdayNames = [
     7 => 'Domingo',
 ];
 $recurrenceOptions = recurring_task_recurrence_options($pdo);
+$checklistTemplatesStmt = $pdo->query('SELECT ct.id, ct.name, COUNT(cti.id) AS items_count FROM checklist_templates ct LEFT JOIN checklist_template_items cti ON cti.template_id = ct.id GROUP BY ct.id ORDER BY ct.name COLLATE NOCASE ASC');
+$checklistTemplates = $checklistTemplatesStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $calendarViewLabels = [
     'day' => 'Dia',
@@ -464,12 +542,13 @@ if ($calendarView === 'week') {
     $calendarPeriodLabel = $referenceDate->format('Y');
 }
 
-$recurringTasksStmt = $pdo->prepare('SELECT rt.*, u.name AS creator_name, p.name AS project_name, a.name AS assignee_name FROM team_recurring_tasks rt INNER JOIN users u ON u.id = rt.created_by LEFT JOIN projects p ON p.id = rt.project_id LEFT JOIN users a ON a.id = rt.assignee_user_id WHERE rt.team_id = ? ORDER BY rt.created_at ASC');
+$recurringTasksStmt = $pdo->prepare('SELECT rt.*, u.name AS creator_name, p.name AS project_name, a.name AS assignee_name, ct.name AS checklist_template_name FROM team_recurring_tasks rt INNER JOIN users u ON u.id = rt.created_by LEFT JOIN projects p ON p.id = rt.project_id LEFT JOIN users a ON a.id = rt.assignee_user_id LEFT JOIN checklist_templates ct ON ct.id = rt.checklist_template_id WHERE rt.team_id = ? ORDER BY rt.created_at ASC');
 $recurringTasksStmt->execute([$teamId]);
 $recurringTasks = $recurringTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $recurringCompletionsByTaskAndDate = [];
 $recurringOverridesByTaskAndDate = [];
+$recurringChecklistStateByTaskAndDate = [];
 $recurringTaskIds = array_values(array_unique(array_map(static fn (array $task): int => (int) $task['id'], $recurringTasks)));
 if ($recurringTaskIds) {
     $completionParams = [$calendarPeriodStart->format('Y-m-d'), $calendarPeriodEnd->format('Y-m-d')];
@@ -499,6 +578,19 @@ if ($recurringTaskIds) {
             'assignee_name' => (string) ($override['assignee_name'] ?? ''),
         ];
     }
+
+    $checklistStateStmt = $pdo->prepare('SELECT recurring_task_id, occurrence_date, checklist_state_json, updated_at FROM team_recurring_task_checklist_states WHERE occurrence_date BETWEEN ? AND ? AND recurring_task_id IN (' . $completionPlaceholders . ')');
+    $checklistStateStmt->execute($completionParams);
+    foreach ($checklistStateStmt->fetchAll(PDO::FETCH_ASSOC) as $stateRow) {
+        $state = json_decode((string) $stateRow['checklist_state_json'], true);
+        if (!is_array($state)) {
+            continue;
+        }
+        $recurringChecklistStateByTaskAndDate[(int) $stateRow['recurring_task_id'] . '|' . (string) $stateRow['occurrence_date']] = [
+            'items' => $state,
+            'updated_at' => (string) $stateRow['updated_at'],
+        ];
+    }
 }
 
 $calendarOccurrences = [];
@@ -525,10 +617,14 @@ foreach ($recurringTasks as $recurringTask) {
             'creator_name' => (string) $recurringTask['creator_name'],
             'project_name' => $override['project_name'] ?? (string) ($recurringTask['project_name'] ?? ''),
             'assignee_name' => $override['assignee_name'] ?? (string) ($recurringTask['assignee_name'] ?? ''),
+            'checklist_template_id' => $recurringTask['checklist_template_id'] !== null ? (int) $recurringTask['checklist_template_id'] : null,
+            'checklist_template_name' => (string) ($recurringTask['checklist_template_name'] ?? ''),
             'recurrence_label' => recurring_task_recurrence_label($pdo, (string) ($recurringTask['recurrence_type'] ?? 'weekly')),
             'start_date' => (string) ($recurringTask['start_date'] ?? ''),
             'completed_at' => $completion['completed_at'] ?? null,
             'completed_by_name' => $completion['completed_by_name'] ?? null,
+            'checklist_state' => $recurringChecklistStateByTaskAndDate[$completionKey]['items'] ?? [],
+            'checklist_updated_at' => $recurringChecklistStateByTaskAndDate[$completionKey]['updated_at'] ?? null,
         ];
     }
 }
@@ -853,7 +949,30 @@ require __DIR__ . '/partials/header.php';
                                                 <span class="text-muted small"><?= h($occurrence['time_of_day'] !== '' ? $occurrence['time_of_day'] : 'Sem hora') ?></span>
                                             </div>
                                             <div class="small text-muted"><?= h($occurrence['recurrence_label']) ?><?= $occurrence['project_name'] !== '' ? ' · Projeto: ' . h($occurrence['project_name']) : '' ?><?= $occurrence['assignee_name'] !== '' ? ' · Atribuído a ' . h($occurrence['assignee_name']) : '' ?></div>
+                                            <?php if ($occurrence['checklist_template_name'] !== ''): ?>
+                                                <div class="small text-muted">Checklist: <?= h($occurrence['checklist_template_name']) ?></div>
+                                            <?php endif; ?>
                                             <?php if ($occurrence['description'] !== ''): ?><p class="mb-1 small text-muted"><?= h($occurrence['description']) ?></p><?php endif; ?>
+                                            <?php if ($occurrence['checklist_template_id']): ?>
+                                                <?php $checklistStateByItemId = []; foreach (($occurrence['checklist_state'] ?? []) as $stateItem) { if (isset($stateItem['item_id'])) { $checklistStateByItemId[(int) $stateItem['item_id']] = !empty($stateItem['is_done']); }} ?>
+                                                <?php $templateItemsStmt = $pdo->prepare('SELECT id, content FROM checklist_template_items WHERE template_id = ? ORDER BY position ASC, id ASC'); $templateItemsStmt->execute([(int) $occurrence['checklist_template_id']]); $recurrenceTemplateItems = $templateItemsStmt->fetchAll(PDO::FETCH_ASSOC); ?>
+                                                <form method="post" class="small mt-1 border rounded p-2 bg-light-subtle">
+                                                    <input type="hidden" name="action" value="save_recurring_task_checklist_state">
+                                                    <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
+                                                    <input type="hidden" name="occurrence_date" value="<?= h($occurrence['occurrence_date']) ?>">
+                                                    <div class="fw-semibold mb-1">Checklist da ocorrência</div>
+                                                    <?php foreach ($recurrenceTemplateItems as $templateItem): ?>
+                                                        <label class="d-flex align-items-center gap-2 mb-1">
+                                                            <input class="form-check-input m-0" type="checkbox" name="checked_items[<?= (int) $templateItem['id'] ?>]" value="1" <?= !empty($checklistStateByItemId[(int) $templateItem['id']]) ? 'checked' : '' ?>>
+                                                            <span><?= h($templateItem['content']) ?></span>
+                                                        </label>
+                                                    <?php endforeach; ?>
+                                                    <div class="d-flex justify-content-between align-items-center mt-2">
+                                                        <button class="btn btn-sm btn-outline-primary py-0 px-2">Guardar checklist</button>
+                                                        <?php if (!empty($occurrence['checklist_updated_at'])): ?><small class="text-muted">Atualizada em <?= h(date('d/m/Y H:i', strtotime((string) $occurrence['checklist_updated_at']))) ?></small><?php endif; ?>
+                                                    </div>
+                                                </form>
+                                            <?php endif; ?>
                                             <?php if ($occurrence['completed_at']): ?>
                                                 <div class="small text-success-emphasis">Concluída por <?= h((string) $occurrence['completed_by_name']) ?> em <?= h(date('d/m/Y H:i', strtotime((string) $occurrence['completed_at']))) ?></div>
                                             <?php endif; ?>
@@ -951,7 +1070,7 @@ require __DIR__ . '/partials/header.php';
     <?php foreach ($recurringTasks as $recurringTask): ?>
         <div class="modal fade" id="editRecurringTaskModal<?= (int) $recurringTask['id'] ?>" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog">
-                <form class="modal-content recurring-task-edit-form" method="post" data-default-title="<?= h($recurringTask['title']) ?>" data-default-description="<?= h((string) ($recurringTask['description'] ?? '')) ?>" data-default-time="<?= h((string) ($recurringTask['time_of_day'] ?? '')) ?>" data-default-project-id="<?= $recurringTask['project_id'] !== null ? (int) $recurringTask['project_id'] : 0 ?>" data-default-assignee-id="<?= $recurringTask['assignee_user_id'] !== null ? (int) $recurringTask['assignee_user_id'] : 0 ?>">
+                <form class="modal-content recurring-task-edit-form" method="post" data-default-title="<?= h($recurringTask['title']) ?>" data-default-description="<?= h((string) ($recurringTask['description'] ?? '')) ?>" data-default-time="<?= h((string) ($recurringTask['time_of_day'] ?? '')) ?>" data-default-project-id="<?= $recurringTask['project_id'] !== null ? (int) $recurringTask['project_id'] : 0 ?>" data-default-assignee-id="<?= $recurringTask['assignee_user_id'] !== null ? (int) $recurringTask['assignee_user_id'] : 0 ?>" data-default-checklist-template-id="<?= $recurringTask['checklist_template_id'] !== null ? (int) $recurringTask['checklist_template_id'] : 0 ?>">
                     <input type="hidden" name="recurring_task_id" value="<?= (int) $recurringTask['id'] ?>">
                     <input type="hidden" name="occurrence_date" value="">
                     <div class="modal-header"><h5 class="modal-title">Editar tarefa recorrente</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -973,6 +1092,15 @@ require __DIR__ . '/partials/header.php';
                                 <option value="0">Sem atribuição</option>
                                 <?php foreach ($members as $member): ?>
                                     <option value="<?= (int) $member['id'] ?>" <?= (int) $member['id'] === (int) $recurringTask['assignee_user_id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label small text-muted mb-1">Checklist (opcional)</label>
+                            <select class="form-select" name="checklist_template_id">
+                                <option value="0">Sem checklist</option>
+                                <?php foreach ($checklistTemplates as $template): ?>
+                                    <option value="<?= (int) $template['id'] ?>" <?= (int) $template['id'] === (int) ($recurringTask['checklist_template_id'] ?? 0) ? 'selected' : '' ?>><?= h($template['name']) ?> (<?= (int) $template['items_count'] ?> itens)</option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -1042,6 +1170,15 @@ require __DIR__ . '/partials/header.php';
                         <?php endforeach; ?>
                     </select>
                 </div>
+                <div>
+                    <label class="form-label small text-muted mb-1">Checklist (opcional)</label>
+                    <select class="form-select" name="checklist_template_id">
+                        <option value="0">Sem checklist</option>
+                        <?php foreach ($checklistTemplates as $template): ?>
+                            <option value="<?= (int) $template['id'] ?>"><?= h($template['name']) ?> (<?= (int) $template['items_count'] ?> itens)</option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
                 <div class="row g-2">
                     <div class="col-md-6">
                         <label class="form-label small text-muted mb-1">Recorrência</label>
@@ -1098,6 +1235,7 @@ document.querySelectorAll('.modal[id^="editRecurringTaskModal"]').forEach((modal
         const timeField = form.querySelector('input[name="time_of_day"]');
         const projectField = form.querySelector('select[name="project_id"]');
         const assigneeField = form.querySelector('select[name="assignee_user_id"]');
+        const checklistTemplateField = form.querySelector('select[name="checklist_template_id"]');
         const occurrenceDateField = form.querySelector('input[name="occurrence_date"]');
         const singleScopeField = form.querySelector('input[name="update_scope"][value="single"]');
         const allScopeField = form.querySelector('input[name="update_scope"][value="all"]');
@@ -1107,6 +1245,7 @@ document.querySelectorAll('.modal[id^="editRecurringTaskModal"]').forEach((modal
         const defaultTime = form.dataset.defaultTime ?? '';
         const defaultProjectId = form.dataset.defaultProjectId ?? '0';
         const defaultAssigneeId = form.dataset.defaultAssigneeId ?? '0';
+        const defaultChecklistTemplateId = form.dataset.defaultChecklistTemplateId ?? '0';
 
         let occurrenceDate = '';
         let title = defaultTitle;
@@ -1114,6 +1253,7 @@ document.querySelectorAll('.modal[id^="editRecurringTaskModal"]').forEach((modal
         let timeOfDay = defaultTime;
         let projectId = defaultProjectId;
         let assigneeId = defaultAssigneeId;
+        let checklistTemplateId = defaultChecklistTemplateId;
 
         if (trigger && trigger.dataset && trigger.dataset.occurrenceDate) {
             occurrenceDate = trigger.dataset.occurrenceDate;
@@ -1143,6 +1283,9 @@ document.querySelectorAll('.modal[id^="editRecurringTaskModal"]').forEach((modal
         }
         if (assigneeField) {
             assigneeField.value = assigneeId;
+        }
+        if (checklistTemplateField) {
+            checklistTemplateField.value = checklistTemplateId;
         }
         if (occurrenceDateField) {
             occurrenceDateField.value = occurrenceDate;
