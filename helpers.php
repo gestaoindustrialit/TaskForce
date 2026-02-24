@@ -70,6 +70,121 @@ function project_for_user(PDO $pdo, int $projectId, int $userId): ?array
     return $project ?: null;
 }
 
+
+
+function task_creation_field_catalog(): array
+{
+    return [
+        'title' => ['label' => 'Título', 'type' => 'text', 'default_visible' => true, 'default_required' => true, 'is_builtin' => true],
+        'description' => ['label' => 'Descrição', 'type' => 'text', 'default_visible' => true, 'default_required' => false, 'is_builtin' => true],
+        'estimated_minutes' => ['label' => 'Previsto (min)', 'type' => 'number', 'default_visible' => true, 'default_required' => false, 'is_builtin' => true],
+        'checklist_template_id' => ['label' => 'Checklist (modelo)', 'type' => 'select', 'default_visible' => true, 'default_required' => false, 'is_builtin' => true],
+        'new_checklist_items' => ['label' => 'Checklist (novos itens)', 'type' => 'textarea', 'default_visible' => true, 'default_required' => false, 'is_builtin' => true],
+    ];
+}
+
+function task_creation_custom_fields(PDO $pdo, int $teamId): array
+{
+    $stmt = $pdo->prepare('SELECT field_key, label, field_type, options_json, sort_order FROM task_custom_fields WHERE team_id = ? AND is_active = 1 ORDER BY sort_order ASC, id ASC');
+    $stmt->execute([$teamId]);
+
+    $customFields = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $fieldKey = (string) ($row['field_key'] ?? '');
+        if ($fieldKey === '') {
+            continue;
+        }
+
+        $options = [];
+        if (!empty($row['options_json'])) {
+            $decoded = json_decode((string) $row['options_json'], true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $option) {
+                    $optionText = trim((string) $option);
+                    if ($optionText !== '') {
+                        $options[] = $optionText;
+                    }
+                }
+            }
+        }
+
+        $fieldType = (string) ($row['field_type'] ?? 'text');
+        if (!in_array($fieldType, ['text', 'textarea', 'number', 'date', 'select'], true)) {
+            $fieldType = 'text';
+        }
+
+        $customFields[$fieldKey] = [
+            'label' => (string) ($row['label'] ?? $fieldKey),
+            'type' => $fieldType,
+            'options' => $options,
+            'default_visible' => true,
+            'default_required' => false,
+            'is_builtin' => false,
+        ];
+    }
+
+    return $customFields;
+}
+
+function task_creation_field_catalog_for_team(PDO $pdo, int $teamId): array
+{
+    return array_merge(task_creation_field_catalog(), task_creation_custom_fields($pdo, $teamId));
+}
+
+function task_creation_field_rules(PDO $pdo, int $teamId, ?int $projectId = null, ?array $catalog = null): array
+{
+    $fieldCatalog = $catalog ?? task_creation_field_catalog_for_team($pdo, $teamId);
+    $rules = [];
+    foreach ($fieldCatalog as $fieldKey => $meta) {
+        $rules[$fieldKey] = [
+            'label' => $meta['label'],
+            'is_visible' => !empty($meta['default_visible']),
+            'is_required' => !empty($meta['default_required']),
+            'type' => (string) ($meta['type'] ?? 'text'),
+            'options' => $meta['options'] ?? [],
+            'is_builtin' => !empty($meta['is_builtin']),
+        ];
+    }
+
+    $stmt = $pdo->prepare('SELECT project_id, field_key, is_visible, is_required FROM task_creation_field_rules WHERE team_id = ? AND (project_id IS NULL OR project_id = ?)');
+    $stmt->execute([$teamId, $projectId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    usort($rows, static function (array $a, array $b): int {
+        $aProject = $a['project_id'] !== null ? 1 : 0;
+        $bProject = $b['project_id'] !== null ? 1 : 0;
+        return $aProject <=> $bProject;
+    });
+
+    foreach ($rows as $row) {
+        $fieldKey = (string) ($row['field_key'] ?? '');
+        if (!array_key_exists($fieldKey, $rules)) {
+            continue;
+        }
+
+        $rules[$fieldKey]['is_visible'] = (int) $row['is_visible'] === 1;
+        $rules[$fieldKey]['is_required'] = (int) $row['is_required'] === 1;
+    }
+
+    return $rules;
+}
+
+function task_creation_field_key_from_label(string $label): string
+{
+    $base = function_exists('iconv') ? @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $label) : $label;
+    if (!is_string($base) || $base === '') {
+        $base = $label;
+    }
+    $base = strtolower($base);
+    $base = preg_replace('/[^a-z0-9]+/', '_', $base) ?: '';
+    $base = trim($base, '_');
+    if ($base === '') {
+        $base = 'campo';
+    }
+
+    return 'custom_' . $base;
+}
+
 function h(?string $value): string
 {
     $text = (string) $value;

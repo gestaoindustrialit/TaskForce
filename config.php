@@ -279,6 +279,46 @@ $pdo->exec(
 );
 
 $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS task_creation_field_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        team_id INTEGER NOT NULL,
+        project_id INTEGER,
+        field_key TEXT NOT NULL,
+        is_visible INTEGER NOT NULL DEFAULT 1,
+        is_required INTEGER NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(team_id, project_id, field_key),
+        FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE,
+        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+    )'
+);
+
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS task_custom_fields (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        team_id INTEGER NOT NULL,
+        field_key TEXT NOT NULL,
+        label TEXT NOT NULL,
+        field_type TEXT NOT NULL DEFAULT "text",
+        options_json TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(team_id, field_key),
+        FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$taskColumns = $pdo->query('PRAGMA table_info(tasks)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('custom_fields_json', $taskColumns, true)) {
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN custom_fields_json TEXT');
+}
+
+$pdo->exec(
     'CREATE TABLE IF NOT EXISTS app_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
