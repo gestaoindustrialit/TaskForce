@@ -13,6 +13,41 @@ body {
     font-size: 0.92rem;
 }
 
+.navbar .navbar-toggler {
+    border-color: rgba(255, 255, 255, 0.45);
+}
+
+.navbar .navbar-toggler:focus {
+    box-shadow: 0 0 0 .2rem rgba(59, 130, 246, 0.35);
+}
+
+.navbar .dropdown-menu {
+    border-radius: 10px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+@media (max-width: 991.98px) {
+    .navbar .navbar-collapse {
+        margin-top: 0.9rem;
+        padding-top: 0.85rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    .navbar .navbar-nav {
+        gap: 0.25rem;
+    }
+
+    .navbar .dropdown-menu {
+        background: rgba(255, 255, 255, 0.96);
+    }
+
+    .navbar .navbar-user {
+        width: 100%;
+        border-top: 1px solid rgba(255, 255, 255, 0.14);
+        padding-top: 0.85rem;
+    }
+}
+
 .hero-card {
     background: linear-gradient(120deg, #2563eb 0%, #4f46e5 100%);
     color: #fff;
