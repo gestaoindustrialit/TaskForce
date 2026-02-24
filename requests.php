@@ -152,6 +152,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($teamId <= 0 || $title === '' || $description === '') {
             $_SESSION['flash_error'] = 'Preencha equipa, assunto e detalhe do ticket.';
+        } elseif ($dueDate === '') {
+            $_SESSION['flash_error'] = 'Data limite é obrigatória para criar tarefa.';
         } elseif (!in_array($teamId, $memberTeamIds, true) && !$isAdmin) {
             $_SESSION['flash_error'] = 'Sem permissão para abrir ticket para essa equipa.';
         } else {
@@ -208,7 +210,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ticketCode = generate_ticket_code($pdo);
             $defaultStatus = default_open_ticket_status($pdo);
             $stmt = $pdo->prepare('INSERT INTO team_tickets(ticket_code, team_id, title, description, urgency, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-            $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate !== '' ? $dueDate : null, $userId, $defaultStatus]);
+            $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate, $userId, $defaultStatus]);
+            $newTicketId = (int) $pdo->lastInsertId();
+            record_ticket_status_history($pdo, $newTicketId, null, $defaultStatus, $userId);
             $_SESSION['flash_success'] = 'Ticket submetido com sucesso.';
         }
 
@@ -227,9 +231,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ticketTeamId = (int) ($teamCheckStmt->fetchColumn() ?: 0);
 
             if ($ticketTeamId > 0 && ($isAdmin || in_array($ticketTeamId, $leaderTeamIds, true))) {
+                $previousStatusStmt = $pdo->prepare('SELECT status FROM team_tickets WHERE id = ? LIMIT 1');
+                $previousStatusStmt->execute([$ticketId]);
+                $previousStatus = $previousStatusStmt->fetchColumn();
+
                 $completedAt = ticket_status_is_completed($pdo, $status) ? date('Y-m-d H:i:s') : null;
                 $stmt = $pdo->prepare('UPDATE team_tickets SET status = ?, assignee_user_id = ?, completed_at = ? WHERE id = ?');
                 $stmt->execute([$status, $assigneeUserId > 0 ? $assigneeUserId : null, $completedAt, $ticketId]);
+                if ($previousStatus !== false && (string) $previousStatus !== $status) {
+                    record_ticket_status_history($pdo, $ticketId, (string) $previousStatus, $status, $userId);
+                }
                 $_SESSION['flash_success'] = 'Ticket atualizado.';
             } else {
                 $_SESSION['flash_error'] = 'Sem permissão para atualizar este ticket.';

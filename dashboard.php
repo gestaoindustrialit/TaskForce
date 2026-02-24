@@ -200,10 +200,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if ($flashError === null) {
+                    $currentStmt = $pdo->prepare('SELECT status FROM team_tickets WHERE id = ? AND assignee_user_id = ? LIMIT 1');
+                    $currentStmt->execute([$ticketId, $userId]);
+                    $previousStatus = $currentStmt->fetchColumn();
+
                     $completedAt = ticket_status_is_completed($pdo, $status) ? date('Y-m-d H:i:s') : null;
                     $updateStmt = $pdo->prepare('UPDATE team_tickets SET status = ?, urgency = ?, due_date = ?, estimated_minutes = ?, actual_minutes = ?, completed_at = ? WHERE id = ? AND assignee_user_id = ?');
                     $updateStmt->execute([$status, $urgency, $dueDate, $estimatedMinutes, $actualMinutes, $completedAt, $ticketId, $userId]);
                     if ($updateStmt->rowCount() > 0) {
+                        if ($previousStatus !== false && (string) $previousStatus !== $status) {
+                            record_ticket_status_history($pdo, $ticketId, (string) $previousStatus, $status, $userId);
+                        }
                         log_app_event($pdo, $userId, 'ticket.update.self', 'Tarefa atribuída atualizada no dashboard.', ['ticket_id' => $ticketId, 'status' => $status, 'urgency' => $urgency]);
                         $flashSuccess = 'Tarefa atualizada com sucesso.';
                     }
@@ -225,6 +232,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($teamId <= 0 || $title === '' || $description === '') {
             $flashError = 'Preencha equipa, nome do pedido e descrição do ticket.';
+        } elseif ($dueDate === '') {
+            $flashError = 'Data limite é obrigatória para criar tarefa.';
         } elseif (!in_array($teamId, $allowedTeamIds, true) && !$isAdmin) {
             $flashError = 'Sem permissão para abrir ticket para essa equipa.';
         } else {
@@ -302,8 +311,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $ticketCode = generate_ticket_code($pdo);
                 $defaultStatus = default_open_ticket_status($pdo);
                 $stmt = $pdo->prepare('INSERT INTO team_tickets(ticket_code, team_id, title, description, urgency, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-                $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate !== '' ? $dueDate : null, $userId, $defaultStatus]);
+                $stmt->execute([$ticketCode, $teamId, $title, $description, $urgency ?: 'Média', $dueDate, $userId, $defaultStatus]);
                 $ticketId = (int) $pdo->lastInsertId();
+                record_ticket_status_history($pdo, $ticketId, null, $defaultStatus, $userId);
                 log_app_event($pdo, $userId, 'ticket.create', 'Novo ticket de equipa criado no dashboard.', ['ticket_id' => $ticketId, 'ticket_code' => $ticketCode, 'team_id' => $teamId]);
                 $flashSuccess = 'Ticket criado com sucesso.';
             }
@@ -343,6 +353,16 @@ $scheduledTasksStmt = $pdo->prepare("SELECT tt.id, tt.title, tt.status, tt.urgen
         tt.created_at DESC");
 $scheduledTasksStmt->execute([$userId, $userId]);
 $scheduledTasks = $scheduledTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+$scheduledTaskIds = array_map(static fn (array $task): int => (int) $task['id'], $scheduledTasks);
+$scheduledTaskHistoryByTicket = [];
+if ($scheduledTaskIds) {
+    $placeholders = implode(',', array_fill(0, count($scheduledTaskIds), '?'));
+    $historyStmt = $pdo->prepare("SELECT tsh.ticket_id, tsh.from_status, tsh.to_status, tsh.changed_at, u.name AS changed_by_name FROM team_ticket_status_history tsh LEFT JOIN users u ON u.id = tsh.changed_by WHERE tsh.ticket_id IN ($placeholders) ORDER BY tsh.changed_at DESC, tsh.id DESC");
+    $historyStmt->execute($scheduledTaskIds);
+    foreach ($historyStmt->fetchAll(PDO::FETCH_ASSOC) as $historyRow) {
+        $scheduledTaskHistoryByTicket[(int) $historyRow['ticket_id']][] = $historyRow;
+    }
+}
 $ticketStatuses = ticket_statuses($pdo);
 $completedStatusValues = [];
 foreach ($ticketStatuses as $status) {
@@ -490,6 +510,24 @@ require __DIR__ . '/partials/header.php';
                                         <input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : '' ?>">
                                     </div>
                                 </div>
+                                <?php $taskHistory = $scheduledTaskHistoryByTicket[(int) $task['id']] ?? []; ?>
+                                <?php if ($taskHistory): ?>
+                                    <div class="border rounded p-2 bg-light">
+                                        <div class="small fw-semibold mb-1">Histórico de estados</div>
+                                        <ul class="small mb-0 ps-3">
+                                            <?php foreach ($taskHistory as $historyItem): ?>
+                                                <li>
+                                                    <?= h(ticket_status_label($pdo, (string) $historyItem['to_status'])) ?>
+                                                    <?php if (!empty($historyItem['from_status'])): ?>
+                                                        <span class="text-muted">(de <?= h(ticket_status_label($pdo, (string) $historyItem['from_status'])) ?>)</span>
+                                                    <?php endif; ?>
+                                                    · <?= h(date('d/m/Y H:i', strtotime((string) $historyItem['changed_at']))) ?>
+                                                    · <?= h((string) ($historyItem['changed_by_name'] ?: 'Sistema')) ?>
+                                                </li>
+                                            <?php endforeach; ?>
+                                        </ul>
+                                    </div>
+                                <?php endif; ?>
                                 <div class="d-flex justify-content-between align-items-center">
                                     <a class="btn btn-link btn-sm px-0" href="team.php?id=<?= (int) $task['team_id'] ?>">Abrir equipa</a>
                                     <button class="btn btn-sm btn-primary">Guardar alterações</button>
@@ -573,7 +611,7 @@ require __DIR__ . '/partials/header.php';
                         </div>
                         <div class="col-md-6">
                             <label class="form-label mb-1">Data limite</label>
-                            <input class="form-control" type="date" name="due_date">
+                            <input class="form-control" type="date" name="due_date" required>
                         </div>
                     </div>
                     <button class="btn btn-primary">Criar ticket</button>
