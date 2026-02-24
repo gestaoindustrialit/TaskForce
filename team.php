@@ -231,6 +231,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'add_team_note') {
+        $note = trim((string) ($_POST['note'] ?? ''));
+        if ($note !== '') {
+            $stmt = $pdo->prepare('INSERT INTO team_notes(team_id, note, created_by) VALUES (?, ?, ?)');
+            $stmt->execute([$teamId, $note, $userId]);
+            $flashSuccess = 'Nota da equipa adicionada.';
+        }
+    }
+
     if ($action === 'create_recurring_task' && $canManageProjects) {
         $title = trim($_POST['title'] ?? '');
         $description = trim($_POST['description'] ?? '');
@@ -610,6 +619,10 @@ $membersStmt = $pdo->prepare('SELECT u.id, u.name, u.email, tm.role FROM team_me
 $membersStmt->execute([$teamId]);
 $members = $membersStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$teamNotesStmt = $pdo->prepare('SELECT tn.*, u.name AS user_name FROM team_notes tn INNER JOIN users u ON u.id = tn.created_by WHERE tn.team_id = ? ORDER BY tn.created_at DESC');
+$teamNotesStmt->execute([$teamId]);
+$teamNotes = $teamNotesStmt->fetchAll(PDO::FETCH_ASSOC);
+
 $weekdayNames = [
     1 => 'Segunda-feira',
     2 => 'Terça-feira',
@@ -830,6 +843,26 @@ require __DIR__ . '/partials/header.php';
 </section>
 
 <div class="vstack gap-4">
+    <div class="card shadow-sm soft-card">
+        <div class="card-header bg-white"><h2 class="h5 mb-0">Notas da equipa</h2></div>
+        <div class="card-body">
+            <form method="post" class="d-flex gap-2 mb-3">
+                <input type="hidden" name="action" value="add_team_note">
+                <input class="form-control form-control-sm" name="note" placeholder="Adicionar nota para a equipa" required>
+                <button class="btn btn-sm btn-outline-primary" aria-label="Guardar nota da equipa"><i class="bi bi-save"></i></button>
+            </form>
+            <?php if (!$teamNotes): ?>
+                <p class="small text-muted mb-0">Ainda não existem notas da equipa.</p>
+            <?php endif; ?>
+            <?php foreach ($teamNotes as $note): ?>
+                <div class="small border rounded p-2 mb-2 bg-light">
+                    <?= h($note['note']) ?><br>
+                    <small class="text-muted"><?= h($note['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($note['created_at']))) ?></small>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+
     <div class="card shadow-sm soft-card">
         <div class="card-header d-flex justify-content-between align-items-center bg-white">
             <h2 class="h5 mb-0">Projetos</h2>

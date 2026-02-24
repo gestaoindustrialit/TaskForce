@@ -28,7 +28,7 @@ if (window.taskPage) {
         button.addEventListener('click', () => {
             const taskId = button.dataset.taskId;
             startTaskTimer(taskId);
-            button.textContent = 'Contador ativo';
+            button.classList.add('active');
         });
     });
 
