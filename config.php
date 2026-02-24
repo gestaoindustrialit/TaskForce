@@ -122,6 +122,12 @@ if (!in_array('updated_by', $taskColumns, true)) {
     $pdo->exec('UPDATE tasks SET updated_by = created_by WHERE updated_by IS NULL');
 }
 
+
+$taskColumns = $pdo->query('PRAGMA table_info(tasks)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('assignee_user_id', $taskColumns, true)) {
+    $pdo->exec('ALTER TABLE tasks ADD COLUMN assignee_user_id INTEGER');
+}
+
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS daily_reports (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -479,5 +485,43 @@ $pdo->exec(
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(entry_id) REFERENCES team_form_entries(id) ON DELETE CASCADE,
         FOREIGN KEY(uploaded_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS project_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        original_name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        uploaded_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY(uploaded_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS project_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        note TEXT NOT NULL,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS team_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        team_id INTEGER NOT NULL,
+        note TEXT NOT NULL,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
     )'
 );
