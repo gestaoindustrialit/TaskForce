@@ -504,6 +504,21 @@ $weekdayNames = [
 $recurrenceOptions = recurring_task_recurrence_options($pdo);
 $checklistTemplatesStmt = $pdo->query('SELECT ct.id, ct.name, COUNT(cti.id) AS items_count FROM checklist_templates ct LEFT JOIN checklist_template_items cti ON cti.template_id = ct.id GROUP BY ct.id ORDER BY ct.name COLLATE NOCASE ASC');
 $checklistTemplates = $checklistTemplatesStmt->fetchAll(PDO::FETCH_ASSOC);
+$checklistTemplateItemsByTemplateId = [];
+if ($checklistTemplates) {
+    $templateIds = array_values(array_unique(array_map(static fn (array $template): int => (int) $template['id'], $checklistTemplates)));
+    if ($templateIds) {
+        $templateItemsPlaceholders = implode(',', array_fill(0, count($templateIds), '?'));
+        $checklistTemplateItemsStmt = $pdo->prepare('SELECT template_id, id, content FROM checklist_template_items WHERE template_id IN (' . $templateItemsPlaceholders . ') ORDER BY template_id ASC, position ASC, id ASC');
+        $checklistTemplateItemsStmt->execute($templateIds);
+        foreach ($checklistTemplateItemsStmt->fetchAll(PDO::FETCH_ASSOC) as $templateItem) {
+            $checklistTemplateItemsByTemplateId[(int) $templateItem['template_id']][] = [
+                'id' => (int) $templateItem['id'],
+                'content' => (string) $templateItem['content'],
+            ];
+        }
+    }
+}
 
 $calendarViewLabels = [
     'day' => 'Dia',
@@ -954,24 +969,61 @@ require __DIR__ . '/partials/header.php';
                                             <?php endif; ?>
                                             <?php if ($occurrence['description'] !== ''): ?><p class="mb-1 small text-muted"><?= h($occurrence['description']) ?></p><?php endif; ?>
                                             <?php if ($occurrence['checklist_template_id']): ?>
-                                                <?php $checklistStateByItemId = []; foreach (($occurrence['checklist_state'] ?? []) as $stateItem) { if (isset($stateItem['item_id'])) { $checklistStateByItemId[(int) $stateItem['item_id']] = !empty($stateItem['is_done']); }} ?>
-                                                <?php $templateItemsStmt = $pdo->prepare('SELECT id, content FROM checklist_template_items WHERE template_id = ? ORDER BY position ASC, id ASC'); $templateItemsStmt->execute([(int) $occurrence['checklist_template_id']]); $recurrenceTemplateItems = $templateItemsStmt->fetchAll(PDO::FETCH_ASSOC); ?>
-                                                <form method="post" class="small mt-1 border rounded p-2 bg-light-subtle">
-                                                    <input type="hidden" name="action" value="save_recurring_task_checklist_state">
-                                                    <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
-                                                    <input type="hidden" name="occurrence_date" value="<?= h($occurrence['occurrence_date']) ?>">
-                                                    <div class="fw-semibold mb-1">Checklist da ocorrência</div>
-                                                    <?php foreach ($recurrenceTemplateItems as $templateItem): ?>
-                                                        <label class="d-flex align-items-center gap-2 mb-1">
-                                                            <input class="form-check-input m-0" type="checkbox" name="checked_items[<?= (int) $templateItem['id'] ?>]" value="1" <?= !empty($checklistStateByItemId[(int) $templateItem['id']]) ? 'checked' : '' ?>>
-                                                            <span><?= h($templateItem['content']) ?></span>
-                                                        </label>
-                                                    <?php endforeach; ?>
-                                                    <div class="d-flex justify-content-between align-items-center mt-2">
-                                                        <button class="btn btn-sm btn-outline-primary py-0 px-2">Guardar checklist</button>
-                                                        <?php if (!empty($occurrence['checklist_updated_at'])): ?><small class="text-muted">Atualizada em <?= h(date('d/m/Y H:i', strtotime((string) $occurrence['checklist_updated_at']))) ?></small><?php endif; ?>
+                                                <?php
+                                                $recurrenceTemplateItems = $checklistTemplateItemsByTemplateId[(int) $occurrence['checklist_template_id']] ?? [];
+                                                $checklistStateByItemId = [];
+                                                foreach (($occurrence['checklist_state'] ?? []) as $stateItem) {
+                                                    if (isset($stateItem['item_id'])) {
+                                                        $checklistStateByItemId[(int) $stateItem['item_id']] = !empty($stateItem['is_done']);
+                                                    }
+                                                }
+                                                $totalChecklistItems = count($recurrenceTemplateItems);
+                                                $doneChecklistItems = 0;
+                                                foreach ($recurrenceTemplateItems as $templateItem) {
+                                                    if (!empty($checklistStateByItemId[(int) $templateItem['id']])) {
+                                                        $doneChecklistItems++;
+                                                    }
+                                                }
+                                                $checklistExecutionModalId = 'runChecklistModal' . (int) $occurrence['id'] . str_replace('-', '', $occurrence['occurrence_date']);
+                                                ?>
+                                                <?php if ($totalChecklistItems > 0): ?>
+                                                    <div class="small mt-1 border rounded p-2 bg-light-subtle d-flex justify-content-between align-items-center gap-2">
+                                                        <div>
+                                                            <div class="fw-semibold">Execução da checklist</div>
+                                                            <div class="text-muted"><?= $doneChecklistItems ?>/<?= $totalChecklistItems ?> itens concluídos</div>
+                                                            <?php if (!empty($occurrence['checklist_updated_at'])): ?><div class="text-muted">Atualizada em <?= h(date('d/m/Y H:i', strtotime((string) $occurrence['checklist_updated_at']))) ?></div><?php endif; ?>
+                                                        </div>
+                                                        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#<?= h($checklistExecutionModalId) ?>">Executar checklist</button>
                                                     </div>
-                                                </form>
+                                                    <div class="modal fade" id="<?= h($checklistExecutionModalId) ?>" tabindex="-1" aria-hidden="true">
+                                                        <div class="modal-dialog">
+                                                            <form method="post" class="modal-content">
+                                                                <input type="hidden" name="action" value="save_recurring_task_checklist_state">
+                                                                <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
+                                                                <input type="hidden" name="occurrence_date" value="<?= h($occurrence['occurrence_date']) ?>">
+                                                                <div class="modal-header">
+                                                                    <h5 class="modal-title">Checklist da ocorrência</h5>
+                                                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                                </div>
+                                                                <div class="modal-body">
+                                                                    <div class="small text-muted mb-2"><?= h($occurrence['title']) ?> · <?= h(date('d/m/Y', strtotime((string) $occurrence['occurrence_date']))) ?></div>
+                                                                    <div class="vstack gap-2">
+                                                                        <?php foreach ($recurrenceTemplateItems as $templateItem): ?>
+                                                                            <label class="d-flex align-items-center gap-2">
+                                                                                <input class="form-check-input m-0" type="checkbox" name="checked_items[<?= (int) $templateItem['id'] ?>]" value="1" <?= !empty($checklistStateByItemId[(int) $templateItem['id']]) ? 'checked' : '' ?>>
+                                                                                <span><?= h($templateItem['content']) ?></span>
+                                                                            </label>
+                                                                        <?php endforeach; ?>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="modal-footer">
+                                                                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+                                                                    <button class="btn btn-primary">Guardar checklist</button>
+                                                                </div>
+                                                            </form>
+                                                        </div>
+                                                    </div>
+                                                <?php endif; ?>
                                             <?php endif; ?>
                                             <?php if ($occurrence['completed_at']): ?>
                                                 <div class="small text-success-emphasis">Concluída por <?= h((string) $occurrence['completed_by_name']) ?> em <?= h(date('d/m/Y H:i', strtotime((string) $occurrence['completed_at']))) ?></div>
