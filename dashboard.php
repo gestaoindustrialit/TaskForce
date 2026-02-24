@@ -333,13 +333,16 @@ foreach ($teams as $team) {
 $statsStmt = $pdo->prepare('SELECT (SELECT COUNT(*) FROM team_members WHERE user_id = ?) AS total_teams, (SELECT COUNT(*) FROM users) AS total_users, (SELECT COUNT(*) FROM projects p INNER JOIN team_members tm ON tm.team_id = p.team_id WHERE tm.user_id = ?) AS total_projects');
 $statsStmt->execute([$userId, $userId]);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
-$users = $pdo->query('SELECT id, name, email, is_admin FROM users ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
+$users = $isAdmin ? $pdo->query('SELECT id, name, email, is_admin FROM users ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC) : [];
+
+$todayDate = date('Y-m-d');
 
 $scheduledTasksStmt = $pdo->prepare("SELECT tt.id, tt.title, tt.status, tt.urgency, tt.due_date, tt.created_at, tt.estimated_minutes, tt.actual_minutes, t.id AS team_id, t.name AS team_name
     FROM team_tickets tt
     INNER JOIN teams t ON t.id = tt.team_id
     INNER JOIN team_members tm ON tm.team_id = t.id
     WHERE tt.assignee_user_id = ? AND tm.user_id = ?
+      AND (tt.due_date = ? OR date(tt.created_at) = ?)
     ORDER BY
         CASE WHEN tt.due_date IS NULL THEN 1 ELSE 0 END ASC,
         tt.due_date ASC,
@@ -351,7 +354,7 @@ $scheduledTasksStmt = $pdo->prepare("SELECT tt.id, tt.title, tt.status, tt.urgen
             ELSE 0
         END DESC,
         tt.created_at DESC");
-$scheduledTasksStmt->execute([$userId, $userId]);
+$scheduledTasksStmt->execute([$userId, $userId, $todayDate, $todayDate]);
 $scheduledTasks = $scheduledTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 $scheduledTaskIds = array_map(static fn (array $task): int => (int) $task['id'], $scheduledTasks);
 $scheduledTaskHistoryByTicket = [];
@@ -363,6 +366,29 @@ if ($scheduledTaskIds) {
         $scheduledTaskHistoryByTicket[(int) $historyRow['ticket_id']][] = $historyRow;
     }
 }
+
+$recentProjectNotesStmt = $pdo->prepare("SELECT pn.id, pn.note, pn.created_at, p.id AS project_id, p.name AS project_name, u.name AS author_name
+    FROM project_notes pn
+    INNER JOIN projects p ON p.id = pn.project_id
+    INNER JOIN team_members tm ON tm.team_id = p.team_id
+    INNER JOIN users u ON u.id = pn.created_by
+    WHERE tm.user_id = ? AND date(pn.created_at) = ?
+    ORDER BY pn.created_at DESC
+    LIMIT 20");
+$recentProjectNotesStmt->execute([$userId, $todayDate]);
+$recentProjectNotes = $recentProjectNotesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+
+$todayProjectTasksStmt = $pdo->prepare("SELECT ta.id, ta.title, ta.status, ta.due_date, p.id AS project_id, p.name AS project_name
+    FROM tasks ta
+    INNER JOIN projects p ON p.id = ta.project_id
+    INNER JOIN team_members tm ON tm.team_id = p.team_id
+    WHERE tm.user_id = ? AND ta.assignee_user_id = ?
+      AND (ta.due_date = ? OR date(ta.created_at) = ?)
+    ORDER BY ta.due_date ASC, ta.created_at DESC");
+$todayProjectTasksStmt->execute([$userId, $userId, $todayDate, $todayDate]);
+$todayProjectTasks = $todayProjectTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+
 $ticketStatuses = ticket_statuses($pdo);
 $completedStatusValues = [];
 foreach ($ticketStatuses as $status) {
@@ -441,7 +467,7 @@ require __DIR__ . '/partials/header.php';
             <h1 class="display-6 fw-semibold mb-2">Gestão da tua operação em tempo real</h1>
             <p class="mb-0 text-white-50">Organiza equipas, projetos, tarefas e pedidos internos num único espaço.</p>
         </div>
-        <div class="col-lg-4"><div class="row g-2 text-center"><div class="col-4"><div class="stat-pill"><strong><?= (int) $stats['total_teams'] ?></strong><span>Equipas</span></div></div><div class="col-4"><div class="stat-pill"><strong><?= (int) $stats['total_projects'] ?></strong><span>Projetos</span></div></div><div class="col-4"><div class="stat-pill"><strong><?= (int) $stats['total_users'] ?></strong><span>Users</span></div></div></div></div>
+        <div class="col-lg-4"><div class="row g-2 text-center"><div class="col-4"><div class="stat-pill"><strong><?= (int) $stats['total_teams'] ?></strong><span>Equipas</span></div></div><div class="col-4"><div class="stat-pill"><strong><?= (int) $stats['total_projects'] ?></strong><span>Projetos</span></div></div><div class="col-4"><div class="stat-pill"><strong><?= $isAdmin ? (int) $stats['total_users'] : '—' ?></strong><span>Users</span></div></div></div></div>
     </div>
 </section>
 
@@ -452,8 +478,9 @@ require __DIR__ . '/partials/header.php';
     <div class="col-lg-8">
         <div class="card shadow-sm soft-card mb-4">
             <div class="card-header bg-white border-0 pt-4 px-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
-                <h2 class="h4 mb-0">Tarefas programadas para ti</h2>
-                <div class="d-flex align-items-center gap-3 ms-auto">
+                <h2 class="h4 mb-0">Tarefas do dia para ti</h2>
+                <div class="d-flex align-items-center gap-2 ms-auto">
+                    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#ticketModal">Novo ticket</button>
                     <div class="form-check form-switch mb-0">
                         <input class="form-check-input" type="checkbox" role="switch" id="toggleCompletedTasks">
                         <label class="form-check-label small" for="toggleCompletedTasks">Ocultar concluídas</label>
@@ -465,6 +492,7 @@ require __DIR__ . '/partials/header.php';
             </div>
             <div class="collapse show" id="scheduledTasksContent">
             <div class="card-body p-4">
+                <h3 class="h6">Tickets de equipa para hoje</h3>
                 <?php if ($scheduledTasks): ?>
                     <div class="vstack gap-3" id="scheduledTasksList">
                         <?php foreach ($scheduledTasks as $task): ?>
@@ -536,6 +564,23 @@ require __DIR__ . '/partials/header.php';
                         <?php endforeach; ?>
                     </div>
                     <p class="text-muted mb-0 d-none" id="scheduledTasksEmptyState">Sem tarefas pendentes com o filtro atual.</p>
+                <hr>
+                <h3 class="h6">Tarefas de projeto atribuídas hoje</h3>
+                <?php if (!$todayProjectTasks): ?>
+                    <p class="text-muted mb-0">Sem tarefas de projeto previstas para hoje.</p>
+                <?php else: ?>
+                    <ul class="list-group">
+                        <?php foreach ($todayProjectTasks as $projectTask): ?>
+                            <li class="list-group-item d-flex justify-content-between align-items-start gap-3">
+                                <div>
+                                    <strong><?= h((string) $projectTask['title']) ?></strong>
+                                    <div class="small text-muted"><?= h((string) $projectTask['project_name']) ?> · <?= h(status_label((string) $projectTask['status'])) ?></div>
+                                </div>
+                                <a class="btn btn-sm btn-outline-primary" href="project.php?id=<?= (int) $projectTask['project_id'] ?>">Abrir</a>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
                 <?php else: ?>
                     <p class="text-muted mb-0">Ainda não tens tarefas atribuídas.</p>
                 <?php endif; ?>
@@ -566,66 +611,34 @@ require __DIR__ . '/partials/header.php';
         </div>
 
         <div class="card shadow-sm soft-card h-100">
-            <div class="card-header bg-white border-0 pt-4 px-4"><h2 class="h4 mb-0">Novo ticket de equipa</h2></div>
+            <div class="card-header bg-white border-0 pt-4 px-4"><h2 class="h4 mb-0">Novas notas de projetos</h2></div>
             <div class="card-body p-4">
-                <p class="small text-muted">Cria tarefas para equipas fora de qualquer projeto.</p>
-                <form method="post" enctype="multipart/form-data" class="vstack gap-2">
-                    <input type="hidden" name="action" value="create_team_ticket">
-                    <div>
-                        <label class="form-label mb-1">Equipa responsável</label>
-                        <select class="form-select" name="team_id" id="dashboardTeamSelect" required>
-                            <option value="">Selecionar equipa</option>
-                            <?php foreach ($teams as $team): ?>
-                                <option value="<?= (int) $team['id'] ?>"><?= h($team['name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
+                <p class="small text-muted">Notas publicadas hoje em projetos onde estás envolvido.</p>
+                <?php if (!$recentProjectNotes): ?>
+                    <p class="text-muted mb-0">Sem notas novas hoje.</p>
+                <?php else: ?>
+                    <div class="vstack gap-2">
+                        <?php foreach ($recentProjectNotes as $projectNote): ?>
+                            <div class="border rounded p-2 bg-light small">
+                                <strong><?= h($projectNote['project_name']) ?></strong>
+                                <div><?= h($projectNote['note']) ?></div>
+                                <div class="text-muted"><?= h($projectNote['author_name']) ?> · <?= h(date('d/m/Y H:i', strtotime((string) $projectNote['created_at']))) ?></div>
+                                <a href="project.php?id=<?= (int) $projectNote['project_id'] ?>" class="btn btn-link btn-sm px-0">Abrir projeto</a>
+                            </div>
+                        <?php endforeach; ?>
                     </div>
-                    <div>
-                        <label class="form-label mb-1">Nome do pedido</label>
-                        <input class="form-control" name="title" id="dashboardTicketTitle" placeholder="Ex.: Corrigir integração com faturação" required>
-                    </div>
-                    <div>
-                        <label class="form-label mb-1">Tipo de pedido</label>
-                        <select class="form-select" name="ticket_type" id="dashboardTicketType">
-                            <option value="">Geral</option>
-                            <?php foreach ($ticketTypeTemplates as $templateKey => $template): ?>
-                                <option value="<?= h($templateKey) ?>"><?= h($template['label']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <div id="dashboardTicketTypeHint" class="form-text d-none"></div>
-                    </div>
-                    <div id="dashboardTicketTypeFields" class="vstack gap-2"></div>
-                    <div>
-                        <label class="form-label mb-1">Descrição do ticket</label>
-                        <textarea class="form-control" name="description" id="dashboardTicketDescription" rows="5" placeholder="Descreve o pedido com contexto e impacto" required></textarea>
-                    </div>
-                    <div class="row g-2">
-                        <div class="col-md-6">
-                            <label class="form-label mb-1">Nível de urgência</label>
-                            <select class="form-select" name="urgency" id="dashboardUrgencySelect">
-                                <option value="Baixa">Baixa</option>
-                                <option value="Média" selected>Média</option>
-                                <option value="Alta">Alta</option>
-                                <option value="Crítica">Crítica</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label mb-1">Data limite</label>
-                            <input class="form-control" type="date" name="due_date" required>
-                        </div>
-                    </div>
-                    <button class="btn btn-primary">Criar ticket</button>
-                </form>
-                <a href="requests.php" class="btn btn-link px-0 mt-2">Ver todos os pedidos</a>
+                <?php endif; ?>
             </div>
         </div>
     </div>
 
     <div class="col-lg-4">
+        <?php if ($isAdmin): ?>
         <div class="card shadow-sm soft-card mb-4">
-            <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center"><h2 class="h5 mb-0">Gestão de utilizadores</h2><?php if ($isAdmin): ?><button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#userModal">Novo user</button><?php endif; ?></div>
-            <div class="card-body px-4"><?php foreach ($users as $user): ?><div class="d-flex justify-content-between align-items-center border rounded p-2 mb-2"><div><strong class="small"><?= h($user['name']) ?></strong> <?= (int) $user['is_admin'] === 1 ? '<span class="badge text-bg-dark">admin</span>' : '' ?><div class="small text-muted"><?= h($user['email']) ?></div></div><div class="d-flex align-items-center gap-2"><span class="small text-muted">#<?= (int) $user['id'] ?></span><?php if ($isAdmin): ?><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editUserModal<?= (int) $user['id'] ?>">Editar</button><?php endif; ?></div></div><?php endforeach; ?></div>
+            <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center"><h2 class="h5 mb-0">Gestão de utilizadores</h2><a class="btn btn-sm btn-outline-primary" href="users.php">Abrir página</a></div>
+            <div class="card-body px-4"><p class="small text-muted mb-0">A consulta de utilizadores foi movida para uma página dedicada com paginação.</p></div>
         </div>
+        <?php endif; ?>
 
         <div class="card shadow-sm soft-card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center bg-white border-0 pt-4 px-4"><h2 class="h5 mb-0">As tuas equipas</h2><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#teamModal">Nova Equipa</button></div>
@@ -645,6 +658,24 @@ require __DIR__ . '/partials/header.php';
         </div>
 
     </div>
+</div>
+
+<div class="modal fade" id="ticketModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form method="post" enctype="multipart/form-data" class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Novo ticket de equipa</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body vstack gap-2">
+        <input type="hidden" name="action" value="create_team_ticket">
+        <div><label class="form-label mb-1">Equipa responsável</label><select class="form-select" name="team_id" id="dashboardTeamSelect" required><option value="">Selecionar equipa</option><?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>"><?= h($team['name']) ?></option><?php endforeach; ?></select></div>
+        <div><label class="form-label mb-1">Nome do pedido</label><input class="form-control" name="title" id="dashboardTicketTitle" placeholder="Ex.: Corrigir integração com faturação" required></div>
+        <div><label class="form-label mb-1">Tipo de pedido</label><select class="form-select" name="ticket_type" id="dashboardTicketType"><option value="">Geral</option><?php foreach ($ticketTypeTemplates as $templateKey => $template): ?><option value="<?= h($templateKey) ?>"><?= h($template['label']) ?></option><?php endforeach; ?></select><div id="dashboardTicketTypeHint" class="form-text d-none"></div></div>
+        <div id="dashboardTicketTypeFields" class="vstack gap-2"></div>
+        <div><label class="form-label mb-1">Descrição do ticket</label><textarea class="form-control" name="description" id="dashboardTicketDescription" rows="5" placeholder="Descreve o pedido com contexto e impacto" required></textarea></div>
+        <div class="row g-2"><div class="col-md-6"><label class="form-label mb-1">Nível de urgência</label><select class="form-select" name="urgency" id="dashboardUrgencySelect"><option value="Baixa">Baixa</option><option value="Média" selected>Média</option><option value="Alta">Alta</option><option value="Crítica">Crítica</option></select></div><div class="col-md-6"><label class="form-label mb-1">Data limite</label><input class="form-control" type="date" name="due_date" required></div></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary">Criar ticket</button></div>
+    </form>
+  </div>
 </div>
 
 <script>
@@ -875,13 +906,5 @@ if (pendingByTypeFilter) {
 
 <div class="modal fade" id="teamModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post"><input type="hidden" name="action" value="create_team"><div class="modal-header"><h5 class="modal-title">Criar Equipa</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body vstack gap-3"><input class="form-control" name="name" placeholder="Nome da equipa" required><textarea class="form-control" name="description" placeholder="Descrição"></textarea></div><div class="modal-footer"><button class="btn btn-primary">Criar</button></div></form></div></div>
 
-<?php if ($isAdmin): ?>
-<div class="modal fade" id="userModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post"><input type="hidden" name="action" value="create_user"><div class="modal-header"><h5 class="modal-title">Novo utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body vstack gap-3"><input class="form-control" name="name" placeholder="Nome" required><input class="form-control" type="email" name="email" placeholder="Email" required><input class="form-control" type="password" name="password" placeholder="Password" required><div class="form-check"><input class="form-check-input" type="checkbox" name="is_admin" value="1" id="isAdmin"><label class="form-check-label" for="isAdmin">Administrador</label></div></div><div class="modal-footer"><button class="btn btn-primary">Criar utilizador</button></div></form></div></div>
-<?php endif; ?>
 
-<?php if ($isAdmin): ?>
-<?php foreach ($users as $user): ?>
-<div class="modal fade" id="editUserModal<?= (int) $user['id'] ?>" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post"><input type="hidden" name="action" value="update_user"><input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>"><div class="modal-header"><h5 class="modal-title">Editar utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body vstack gap-3"><input class="form-control" name="name" value="<?= h($user['name']) ?>" required><input class="form-control" type="email" name="email" value="<?= h($user['email']) ?>" required><input class="form-control" type="password" name="password" placeholder="Nova password (opcional)"><div class="form-check"><input class="form-check-input" type="checkbox" name="is_admin" value="1" id="isAdminEdit<?= (int) $user['id'] ?>" <?= (int) $user['is_admin'] === 1 ? 'checked' : '' ?>><label class="form-check-label" for="isAdminEdit<?= (int) $user['id'] ?>">Administrador</label></div></div><div class="modal-footer"><button class="btn btn-primary">Guardar utilizador</button></div></form></div></div>
-<?php endforeach; ?>
-<?php endif; ?>
 <?php require __DIR__ . '/partials/footer.php'; ?>
