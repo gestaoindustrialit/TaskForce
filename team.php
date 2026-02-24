@@ -528,9 +528,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($ticketId > 0 && ticket_status_value_exists($pdo, $status)) {
+            $previousStatusStmt = $pdo->prepare('SELECT status FROM team_tickets WHERE id = ? AND team_id = ? LIMIT 1');
+            $previousStatusStmt->execute([$ticketId, $teamId]);
+            $previousStatus = $previousStatusStmt->fetchColumn();
+
             $completedAt = ticket_status_is_completed($pdo, $status) ? date('Y-m-d H:i:s') : null;
             $stmt = $pdo->prepare('UPDATE team_tickets SET status = ?, assignee_user_id = ?, estimated_minutes = ?, actual_minutes = ?, completed_at = ? WHERE id = ? AND team_id = ?');
             $stmt->execute([$status, $assignee, $estimatedMinutes, $actualMinutes, $completedAt, $ticketId, $teamId]);
+            if ($stmt->rowCount() > 0 && $previousStatus !== false && (string) $previousStatus !== $status) {
+                record_ticket_status_history($pdo, $ticketId, (string) $previousStatus, $status, $userId);
+            }
             $flashSuccess = 'Ticket atualizado com sucesso.';
         }
     }
@@ -554,9 +561,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ticketCheck->execute([$ticketId, $teamId]);
 
             if ($ticketCheck->fetchColumn()) {
-                $completedAt = $status === 'done' ? date('Y-m-d H:i:s') : null;
+                $previousStatusStmt = $pdo->prepare('SELECT status FROM team_tickets WHERE id = ? AND team_id = ? LIMIT 1');
+                $previousStatusStmt->execute([$ticketId, $teamId]);
+                $previousStatus = $previousStatusStmt->fetchColumn();
+
+                $completedAt = ticket_status_is_completed($pdo, $status) ? date('Y-m-d H:i:s') : null;
                 $stmt = $pdo->prepare('UPDATE team_tickets SET status = ?, assignee_user_id = ?, estimated_minutes = ?, actual_minutes = ?, completed_at = ? WHERE id = ? AND team_id = ?');
                 $stmt->execute([$status, $assignee, $estimatedMinutes, $actualMinutes, $completedAt, $ticketId, $teamId]);
+                if ($stmt->rowCount() > 0 && $previousStatus !== false && (string) $previousStatus !== $status) {
+                    record_ticket_status_history($pdo, $ticketId, (string) $previousStatus, $status, $userId);
+                }
 
                 if ($note !== '') {
                     $noteStmt = $pdo->prepare('INSERT INTO team_ticket_notes(ticket_id, note, created_by) VALUES (?, ?, ?)');

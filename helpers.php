@@ -214,6 +214,13 @@ function log_app_event(PDO $pdo, ?int $userId, string $eventType, string $descri
     $stmt->execute([$userId, $eventType, $description, $contextJson]);
 }
 
+
+function record_ticket_status_history(PDO $pdo, int $ticketId, ?string $fromStatus, string $toStatus, ?int $changedBy): void
+{
+    $stmt = $pdo->prepare('INSERT INTO team_ticket_status_history(ticket_id, from_status, to_status, changed_by) VALUES (?, ?, ?, ?)');
+    $stmt->execute([$ticketId, $fromStatus, $toStatus, $changedBy]);
+}
+
 function task_badge_class(string $status): string
 {
     return match ($status) {

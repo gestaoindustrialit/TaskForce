@@ -404,6 +404,16 @@ require __DIR__ . '/partials/header.php';
                     </select>
                 </div>
             <?php endif; ?>
+            <?php if (!empty($taskCreationRules['assignee_user_id']['is_visible'])): ?>
+                <div class="col-md-3">
+                    <select class="form-select" name="assignee_user_id" <?= !empty($taskCreationRules['assignee_user_id']['is_required']) ? 'required' : '' ?>>
+                        <option value="0">Atribuído: sem responsável</option>
+                        <?php foreach ($teamMembers as $member): ?>
+                            <option value="<?= (int) $member['id'] ?>"><?= h($member['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            <?php endif; ?>
             <?php if (!empty($taskCreationRules['checklist_template_id']['is_visible'])): ?>
                 <div class="col-md-4">
                     <select class="form-select" name="checklist_template_id" <?= !empty($taskCreationRules['checklist_template_id']['is_required']) ? 'required' : '' ?>>
@@ -603,7 +613,7 @@ require __DIR__ . '/partials/header.php';
                     <input type="hidden" name="action" value="add_task_note">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
                     <input class="form-control form-control-sm" name="note" placeholder="Adicionar observação" required>
-                    <button class="btn btn-sm btn-outline-primary">Guardar</button>
+                    <button class="btn btn-sm btn-outline-primary icon-btn" aria-label="Guardar"><i class="bi bi-save"></i></button>
                 </form>
                 <?php foreach (($taskNotesByTask[$task['id']] ?? []) as $note): ?>
                     <div class="small border rounded p-2 mb-1 bg-light">
@@ -618,7 +628,7 @@ require __DIR__ . '/partials/header.php';
                     <input type="hidden" name="action" value="upload_task_attachment">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
                     <input class="form-control form-control-sm" type="file" name="attachment" required>
-                    <button class="btn btn-sm btn-outline-secondary">Anexar</button>
+                    <button class="btn btn-sm btn-outline-secondary icon-btn" aria-label="Anexar"><i class="bi bi-paperclip"></i></button>
                 </form>
                 <?php foreach (($taskAttachmentsByTask[$task['id']] ?? []) as $attachment): ?>
                     <div class="small border rounded p-2 mb-1 bg-light">
