@@ -248,6 +248,19 @@ $pdo->exec(
     )'
 );
 
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS team_ticket_status_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL,
+        from_status TEXT,
+        to_status TEXT NOT NULL,
+        changed_by INTEGER,
+        changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(ticket_id) REFERENCES team_tickets(id) ON DELETE CASCADE,
+        FOREIGN KEY(changed_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
 $ticketColumns = $pdo->query('PRAGMA table_info(team_tickets)')->fetchAll(PDO::FETCH_COLUMN, 1);
 if (!in_array('assignee_user_id', $ticketColumns, true)) {
     $pdo->exec('ALTER TABLE team_tickets ADD COLUMN assignee_user_id INTEGER');
