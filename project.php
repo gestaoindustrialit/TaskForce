@@ -11,7 +11,8 @@ if (!$project) {
     exit('Sem acesso ao projeto.');
 }
 
-$taskCreationRules = task_creation_field_rules($pdo, (int) $project['team_id'], $projectId);
+$taskCreationCatalog = task_creation_field_catalog_for_team($pdo, (int) $project['team_id']);
+$taskCreationRules = task_creation_field_rules($pdo, (int) $project['team_id'], $projectId, $taskCreationCatalog);
 
 $view = $_GET['view'] ?? 'list';
 $showDone = (int) ($_GET['show_done'] ?? 1) === 1;
@@ -35,6 +36,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $templateId = $templateVisible ? (int) ($_POST['checklist_template_id'] ?? 0) : 0;
         $newChecklistItemsRaw = $newChecklistVisible ? trim((string) ($_POST['new_checklist_items'] ?? '')) : '';
 
+        $customInput = $_POST['custom_fields'] ?? [];
+        $customInput = is_array($customInput) ? $customInput : [];
+        $customPayload = [];
+
         $errors = [];
         if (!empty($taskCreationRules['title']['is_required']) && $title === '') {
             $errors[] = 'Título é obrigatório.';
@@ -52,14 +57,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Checklist (novos itens) é obrigatório.';
         }
 
+        foreach ($taskCreationRules as $fieldKey => $fieldRule) {
+            if (!str_starts_with($fieldKey, 'custom_') || empty($fieldRule['is_visible'])) {
+                continue;
+            }
+
+            $rawValue = trim((string) ($customInput[$fieldKey] ?? ''));
+            if (!empty($fieldRule['is_required']) && $rawValue === '') {
+                $errors[] = $fieldRule['label'] . ' é obrigatório.';
+                continue;
+            }
+
+            if ($rawValue === '') {
+                continue;
+            }
+
+            $fieldType = (string) ($fieldRule['type'] ?? 'text');
+            if ($fieldType === 'number' && !is_numeric($rawValue)) {
+                $errors[] = $fieldRule['label'] . ' deve ser numérico.';
+                continue;
+            }
+            if ($fieldType === 'date') {
+                $dateObj = DateTimeImmutable::createFromFormat('Y-m-d', $rawValue);
+                if (!$dateObj || $dateObj->format('Y-m-d') !== $rawValue) {
+                    $errors[] = $fieldRule['label'] . ' deve ter uma data válida.';
+                    continue;
+                }
+            }
+            if ($fieldType === 'select') {
+                $allowedOptions = array_map('strval', is_array($fieldRule['options'] ?? null) ? $fieldRule['options'] : []);
+                if ($allowedOptions && !in_array($rawValue, $allowedOptions, true)) {
+                    $errors[] = $fieldRule['label'] . ' tem opção inválida.';
+                    continue;
+                }
+            }
+
+            $customPayload[$fieldKey] = $rawValue;
+        }
+
         if ($errors) {
             $_SESSION['flash_error'] = implode(' ', $errors);
             redirect('project.php?id=' . $projectId . '&view=' . $view . '&show_done=' . ($showDone ? '1' : '0'));
         }
 
         if ($title !== '') {
-            $stmt = $pdo->prepare('INSERT INTO tasks(project_id, parent_task_id, title, description, status, priority, due_date, created_by, estimated_minutes, actual_minutes, updated_at, updated_by) VALUES (?, NULL, ?, ?, "todo", ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, ?)');
-            $stmt->execute([$projectId, $title, $description, $priority, $dueDate, $userId, $estimatedMinutes, $userId]);
+            $customPayloadJson = $customPayload ? json_encode($customPayload, JSON_UNESCAPED_UNICODE) : null;
+            $stmt = $pdo->prepare('INSERT INTO tasks(project_id, parent_task_id, title, description, status, priority, due_date, created_by, estimated_minutes, actual_minutes, custom_fields_json, updated_at, updated_by) VALUES (?, NULL, ?, ?, "todo", ?, ?, ?, ?, NULL, ?, CURRENT_TIMESTAMP, ?)');
+            $stmt->execute([$projectId, $title, $description, $priority, $dueDate, $userId, $estimatedMinutes, $customPayloadJson, $userId]);
             $taskId = (int) $pdo->lastInsertId();
 
             if ($templateId > 0) {
@@ -230,6 +274,13 @@ foreach ($taskAttachStmt->fetchAll(PDO::FETCH_ASSOC) as $taskAttachment) {
 $checklistTemplatesStmt = $pdo->query('SELECT ct.id, ct.name, ct.description, u.name AS creator_name, COUNT(cti.id) AS items_count FROM checklist_templates ct INNER JOIN users u ON u.id = ct.created_by LEFT JOIN checklist_template_items cti ON cti.template_id = ct.id GROUP BY ct.id ORDER BY ct.name COLLATE NOCASE ASC');
 $checklistTemplates = $checklistTemplatesStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$visibleCustomTaskFields = [];
+foreach ($taskCreationRules as $fieldKey => $fieldRule) {
+    if (str_starts_with($fieldKey, 'custom_') && !empty($fieldRule['is_visible'])) {
+        $visibleCustomTaskFields[$fieldKey] = $fieldRule;
+    }
+}
+
 $pageTitle = 'Projeto ' . $project['name'];
 require __DIR__ . '/partials/header.php';
 ?>
@@ -278,6 +329,27 @@ require __DIR__ . '/partials/header.php';
             <?php if (!empty($taskCreationRules['new_checklist_items']['is_visible'])): ?>
                 <div class="col-12"><textarea class="form-control" name="new_checklist_items" rows="2" placeholder="Ou escreva novos itens de checklist (1 por linha)" <?= !empty($taskCreationRules['new_checklist_items']['is_required']) ? 'required' : '' ?>></textarea></div>
             <?php endif; ?>
+            <?php foreach ($visibleCustomTaskFields as $customFieldKey => $customFieldRule): ?>
+                <?php $customType = (string) ($customFieldRule['type'] ?? 'text'); ?>
+                <div class="<?= $customType === 'textarea' ? 'col-12' : 'col-md-3' ?>">
+                    <?php if ($customType === 'textarea'): ?>
+                        <textarea class="form-control" name="custom_fields[<?= h($customFieldKey) ?>]" rows="2" placeholder="<?= h($customFieldRule['label']) ?>" <?= !empty($customFieldRule['is_required']) ? 'required' : '' ?>></textarea>
+                    <?php elseif ($customType === 'date'): ?>
+                        <input class="form-control" type="date" name="custom_fields[<?= h($customFieldKey) ?>]" placeholder="<?= h($customFieldRule['label']) ?>" <?= !empty($customFieldRule['is_required']) ? 'required' : '' ?>>
+                    <?php elseif ($customType === 'number'): ?>
+                        <input class="form-control" type="number" name="custom_fields[<?= h($customFieldKey) ?>]" placeholder="<?= h($customFieldRule['label']) ?>" <?= !empty($customFieldRule['is_required']) ? 'required' : '' ?>>
+                    <?php elseif ($customType === 'select'): ?>
+                        <select class="form-select" name="custom_fields[<?= h($customFieldKey) ?>]" <?= !empty($customFieldRule['is_required']) ? 'required' : '' ?>>
+                            <option value=""><?= h($customFieldRule['label']) ?></option>
+                            <?php foreach ((array) ($customFieldRule['options'] ?? []) as $customOption): ?>
+                                <option value="<?= h((string) $customOption) ?>"><?= h((string) $customOption) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    <?php else: ?>
+                        <input class="form-control" name="custom_fields[<?= h($customFieldKey) ?>]" placeholder="<?= h($customFieldRule['label']) ?>" <?= !empty($customFieldRule['is_required']) ? 'required' : '' ?>>
+                    <?php endif; ?>
+                </div>
+            <?php endforeach; ?>
             <div class="col-md-2"><button class="btn btn-primary w-100">Criar</button></div>
         </form>
     </div>
