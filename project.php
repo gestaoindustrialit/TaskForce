@@ -26,6 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $estimatedVisible = !empty($taskCreationRules['estimated_minutes']['is_visible']);
         $templateVisible = !empty($taskCreationRules['checklist_template_id']['is_visible']);
         $newChecklistVisible = !empty($taskCreationRules['new_checklist_items']['is_visible']);
+        $assigneeVisible = !empty($taskCreationRules['assignee_user_id']['is_visible']);
 
         $title = $titleVisible ? trim((string) ($_POST['title'] ?? '')) : 'Sem título';
         $description = $descriptionVisible ? trim((string) ($_POST['description'] ?? '')) : '';
@@ -35,6 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $estimatedMinutes = $estimatedVisible && $estimatedInput !== '' ? max(0, (int) $estimatedInput) : null;
         $templateId = $templateVisible ? (int) ($_POST['checklist_template_id'] ?? 0) : 0;
         $newChecklistItemsRaw = $newChecklistVisible ? trim((string) ($_POST['new_checklist_items'] ?? '')) : '';
+        $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
 
         $customInput = $_POST['custom_fields'] ?? [];
         $customInput = is_array($customInput) ? $customInput : [];
@@ -55,6 +57,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if (!empty($taskCreationRules['new_checklist_items']['is_required']) && $newChecklistItemsRaw === '') {
             $errors[] = 'Checklist (novos itens) é obrigatório.';
+        }
+        if (!empty($taskCreationRules['assignee_user_id']['is_required']) && $assigneeUserId <= 0) {
+            $errors[] = 'Atribuído é obrigatório.';
         }
 
         foreach ($taskCreationRules as $fieldKey => $fieldRule) {
@@ -102,8 +107,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($title !== '') {
             $customPayloadJson = $customPayload ? json_encode($customPayload, JSON_UNESCAPED_UNICODE) : null;
-            $stmt = $pdo->prepare('INSERT INTO tasks(project_id, parent_task_id, title, description, status, priority, due_date, created_by, estimated_minutes, actual_minutes, custom_fields_json, updated_at, updated_by) VALUES (?, NULL, ?, ?, "todo", ?, ?, ?, ?, NULL, ?, CURRENT_TIMESTAMP, ?)');
-            $stmt->execute([$projectId, $title, $description, $priority, $dueDate, $userId, $estimatedMinutes, $customPayloadJson, $userId]);
+            $assigneeUserIdValue = null;
+            if ($assigneeUserId > 0) {
+                $assigneeCheckStmt = $pdo->prepare('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?');
+                $assigneeCheckStmt->execute([(int) $project['team_id'], $assigneeUserId]);
+                if ($assigneeCheckStmt->fetchColumn()) {
+                    $assigneeUserIdValue = $assigneeUserId;
+                }
+            }
+
+            $stmt = $pdo->prepare('INSERT INTO tasks(project_id, parent_task_id, title, description, status, priority, due_date, created_by, assignee_user_id, estimated_minutes, actual_minutes, custom_fields_json, updated_at, updated_by) VALUES (?, NULL, ?, ?, "todo", ?, ?, ?, ?, ?, NULL, ?, CURRENT_TIMESTAMP, ?)');
+            $stmt->execute([$projectId, $title, $description, $priority, $dueDate, $userId, $assigneeUserIdValue, $estimatedMinutes, $customPayloadJson, $userId]);
             $taskId = (int) $pdo->lastInsertId();
 
             if ($templateId > 0) {
@@ -225,10 +239,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+
+    if ($action === 'assign_task') {
+        $taskId = (int) ($_POST['task_id'] ?? 0);
+        $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
+        $assigneeUserIdValue = null;
+        if ($assigneeUserId > 0) {
+            $assigneeCheckStmt = $pdo->prepare('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?');
+            $assigneeCheckStmt->execute([(int) $project['team_id'], $assigneeUserId]);
+            if ($assigneeCheckStmt->fetchColumn()) {
+                $assigneeUserIdValue = $assigneeUserId;
+            }
+        }
+
+        $stmt = $pdo->prepare('UPDATE tasks SET assignee_user_id = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = ? AND project_id = ?');
+        $stmt->execute([$assigneeUserIdValue, $userId, $taskId, $projectId]);
+    }
+
+    if ($action === 'add_project_note') {
+        $note = trim((string) ($_POST['note'] ?? ''));
+        if ($note !== '') {
+            $stmt = $pdo->prepare('INSERT INTO project_notes(project_id, note, created_by) VALUES (?, ?, ?)');
+            $stmt->execute([$projectId, $note, $userId]);
+        }
+    }
+
+    if ($action === 'upload_project_document') {
+        $file = $_FILES['document'] ?? null;
+        $hasFile = $file && is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK;
+        if ($hasFile) {
+            $uploadDir = __DIR__ . '/uploads/project_documents';
+            if (!is_dir($uploadDir)) {
+                mkdir($uploadDir, 0775, true);
+            }
+            $ext = pathinfo((string) $file['name'], PATHINFO_EXTENSION);
+            $safeName = uniqid('project_' . $projectId . '_', true) . ($ext ? '.' . strtolower($ext) : '');
+            $targetPath = $uploadDir . '/' . $safeName;
+            if (move_uploaded_file((string) $file['tmp_name'], $targetPath)) {
+                $stmt = $pdo->prepare('INSERT INTO project_documents(project_id, original_name, file_path, uploaded_by) VALUES (?, ?, ?, ?)');
+                $stmt->execute([$projectId, (string) $file['name'], 'uploads/project_documents/' . $safeName, $userId]);
+            }
+        }
+    }
+
     redirect('project.php?id=' . $projectId . '&view=' . $view . '&show_done=' . ($showDone ? '1' : '0'));
 }
 
-$tasksStmt = $pdo->prepare('SELECT t.*, u.name AS creator_name FROM tasks t INNER JOIN users u ON u.id = t.created_by WHERE t.project_id = ? ORDER BY t.parent_task_id IS NOT NULL, t.created_at DESC');
+$tasksStmt = $pdo->prepare('SELECT t.*, u.name AS creator_name, a.name AS assignee_name FROM tasks t INNER JOIN users u ON u.id = t.created_by LEFT JOIN users a ON a.id = t.assignee_user_id WHERE t.project_id = ? ORDER BY t.parent_task_id IS NOT NULL, t.created_at DESC');
 $tasksStmt->execute([$projectId]);
 $allTasks = $tasksStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -270,6 +327,18 @@ $taskAttachmentsByTask = [];
 foreach ($taskAttachStmt->fetchAll(PDO::FETCH_ASSOC) as $taskAttachment) {
     $taskAttachmentsByTask[$taskAttachment['task_id']][] = $taskAttachment;
 }
+
+$teamMembersStmt = $pdo->prepare('SELECT u.id, u.name FROM users u INNER JOIN team_members tm ON tm.user_id = u.id WHERE tm.team_id = ? ORDER BY u.name COLLATE NOCASE ASC');
+$teamMembersStmt->execute([(int) $project['team_id']]);
+$teamMembers = $teamMembersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$projectNotesStmt = $pdo->prepare('SELECT pn.*, u.name AS user_name FROM project_notes pn INNER JOIN users u ON u.id = pn.created_by WHERE pn.project_id = ? ORDER BY pn.created_at DESC');
+$projectNotesStmt->execute([$projectId]);
+$projectNotes = $projectNotesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$projectDocumentsStmt = $pdo->prepare('SELECT pd.*, u.name AS user_name FROM project_documents pd INNER JOIN users u ON u.id = pd.uploaded_by WHERE pd.project_id = ? ORDER BY pd.created_at DESC');
+$projectDocumentsStmt->execute([$projectId]);
+$projectDocuments = $projectDocumentsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $checklistTemplatesStmt = $pdo->query('SELECT ct.id, ct.name, ct.description, u.name AS creator_name, COUNT(cti.id) AS items_count FROM checklist_templates ct INNER JOIN users u ON u.id = ct.created_by LEFT JOIN checklist_template_items cti ON cti.template_id = ct.id GROUP BY ct.id ORDER BY ct.name COLLATE NOCASE ASC');
 $checklistTemplates = $checklistTemplatesStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -315,6 +384,16 @@ require __DIR__ . '/partials/header.php';
             <?php if (!empty($taskCreationRules['estimated_minutes']['is_visible'])): ?>
                 <div class="col-md-2"><input class="form-control" type="number" min="0" name="estimated_minutes" placeholder="Previsto (min)" <?= !empty($taskCreationRules['estimated_minutes']['is_required']) ? 'required' : '' ?>></div>
             <?php endif; ?>
+            <?php if (!empty($taskCreationRules['assignee_user_id']['is_visible'])): ?>
+                <div class="col-md-3">
+                    <select class="form-select" name="assignee_user_id" <?= !empty($taskCreationRules['assignee_user_id']['is_required']) ? 'required' : '' ?>>
+                        <option value="0">Atribuído: sem responsável</option>
+                        <?php foreach ($teamMembers as $member): ?>
+                            <option value="<?= (int) $member['id'] ?>"><?= h($member['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            <?php endif; ?>
             <?php if (!empty($taskCreationRules['checklist_template_id']['is_visible'])): ?>
                 <div class="col-md-4">
                     <select class="form-select" name="checklist_template_id" <?= !empty($taskCreationRules['checklist_template_id']['is_required']) ? 'required' : '' ?>>
@@ -355,6 +434,52 @@ require __DIR__ . '/partials/header.php';
     </div>
 </div>
 
+
+<div class="row g-3 mb-4">
+    <div class="col-lg-6">
+        <div class="card shadow-sm soft-card h-100">
+            <div class="card-body">
+                <h2 class="h5 mb-3"><i class="bi bi-folder2-open me-2"></i>Documentos do projeto</h2>
+                <form method="post" enctype="multipart/form-data" class="d-flex gap-2 mb-3">
+                    <input type="hidden" name="action" value="upload_project_document">
+                    <input class="form-control form-control-sm" type="file" name="document" required>
+                    <button class="btn btn-sm btn-outline-secondary" aria-label="Adicionar documento"><i class="bi bi-upload"></i></button>
+                </form>
+                <?php if (!$projectDocuments): ?>
+                    <p class="small text-muted mb-0">Ainda não existem documentos do projeto.</p>
+                <?php endif; ?>
+                <?php foreach ($projectDocuments as $document): ?>
+                    <div class="small border rounded p-2 mb-2 bg-light">
+                        <a href="<?= h($document['file_path']) ?>" target="_blank" rel="noopener"><?= h($document['original_name']) ?></a><br>
+                        <small class="text-muted"><?= h($document['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($document['created_at']))) ?></small>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card shadow-sm soft-card h-100">
+            <div class="card-body">
+                <h2 class="h5 mb-3"><i class="bi bi-journal-text me-2"></i>Notas do projeto</h2>
+                <form method="post" class="d-flex gap-2 mb-3">
+                    <input type="hidden" name="action" value="add_project_note">
+                    <input class="form-control form-control-sm" name="note" placeholder="Adicionar nota da equipa" required>
+                    <button class="btn btn-sm btn-outline-primary" aria-label="Guardar nota"><i class="bi bi-save"></i></button>
+                </form>
+                <?php if (!$projectNotes): ?>
+                    <p class="small text-muted mb-0">Sem notas no projeto.</p>
+                <?php endif; ?>
+                <?php foreach ($projectNotes as $note): ?>
+                    <div class="small border rounded p-2 mb-2 bg-light">
+                        <?= h($note['note']) ?><br>
+                        <small class="text-muted"><?= h($note['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($note['created_at']))) ?></small>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
 <?php if ($view === 'board'): ?>
 <div class="row g-3">
     <?php foreach (['todo' => 'Por Fazer', 'in_progress' => 'Em Progresso', 'done' => 'Concluídas'] as $status => $label): ?>
@@ -380,12 +505,13 @@ require __DIR__ . '/partials/header.php';
 <?php foreach ($tasks as $task): ?>
     <?php $estimated = $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : null; $actual = $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : null; $delta = task_time_delta($estimated, $actual); ?>
     <div class="card shadow-sm soft-card"><div class="card-body">
-        <div class="d-flex justify-content-between align-items-start mb-2"><div><h2 class="h5 mb-1"><?= h($task['title']) ?></h2><p class="text-muted mb-1"><?= h($task['description']) ?></p><small class="text-muted">Criada por <?= h($task['creator_name']) ?></small></div><span class="badge bg-<?= task_badge_class($task['status']) ?>"><?= h(status_label($task['status'])) ?></span></div>
+        <div class="d-flex justify-content-between align-items-start mb-2"><div><h2 class="h5 mb-1"><?= h($task['title']) ?></h2><p class="text-muted mb-1"><?= h($task['description']) ?></p><small class="text-muted">Criada por <?= h($task['creator_name']) ?> · Atribuído a <?= h($task['assignee_name'] ?? 'Sem responsável') ?></small></div><span class="badge bg-<?= task_badge_class($task['status']) ?>"><?= h(status_label($task['status'])) ?></span></div>
         <div class="d-flex gap-2 mb-3"><span class="time-chip">Tempo previsto: <?= h(format_minutes($estimated)) ?></span><span class="time-chip">Tempo real: <?= h(format_minutes($actual)) ?></span><?php if ($delta !== null): ?><span class="time-chip <?= $delta > 0 ? 'text-danger' : 'text-success' ?>">Discrepância: <?= $delta > 0 ? '+' : '-' ?><?= h(format_minutes(abs($delta))) ?></span><?php endif; ?></div>
         <div class="row g-2">
-            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="change_status"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><select name="status" class="form-select form-select-sm"><option value="todo" <?= $task['status']==='todo'?'selected':'' ?>>Por Fazer</option><option value="in_progress" <?= $task['status']==='in_progress'?'selected':'' ?>>Em Progresso</option><option value="done" <?= $task['status']==='done'?'selected':'' ?>>Concluída</option></select><button class="btn btn-sm btn-outline-primary">Estado</button></form></div>
-            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="update_time"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $estimated !== null ? $estimated : '' ?>" placeholder="Previsto"><input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $actual !== null ? $actual : '' ?>" placeholder="Real"><button class="btn btn-sm btn-outline-dark">Tempo</button></form><div class="d-flex gap-2 mt-2"><button type="button" class="btn btn-sm btn-outline-success js-start-timer" data-task-id="<?= (int) $task['id'] ?>">Iniciar contador</button><button type="button" class="btn btn-sm btn-outline-warning js-stop-timer" data-task-id="<?= (int) $task['id'] ?>">Parar + guardar</button></div></div>
-            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="create_subtask"><input type="hidden" name="parent_task_id" value="<?= (int) $task['id'] ?>"><input name="title" class="form-control form-control-sm" placeholder="Nova sub tarefa" required><button class="btn btn-sm btn-outline-secondary">+</button></form></div>
+            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="change_status"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><select name="status" class="form-select form-select-sm"><option value="todo" <?= $task['status']==='todo'?'selected':'' ?>>Por Fazer</option><option value="in_progress" <?= $task['status']==='in_progress'?'selected':'' ?>>Em Progresso</option><option value="done" <?= $task['status']==='done'?'selected':'' ?>>Concluída</option></select><button class="btn btn-sm btn-outline-primary icon-btn" aria-label="Atualizar estado"><i class="bi bi-arrow-repeat"></i></button></form></div>
+            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="assign_task"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><select name="assignee_user_id" class="form-select form-select-sm"><option value="0">Sem responsável</option><?php foreach ($teamMembers as $member): ?><option value="<?= (int) $member['id'] ?>" <?= (int) ($task['assignee_user_id'] ?? 0) === (int) $member['id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option><?php endforeach; ?></select><button class="btn btn-sm btn-outline-info icon-btn" aria-label="Atualizar responsável"><i class="bi bi-person-check"></i></button></form></div>
+            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="update_time"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $estimated !== null ? $estimated : '' ?>" placeholder="Previsto"><input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $actual !== null ? $actual : '' ?>" placeholder="Real"><button class="btn btn-sm btn-outline-dark icon-btn" aria-label="Atualizar tempo"><i class="bi bi-clock-history"></i></button></form><div class="d-flex gap-2 mt-2"><button type="button" class="btn btn-sm btn-outline-success js-start-timer icon-btn" data-task-id="<?= (int) $task['id'] ?>" aria-label="Iniciar contador"><i class="bi bi-play-fill"></i></button><button type="button" class="btn btn-sm btn-outline-warning js-stop-timer icon-btn" data-task-id="<?= (int) $task['id'] ?>" aria-label="Parar e guardar"><i class="bi bi-stop-fill"></i></button></div></div>
+            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="create_subtask"><input type="hidden" name="parent_task_id" value="<?= (int) $task['id'] ?>"><input name="title" class="form-control form-control-sm" placeholder="Nova sub tarefa" required><button class="btn btn-sm btn-outline-secondary icon-btn" aria-label="Adicionar sub tarefa"><i class="bi bi-plus-lg"></i></button></form></div>
         </div>
         <form method="post" class="d-none" id="timerForm<?= (int) $task['id'] ?>"><input type="hidden" name="action" value="update_time"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><input type="hidden" name="estimated_minutes" value="<?= $estimated !== null ? $estimated : "" ?>"><input type="hidden" name="add_actual_minutes" value="0" class="js-add-actual"></form>
         <div class="row g-2 mt-3">
@@ -395,7 +521,7 @@ require __DIR__ . '/partials/header.php';
                     <input type="hidden" name="action" value="add_task_note">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
                     <input class="form-control form-control-sm" name="note" placeholder="Adicionar observação" required>
-                    <button class="btn btn-sm btn-outline-primary">Guardar</button>
+                    <button class="btn btn-sm btn-outline-primary icon-btn" aria-label="Guardar"><i class="bi bi-save"></i></button>
                 </form>
                 <?php foreach (($taskNotesByTask[$task['id']] ?? []) as $note): ?>
                     <div class="small border rounded p-2 mb-1 bg-light">
@@ -410,7 +536,7 @@ require __DIR__ . '/partials/header.php';
                     <input type="hidden" name="action" value="upload_task_attachment">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
                     <input class="form-control form-control-sm" type="file" name="attachment" required>
-                    <button class="btn btn-sm btn-outline-secondary">Anexar</button>
+                    <button class="btn btn-sm btn-outline-secondary icon-btn" aria-label="Anexar"><i class="bi bi-paperclip"></i></button>
                 </form>
                 <?php foreach (($taskAttachmentsByTask[$task['id']] ?? []) as $attachment): ?>
                     <div class="small border rounded p-2 mb-1 bg-light">
