@@ -6,6 +6,15 @@ if (is_logged_in()) {
 }
 
 $error = null;
+
+function safe_log_app_event(PDO $pdo, ?int $userId, string $eventType, string $description, array $context = []): void
+{
+    try {
+        log_app_event($pdo, $userId, $eventType, $description, $context);
+    } catch (Throwable $exception) {
+        error_log('[TaskForce] Não foi possível registar evento de login: ' . $exception->getMessage());
+    }
+}
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
@@ -16,11 +25,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($user && password_verify($password, $user['password'])) {
         $_SESSION['user_id'] = (int) $user['id'];
-        log_app_event($pdo, (int) $user['id'], 'auth.login_success', 'Login com sucesso.');
+        safe_log_app_event($pdo, (int) $user['id'], 'auth.login_success', 'Login com sucesso.');
         redirect('dashboard.php');
     }
 
-    log_app_event($pdo, null, 'auth.login_failed', 'Tentativa de login falhada.', ['email' => $email]);
+    safe_log_app_event($pdo, null, 'auth.login_failed', 'Tentativa de login falhada.', ['email' => $email]);
     $error = 'Credenciais inválidas.';
 }
 

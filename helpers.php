@@ -186,6 +186,16 @@ function task_creation_field_key_from_label(string $label): string
     return 'custom_' . $base;
 }
 
+
+function string_contains(string $haystack, string $needle): bool
+{
+    if (function_exists('str_contains')) {
+        return str_contains($haystack, $needle);
+    }
+
+    return $needle == '' || strpos($haystack, $needle) !== false;
+}
+
 function h(?string $value): string
 {
     $text = (string) $value;
