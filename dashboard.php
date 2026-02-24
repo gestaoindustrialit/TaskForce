@@ -46,7 +46,7 @@ function infer_team_ticket_preset(string $teamName): array
         ? mb_strtolower($teamName, 'UTF-8')
         : strtolower($teamName);
 
-    if (str_contains($normalized, 'desenho')) {
+    if (string_contains($normalized, 'desenho')) {
         return [
             'ticket_type' => 'desenho_tecnico',
             'urgency' => 'Média',
@@ -55,7 +55,7 @@ function infer_team_ticket_preset(string $teamName): array
         ];
     }
 
-    if (str_contains($normalized, 'manuten')) {
+    if (string_contains($normalized, 'manuten')) {
         return [
             'ticket_type' => 'manutencao',
             'urgency' => 'Alta',
@@ -64,7 +64,7 @@ function infer_team_ticket_preset(string $teamName): array
         ];
     }
 
-    if (str_contains($normalized, 'compra') || str_contains($normalized, 'logíst') || str_contains($normalized, 'logist')) {
+    if (string_contains($normalized, 'compra') || string_contains($normalized, 'logíst') || string_contains($normalized, 'logist')) {
         return [
             'ticket_type' => 'compras',
             'urgency' => 'Média',

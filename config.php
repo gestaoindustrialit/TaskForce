@@ -6,9 +6,27 @@ if (session_status() === PHP_SESSION_NONE) {
 date_default_timezone_set('Europe/Lisbon');
 
 $dbFile = __DIR__ . '/database.sqlite';
-$pdo = new PDO('sqlite:' . $dbFile);
-$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-$pdo->exec('PRAGMA foreign_keys = ON');
+if (!extension_loaded('pdo_sqlite')) {
+    http_response_code(500);
+    header('Content-Type: text/html; charset=UTF-8');
+    echo '<h1>Erro de configuração</h1>';
+    echo '<p>A extensão <code>pdo_sqlite</code> não está ativa neste servidor.</p>';
+    exit;
+}
+
+try {
+    $pdo = new PDO('sqlite:' . $dbFile);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->exec('PRAGMA foreign_keys = ON');
+} catch (Throwable $exception) {
+    error_log('[TaskForce] Falha ao iniciar base de dados SQLite: ' . $exception->getMessage());
+    http_response_code(500);
+    header('Content-Type: text/html; charset=UTF-8');
+    echo '<h1>Erro de configuração</h1>';
+    echo '<p>Não foi possível iniciar a base de dados SQLite.</p>';
+    echo '<p>Verifique permissões de escrita para o ficheiro <code>database.sqlite</code> e para a pasta da aplicação.</p>';
+    exit;
+}
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS users (
