@@ -863,7 +863,7 @@ require __DIR__ . '/partials/header.php';
             <form method="post" class="d-flex gap-2 mb-3">
                 <input type="hidden" name="action" value="add_team_note">
                 <input class="form-control form-control-sm" name="note" placeholder="Adicionar nota para a equipa" required>
-                <button class="btn btn-sm btn-outline-primary" aria-label="Guardar nota da equipa"><i class="bi bi-save"></i></button>
+                <button class="btn btn-sm btn-outline-primary">Guardar</button>
             </form>
             <?php if (!$teamNotes): ?>
                 <p class="small text-muted mb-0">Ainda não existem notas da equipa.</p>

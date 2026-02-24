@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $priority = $_POST['priority'] ?? 'normal';
         $dueDate = $_POST['due_date'] ?: null;
         $estimatedInput = (string) ($_POST['estimated_minutes'] ?? '');
-        $estimatedMinutes = $estimatedVisible && $estimatedInput !== '' ? max(0, (int) $estimatedInput) : null;
+        $estimatedMinutes = $estimatedVisible ? parse_duration_to_minutes($estimatedInput) : null;
         $templateId = $templateVisible ? (int) ($_POST['checklist_template_id'] ?? 0) : 0;
         $newChecklistItemsRaw = $newChecklistVisible ? trim((string) ($_POST['new_checklist_items'] ?? '')) : '';
         $assigneeUserId = (int) ($_POST['assignee_user_id'] ?? 0);
@@ -50,7 +50,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Descrição é obrigatória.';
         }
         if (!empty($taskCreationRules['estimated_minutes']['is_required']) && $estimatedInput === '') {
-            $errors[] = 'Previsto (min) é obrigatório.';
+            $errors[] = 'Tempo previsto é obrigatório.';
+        }
+        if ($estimatedInput !== '' && $estimatedMinutes === null) {
+            $errors[] = 'Tempo previsto deve estar no formato 00:00:00.';
         }
         if (!empty($taskCreationRules['checklist_template_id']['is_required']) && $templateId <= 0) {
             $errors[] = 'Checklist (modelo) é obrigatório.';
@@ -169,8 +172,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'update_time') {
         $taskId = (int) ($_POST['task_id'] ?? 0);
-        $estimatedMinutes = ($_POST['estimated_minutes'] ?? '') !== '' ? max(0, (int) $_POST['estimated_minutes']) : null;
-        $actualMinutes = ($_POST['actual_minutes'] ?? '') !== '' ? max(0, (int) $_POST['actual_minutes']) : null;
+        $estimatedInput = (string) ($_POST['estimated_minutes'] ?? '');
+        $actualInput = (string) ($_POST['actual_minutes'] ?? '');
+        $estimatedMinutes = parse_duration_to_minutes($estimatedInput);
+        $actualMinutes = parse_duration_to_minutes($actualInput);
+
+        if (($estimatedInput !== '' && $estimatedMinutes === null) || ($actualInput !== '' && $actualMinutes === null)) {
+            $_SESSION['flash_error'] = 'Tempo inválido. Use o formato 00:00:00.';
+            redirect('project.php?id=' . $projectId . '&view=' . $view . '&show_done=' . ($showDone ? '1' : '0'));
+        }
         $addActualMinutes = ($_POST['add_actual_minutes'] ?? '') !== '' ? max(0, (int) $_POST['add_actual_minutes']) : 0;
 
         if ($addActualMinutes > 0) {
@@ -382,7 +392,17 @@ require __DIR__ . '/partials/header.php';
                 <div class="col-md-3"><input class="form-control" name="description" placeholder="Descrição" <?= !empty($taskCreationRules['description']['is_required']) ? 'required' : '' ?>></div>
             <?php endif; ?>
             <?php if (!empty($taskCreationRules['estimated_minutes']['is_visible'])): ?>
-                <div class="col-md-2"><input class="form-control" type="number" min="0" name="estimated_minutes" placeholder="Previsto (min)" <?= !empty($taskCreationRules['estimated_minutes']['is_required']) ? 'required' : '' ?>></div>
+                <div class="col-md-2"><input class="form-control" type="text" name="estimated_minutes" placeholder="00:00:00" pattern="\d{1,3}:\d{2}:\d{2}" <?= !empty($taskCreationRules['estimated_minutes']['is_required']) ? 'required' : '' ?>></div>
+            <?php endif; ?>
+            <?php if (!empty($taskCreationRules['assignee_user_id']['is_visible'])): ?>
+                <div class="col-md-3">
+                    <select class="form-select" name="assignee_user_id" <?= !empty($taskCreationRules['assignee_user_id']['is_required']) ? 'required' : '' ?>>
+                        <option value="0">Atribuído: sem responsável</option>
+                        <?php foreach ($teamMembers as $member): ?>
+                            <option value="<?= (int) $member['id'] ?>"><?= h($member['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
             <?php endif; ?>
             <?php if (!empty($taskCreationRules['assignee_user_id']['is_visible'])): ?>
                 <div class="col-md-3">
@@ -439,11 +459,11 @@ require __DIR__ . '/partials/header.php';
     <div class="col-lg-6">
         <div class="card shadow-sm soft-card h-100">
             <div class="card-body">
-                <h2 class="h5 mb-3"><i class="bi bi-folder2-open me-2"></i>Documentos do projeto</h2>
+                <h2 class="h5 mb-3">Documentos do projeto</h2>
                 <form method="post" enctype="multipart/form-data" class="d-flex gap-2 mb-3">
                     <input type="hidden" name="action" value="upload_project_document">
                     <input class="form-control form-control-sm" type="file" name="document" required>
-                    <button class="btn btn-sm btn-outline-secondary" aria-label="Adicionar documento"><i class="bi bi-upload"></i></button>
+                    <button class="btn btn-sm btn-outline-secondary">Adicionar</button>
                 </form>
                 <?php if (!$projectDocuments): ?>
                     <p class="small text-muted mb-0">Ainda não existem documentos do projeto.</p>
@@ -460,11 +480,11 @@ require __DIR__ . '/partials/header.php';
     <div class="col-lg-6">
         <div class="card shadow-sm soft-card h-100">
             <div class="card-body">
-                <h2 class="h5 mb-3"><i class="bi bi-journal-text me-2"></i>Notas do projeto</h2>
+                <h2 class="h5 mb-3">Notas do projeto</h2>
                 <form method="post" class="d-flex gap-2 mb-3">
                     <input type="hidden" name="action" value="add_project_note">
                     <input class="form-control form-control-sm" name="note" placeholder="Adicionar nota da equipa" required>
-                    <button class="btn btn-sm btn-outline-primary" aria-label="Guardar nota"><i class="bi bi-save"></i></button>
+                    <button class="btn btn-sm btn-outline-primary">Guardar</button>
                 </form>
                 <?php if (!$projectNotes): ?>
                     <p class="small text-muted mb-0">Sem notas no projeto.</p>
@@ -507,13 +527,85 @@ require __DIR__ . '/partials/header.php';
     <div class="card shadow-sm soft-card"><div class="card-body">
         <div class="d-flex justify-content-between align-items-start mb-2"><div><h2 class="h5 mb-1"><?= h($task['title']) ?></h2><p class="text-muted mb-1"><?= h($task['description']) ?></p><small class="text-muted">Criada por <?= h($task['creator_name']) ?> · Atribuído a <?= h($task['assignee_name'] ?? 'Sem responsável') ?></small></div><span class="badge bg-<?= task_badge_class($task['status']) ?>"><?= h(status_label($task['status'])) ?></span></div>
         <div class="d-flex gap-2 mb-3"><span class="time-chip">Tempo previsto: <?= h(format_minutes($estimated)) ?></span><span class="time-chip">Tempo real: <?= h(format_minutes($actual)) ?></span><?php if ($delta !== null): ?><span class="time-chip <?= $delta > 0 ? 'text-danger' : 'text-success' ?>">Discrepância: <?= $delta > 0 ? '+' : '-' ?><?= h(format_minutes(abs($delta))) ?></span><?php endif; ?></div>
-        <div class="row g-2">
-            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="change_status"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><select name="status" class="form-select form-select-sm"><option value="todo" <?= $task['status']==='todo'?'selected':'' ?>>Por Fazer</option><option value="in_progress" <?= $task['status']==='in_progress'?'selected':'' ?>>Em Progresso</option><option value="done" <?= $task['status']==='done'?'selected':'' ?>>Concluída</option></select><button class="btn btn-sm btn-outline-primary icon-btn" aria-label="Atualizar estado"><i class="bi bi-arrow-repeat"></i></button></form></div>
-            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="assign_task"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><select name="assignee_user_id" class="form-select form-select-sm"><option value="0">Sem responsável</option><?php foreach ($teamMembers as $member): ?><option value="<?= (int) $member['id'] ?>" <?= (int) ($task['assignee_user_id'] ?? 0) === (int) $member['id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option><?php endforeach; ?></select><button class="btn btn-sm btn-outline-info icon-btn" aria-label="Atualizar responsável"><i class="bi bi-person-check"></i></button></form></div>
-            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="update_time"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $estimated !== null ? $estimated : '' ?>" placeholder="Previsto"><input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $actual !== null ? $actual : '' ?>" placeholder="Real"><button class="btn btn-sm btn-outline-dark icon-btn" aria-label="Atualizar tempo"><i class="bi bi-clock-history"></i></button></form><div class="d-flex gap-2 mt-2"><button type="button" class="btn btn-sm btn-outline-success js-start-timer icon-btn" data-task-id="<?= (int) $task['id'] ?>" aria-label="Iniciar contador"><i class="bi bi-play-fill"></i></button><button type="button" class="btn btn-sm btn-outline-warning js-stop-timer icon-btn" data-task-id="<?= (int) $task['id'] ?>" aria-label="Parar e guardar"><i class="bi bi-stop-fill"></i></button></div></div>
-            <div class="col-md-4"><form method="post" class="d-flex gap-2"><input type="hidden" name="action" value="create_subtask"><input type="hidden" name="parent_task_id" value="<?= (int) $task['id'] ?>"><input name="title" class="form-control form-control-sm" placeholder="Nova sub tarefa" required><button class="btn btn-sm btn-outline-secondary icon-btn" aria-label="Adicionar sub tarefa"><i class="bi bi-plus-lg"></i></button></form></div>
+        <div class="row g-2 align-items-end">
+            <div class="col-lg-3 col-md-6">
+                <form method="post" class="vstack gap-1">
+                    <input type="hidden" name="action" value="change_status">
+                    <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
+                    <label class="form-label small mb-0">Estado</label>
+                    <div class="d-flex gap-2">
+                        <select name="status" class="form-select form-select-sm">
+                            <option value="todo" <?= $task['status']==='todo'?'selected':'' ?>>Por Fazer</option>
+                            <option value="in_progress" <?= $task['status']==='in_progress'?'selected':'' ?>>Em Progresso</option>
+                            <option value="done" <?= $task['status']==='done'?'selected':'' ?>>Concluída</option>
+                        </select>
+                        <button class="btn btn-sm btn-outline-primary">Atualizar</button>
+                    </div>
+                </form>
+            </div>
+            <div class="col-lg-3 col-md-6">
+                <form method="post" class="vstack gap-1">
+                    <input type="hidden" name="action" value="assign_task">
+                    <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
+                    <label class="form-label small mb-0">Atribuído</label>
+                    <div class="d-flex gap-2">
+                        <select name="assignee_user_id" class="form-select form-select-sm">
+                            <option value="0">Sem responsável</option>
+                            <?php foreach ($teamMembers as $member): ?>
+                                <option value="<?= (int) $member['id'] ?>" <?= (int) ($task['assignee_user_id'] ?? 0) === (int) $member['id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button class="btn btn-sm btn-outline-info">Guardar</button>
+                    </div>
+                </form>
+            </div>
+            <div class="col-lg-6 col-md-12">
+                <form method="post" class="row g-2 align-items-end">
+                    <input type="hidden" name="action" value="update_time">
+                    <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
+                    <div class="col-md-5">
+                        <label class="form-label small mb-0">Tempo previsto</label>
+                        <input class="form-control form-control-sm" type="text" name="estimated_minutes" value="<?= h(format_minutes($estimated)) ?>" placeholder="00:00:00" pattern="\d{1,3}:\d{2}:\d{2}">
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small mb-0">Tempo real</label>
+                        <input class="form-control form-control-sm" type="text" name="actual_minutes" value="<?= h(format_minutes($actual)) ?>" placeholder="00:00:00" pattern="\d{1,3}:\d{2}:\d{2}">
+                    </div>
+                    <div class="col-md-2 d-grid">
+                        <button class="btn btn-sm btn-outline-dark">Guardar</button>
+                    </div>
+                </form>
+                <div class="d-flex gap-2 mt-2">
+                    <button type="button" class="btn btn-sm btn-outline-success js-start-timer" data-task-id="<?= (int) $task['id'] ?>">Play</button>
+                    <button type="button" class="btn btn-sm btn-outline-warning js-stop-timer" data-task-id="<?= (int) $task['id'] ?>">Stop + guardar</button>
+                </div>
+            </div>
+            <div class="col-12">
+                <form method="post" class="d-flex gap-2 align-items-end">
+                    <input type="hidden" name="action" value="create_subtask">
+                    <input type="hidden" name="parent_task_id" value="<?= (int) $task['id'] ?>">
+                    <div class="flex-grow-1">
+                        <label class="form-label small mb-0">Nova sub tarefa</label>
+                        <input name="title" class="form-control form-control-sm" placeholder="Descrição da sub tarefa" required>
+                    </div>
+                    <button class="btn btn-sm btn-outline-secondary">Adicionar</button>
+                </form>
+            </div>
         </div>
-        <form method="post" class="d-none" id="timerForm<?= (int) $task['id'] ?>"><input type="hidden" name="action" value="update_time"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><input type="hidden" name="estimated_minutes" value="<?= $estimated !== null ? $estimated : "" ?>"><input type="hidden" name="add_actual_minutes" value="0" class="js-add-actual"></form>
+        <?php if (!empty($subtasksByParent[$task['id']])): ?>
+            <div class="mt-3 border rounded p-2 bg-light-subtle">
+                <div class="small fw-semibold mb-2">Sub tarefas</div>
+                <div class="vstack gap-1">
+                    <?php foreach ($subtasksByParent[$task['id']] as $subtask): ?>
+                        <div class="small d-flex justify-content-between align-items-center border rounded px-2 py-1 bg-white">
+                            <span><?= h($subtask['title']) ?></span>
+                            <span class="badge bg-<?= task_badge_class((string) $subtask['status']) ?>"><?= h(status_label((string) $subtask['status'])) ?></span>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        <?php endif; ?>
+        <form method="post" class="d-none" id="timerForm<?= (int) $task['id'] ?>"><input type="hidden" name="action" value="update_time"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>"><input type="hidden" name="estimated_minutes" value="<?= h(format_minutes($estimated)) ?>"><input type="hidden" name="add_actual_minutes" value="0" class="js-add-actual"></form>
         <div class="row g-2 mt-3">
             <div class="col-md-6">
                 <h3 class="h6">Observações</h3>

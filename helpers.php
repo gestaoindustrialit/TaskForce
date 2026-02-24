@@ -514,20 +514,44 @@ function task_time_delta(?int $estimatedMinutes, ?int $actualMinutes): ?int
     return $actualMinutes - $estimatedMinutes;
 }
 
+function parse_duration_to_minutes(?string $input): ?int
+{
+    $value = trim((string) $input);
+    if ($value === '') {
+        return null;
+    }
+
+    if (preg_match('/^(\d{1,3}):(\d{2}):(\d{2})$/', $value, $matches)) {
+        $hours = (int) $matches[1];
+        $minutes = (int) $matches[2];
+        $seconds = (int) $matches[3];
+        if ($minutes > 59 || $seconds > 59) {
+            return null;
+        }
+
+        return ($hours * 60) + $minutes + (int) ceil($seconds / 60);
+    }
+
+    if (ctype_digit($value)) {
+        return max(0, (int) $value);
+    }
+
+    return null;
+}
+
 function format_minutes(?int $minutes): string
 {
     if ($minutes === null) {
-        return '-';
+        return '00:00:00';
     }
 
-    if ($minutes < 60) {
-        return $minutes . ' min';
-    }
+    $totalSeconds = max(0, $minutes) * 60;
+    $hours = intdiv($totalSeconds, 3600);
+    $remaining = $totalSeconds % 3600;
+    $mins = intdiv($remaining, 60);
+    $seconds = $remaining % 60;
 
-    $hours = intdiv($minutes, 60);
-    $rest = $minutes % 60;
-
-    return $rest > 0 ? sprintf('%dh %02dmin', $hours, $rest) : sprintf('%dh', $hours);
+    return sprintf('%02d:%02d:%02d', $hours, $mins, $seconds);
 }
 
 
