@@ -70,6 +70,53 @@ function project_for_user(PDO $pdo, int $projectId, int $userId): ?array
     return $project ?: null;
 }
 
+
+
+function task_creation_field_catalog(): array
+{
+    return [
+        'title' => ['label' => 'Título', 'default_visible' => true, 'default_required' => true],
+        'description' => ['label' => 'Descrição', 'default_visible' => true, 'default_required' => false],
+        'estimated_minutes' => ['label' => 'Previsto (min)', 'default_visible' => true, 'default_required' => false],
+        'checklist_template_id' => ['label' => 'Checklist (modelo)', 'default_visible' => true, 'default_required' => false],
+        'new_checklist_items' => ['label' => 'Checklist (novos itens)', 'default_visible' => true, 'default_required' => false],
+    ];
+}
+
+function task_creation_field_rules(PDO $pdo, int $teamId, ?int $projectId = null): array
+{
+    $catalog = task_creation_field_catalog();
+    $rules = [];
+    foreach ($catalog as $fieldKey => $meta) {
+        $rules[$fieldKey] = [
+            'label' => $meta['label'],
+            'is_visible' => !empty($meta['default_visible']),
+            'is_required' => !empty($meta['default_required']),
+        ];
+    }
+
+    $stmt = $pdo->prepare('SELECT project_id, field_key, is_visible, is_required FROM task_creation_field_rules WHERE team_id = ? AND (project_id IS NULL OR project_id = ?)');
+    $stmt->execute([$teamId, $projectId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    usort($rows, static function (array $a, array $b): int {
+        $aProject = $a['project_id'] !== null ? 1 : 0;
+        $bProject = $b['project_id'] !== null ? 1 : 0;
+        return $aProject <=> $bProject;
+    });
+
+    foreach ($rows as $row) {
+        $fieldKey = (string) ($row['field_key'] ?? '');
+        if (!array_key_exists($fieldKey, $rules)) {
+            continue;
+        }
+
+        $rules[$fieldKey]['is_visible'] = (int) $row['is_visible'] === 1;
+        $rules[$fieldKey]['is_required'] = (int) $row['is_required'] === 1;
+    }
+
+    return $rules;
+}
 function h(?string $value): string
 {
     $text = (string) $value;

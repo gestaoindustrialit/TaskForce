@@ -110,6 +110,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'save_task_creation_fields_config' && $canManageProjects) {
+        $targetProjectId = (int) ($_POST['config_project_id'] ?? 0);
+        $projectIdValue = null;
+        if ($targetProjectId > 0) {
+            $projectCheckStmt = $pdo->prepare('SELECT 1 FROM projects WHERE id = ? AND team_id = ?');
+            $projectCheckStmt->execute([$targetProjectId, $teamId]);
+            if (!$projectCheckStmt->fetchColumn()) {
+                $flashError = 'Projeto inválido para configuração de campos.';
+            } else {
+                $projectIdValue = $targetProjectId;
+            }
+        }
+
+        if (!$flashError) {
+            $catalog = task_creation_field_catalog();
+            $visibilityInput = $_POST['visible_fields'] ?? [];
+            $requiredInput = $_POST['required_fields'] ?? [];
+            $visibleFields = is_array($visibilityInput) ? array_map('strval', $visibilityInput) : [];
+            $requiredFields = is_array($requiredInput) ? array_map('strval', $requiredInput) : [];
+
+            $deleteStmt = $pdo->prepare('DELETE FROM task_creation_field_rules WHERE team_id = ? AND project_id IS ?');
+            $deleteStmt->execute([$teamId, $projectIdValue]);
+
+            $insertStmt = $pdo->prepare('INSERT INTO task_creation_field_rules(team_id, project_id, field_key, is_visible, is_required, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)');
+            foreach ($catalog as $fieldKey => $meta) {
+                $isVisible = in_array($fieldKey, $visibleFields, true);
+                $isRequired = $isVisible && in_array($fieldKey, $requiredFields, true);
+                $defaultVisible = !empty($meta['default_visible']);
+                $defaultRequired = !empty($meta['default_required']);
+
+                if ($isVisible === $defaultVisible && $isRequired === $defaultRequired) {
+                    continue;
+                }
+
+                $insertStmt->execute([$teamId, $projectIdValue, $fieldKey, $isVisible ? 1 : 0, $isRequired ? 1 : 0]);
+            }
+
+            $flashSuccess = $projectIdValue ? 'Configuração de campos guardada para o projeto.' : 'Configuração de campos guardada para a equipa.';
+        }
+    }
+
     if ($action === 'invite_member') {
         $email = trim($_POST['email'] ?? '');
         $role = $_POST['role'] ?? 'member';
@@ -488,6 +529,17 @@ $projectsStmt = $pdo->prepare('SELECT p.*, u.name AS leader_name FROM projects p
 $projectsStmt->execute([$teamId]);
 $projects = $projectsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$taskCreationFieldCatalog = task_creation_field_catalog();
+$teamTaskCreationFieldRules = task_creation_field_rules($pdo, $teamId, null);
+$taskCreationFieldRulesByProject = [];
+foreach ($projects as $projectItem) {
+    $projectRuleProjectId = (int) ($projectItem['id'] ?? 0);
+    if ($projectRuleProjectId <= 0) {
+        continue;
+    }
+    $taskCreationFieldRulesByProject[$projectRuleProjectId] = task_creation_field_rules($pdo, $teamId, $projectRuleProjectId);
+}
+
 $membersStmt = $pdo->prepare('SELECT u.id, u.name, u.email, tm.role FROM team_members tm INNER JOIN users u ON u.id = tm.user_id WHERE tm.team_id = ?');
 $membersStmt->execute([$teamId]);
 $members = $membersStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -750,6 +802,76 @@ require __DIR__ . '/partials/header.php';
             </div>
         </div>
     </div>
+
+    <?php if ($canManageProjects): ?>
+    <div class="card shadow-sm soft-card">
+        <div class="card-header d-flex justify-content-between align-items-center bg-white">
+            <h2 class="h5 mb-0">Campos na criação de tarefas</h2>
+            <button class="btn btn-sm btn-outline-secondary js-collapse-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#teamTaskFieldsCollapse" aria-expanded="true" aria-controls="teamTaskFieldsCollapse" title="Mostrar/Ocultar configuração">
+                <i class="bi bi-eye" aria-hidden="true"></i>
+                <span class="visually-hidden">Mostrar/Ocultar configuração</span>
+            </button>
+        </div>
+        <div class="collapse show" id="teamTaskFieldsCollapse">
+            <div class="card-body">
+                <p class="text-muted small">Defina campos visíveis e obrigatórios para novas tarefas. As regras da equipa aplicam-se por defeito; cada projeto pode ter regras próprias.</p>
+
+                <form method="post" class="border rounded p-3 mb-3">
+                    <input type="hidden" name="action" value="save_task_creation_fields_config">
+                    <input type="hidden" name="config_project_id" value="0">
+                    <div class="fw-semibold mb-2">Padrão da equipa</div>
+                    <div class="row g-2">
+                        <?php foreach ($taskCreationFieldCatalog as $fieldKey => $fieldMeta): ?>
+                            <?php $fieldRules = $teamTaskCreationFieldRules[$fieldKey] ?? ['is_visible' => !empty($fieldMeta['default_visible']), 'is_required' => !empty($fieldMeta['default_required'])]; ?>
+                            <div class="col-md-6">
+                                <div class="border rounded p-2 h-100">
+                                    <div class="fw-semibold"><?= h($fieldMeta['label']) ?></div>
+                                    <div class="form-check">
+                                        <input class="form-check-input js-visible-toggle" type="checkbox" id="teamVisible<?= h($fieldKey) ?>" name="visible_fields[]" value="<?= h($fieldKey) ?>" <?= !empty($fieldRules['is_visible']) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="teamVisible<?= h($fieldKey) ?>">Mostrar</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input js-required-toggle" type="checkbox" id="teamRequired<?= h($fieldKey) ?>" name="required_fields[]" value="<?= h($fieldKey) ?>" <?= !empty($fieldRules['is_required']) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="teamRequired<?= h($fieldKey) ?>">Obrigatório</label>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="mt-3"><button class="btn btn-sm btn-primary">Guardar padrão da equipa</button></div>
+                </form>
+
+                <?php foreach ($projects as $project): ?>
+                    <?php $projectRules = $taskCreationFieldRulesByProject[(int) $project['id']] ?? $teamTaskCreationFieldRules; ?>
+                    <form method="post" class="border rounded p-3 mb-3">
+                        <input type="hidden" name="action" value="save_task_creation_fields_config">
+                        <input type="hidden" name="config_project_id" value="<?= (int) $project['id'] ?>">
+                        <div class="fw-semibold mb-2">Projeto: <?= h($project['name']) ?></div>
+                        <div class="row g-2">
+                            <?php foreach ($taskCreationFieldCatalog as $fieldKey => $fieldMeta): ?>
+                                <?php $fieldRules = $projectRules[$fieldKey] ?? ['is_visible' => !empty($fieldMeta['default_visible']), 'is_required' => !empty($fieldMeta['default_required'])]; ?>
+                                <div class="col-md-6">
+                                    <div class="border rounded p-2 h-100">
+                                        <div class="fw-semibold"><?= h($fieldMeta['label']) ?></div>
+                                        <div class="form-check">
+                                            <input class="form-check-input js-visible-toggle" type="checkbox" id="project<?= (int) $project['id'] ?>Visible<?= h($fieldKey) ?>" name="visible_fields[]" value="<?= h($fieldKey) ?>" <?= !empty($fieldRules['is_visible']) ? 'checked' : '' ?>>
+                                            <label class="form-check-label" for="project<?= (int) $project['id'] ?>Visible<?= h($fieldKey) ?>">Mostrar</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input js-required-toggle" type="checkbox" id="project<?= (int) $project['id'] ?>Required<?= h($fieldKey) ?>" name="required_fields[]" value="<?= h($fieldKey) ?>" <?= !empty($fieldRules['is_required']) ? 'checked' : '' ?>>
+                                            <label class="form-check-label" for="project<?= (int) $project['id'] ?>Required<?= h($fieldKey) ?>">Obrigatório</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="mt-3"><button class="btn btn-sm btn-outline-primary">Guardar regras deste projeto</button></div>
+                    </form>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
 
     <div class="card shadow-sm soft-card">
@@ -1274,6 +1396,36 @@ require __DIR__ . '/partials/header.php';
     </div>
 </div>
 <script>
+
+
+const updateTaskFieldConfigForm = (formEl) => {
+    const visibleToggles = formEl.querySelectorAll('.js-visible-toggle');
+    visibleToggles.forEach((visibleToggle) => {
+        const fieldKey = visibleToggle.value;
+        const requiredToggle = Array.from(formEl.querySelectorAll('.js-required-toggle')).find((el) => el.value === fieldKey);
+        if (!requiredToggle) {
+            return;
+        }
+        requiredToggle.disabled = !visibleToggle.checked;
+        if (!visibleToggle.checked) {
+            requiredToggle.checked = false;
+        }
+
+        visibleToggle.addEventListener('change', () => {
+            requiredToggle.disabled = !visibleToggle.checked;
+            if (!visibleToggle.checked) {
+                requiredToggle.checked = false;
+            }
+        });
+    });
+};
+
+document.querySelectorAll('form').forEach((formEl) => {
+    if (formEl.querySelector('.js-visible-toggle') && formEl.querySelector('.js-required-toggle')) {
+        updateTaskFieldConfigForm(formEl);
+    }
+});
+
 document.querySelectorAll('.modal[id^="editRecurringTaskModal"]').forEach((modalEl) => {
     modalEl.addEventListener('show.bs.modal', (event) => {
         const trigger = event.relatedTarget;
