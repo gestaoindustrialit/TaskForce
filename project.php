@@ -11,6 +11,8 @@ if (!$project) {
     exit('Sem acesso ao projeto.');
 }
 
+$taskCreationRules = task_creation_field_rules($pdo, (int) $project['team_id'], $projectId);
+
 $view = $_GET['view'] ?? 'list';
 $showDone = (int) ($_GET['show_done'] ?? 1) === 1;
 
@@ -18,13 +20,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'create_task') {
-        $title = trim($_POST['title'] ?? '');
-        $description = trim($_POST['description'] ?? '');
+        $titleVisible = !empty($taskCreationRules['title']['is_visible']);
+        $descriptionVisible = !empty($taskCreationRules['description']['is_visible']);
+        $estimatedVisible = !empty($taskCreationRules['estimated_minutes']['is_visible']);
+        $templateVisible = !empty($taskCreationRules['checklist_template_id']['is_visible']);
+        $newChecklistVisible = !empty($taskCreationRules['new_checklist_items']['is_visible']);
+
+        $title = $titleVisible ? trim((string) ($_POST['title'] ?? '')) : 'Sem título';
+        $description = $descriptionVisible ? trim((string) ($_POST['description'] ?? '')) : '';
         $priority = $_POST['priority'] ?? 'normal';
         $dueDate = $_POST['due_date'] ?: null;
-        $estimatedMinutes = ($_POST['estimated_minutes'] ?? '') !== '' ? max(0, (int) $_POST['estimated_minutes']) : null;
-        $templateId = (int) ($_POST['checklist_template_id'] ?? 0);
-        $newChecklistItemsRaw = trim((string) ($_POST['new_checklist_items'] ?? ''));
+        $estimatedInput = (string) ($_POST['estimated_minutes'] ?? '');
+        $estimatedMinutes = $estimatedVisible && $estimatedInput !== '' ? max(0, (int) $estimatedInput) : null;
+        $templateId = $templateVisible ? (int) ($_POST['checklist_template_id'] ?? 0) : 0;
+        $newChecklistItemsRaw = $newChecklistVisible ? trim((string) ($_POST['new_checklist_items'] ?? '')) : '';
+
+        $errors = [];
+        if (!empty($taskCreationRules['title']['is_required']) && $title === '') {
+            $errors[] = 'Título é obrigatório.';
+        }
+        if (!empty($taskCreationRules['description']['is_required']) && $description === '') {
+            $errors[] = 'Descrição é obrigatória.';
+        }
+        if (!empty($taskCreationRules['estimated_minutes']['is_required']) && $estimatedInput === '') {
+            $errors[] = 'Previsto (min) é obrigatório.';
+        }
+        if (!empty($taskCreationRules['checklist_template_id']['is_required']) && $templateId <= 0) {
+            $errors[] = 'Checklist (modelo) é obrigatório.';
+        }
+        if (!empty($taskCreationRules['new_checklist_items']['is_required']) && $newChecklistItemsRaw === '') {
+            $errors[] = 'Checklist (novos itens) é obrigatório.';
+        }
+
+        if ($errors) {
+            $_SESSION['flash_error'] = implode(' ', $errors);
+            redirect('project.php?id=' . $projectId . '&view=' . $view . '&show_done=' . ($showDone ? '1' : '0'));
+        }
 
         if ($title !== '') {
             $stmt = $pdo->prepare('INSERT INTO tasks(project_id, parent_task_id, title, description, status, priority, due_date, created_by, estimated_minutes, actual_minutes, updated_at, updated_by) VALUES (?, NULL, ?, ?, "todo", ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, ?)');
@@ -53,6 +84,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare('INSERT INTO checklist_items(task_id, content) VALUES (?, ?)')->execute([$taskId, $content]);
                 }
             }
+
+            $_SESSION['flash_success'] = 'Tarefa criada com sucesso.';
         }
     }
 
@@ -200,6 +233,8 @@ $checklistTemplates = $checklistTemplatesStmt->fetchAll(PDO::FETCH_ASSOC);
 $pageTitle = 'Projeto ' . $project['name'];
 require __DIR__ . '/partials/header.php';
 ?>
+<?php if (!empty($_SESSION['flash_success'])): ?><div class="alert alert-success"><?= h((string) $_SESSION['flash_success']); unset($_SESSION['flash_success']); ?></div><?php endif; ?>
+<?php if (!empty($_SESSION['flash_error'])): ?><div class="alert alert-danger"><?= h((string) $_SESSION['flash_error']); unset($_SESSION['flash_error']); ?></div><?php endif; ?>
 <script>window.taskPage = true;</script>
 <div class="d-flex flex-wrap justify-content-between align-items-start mb-3 gap-2">
     <div>
@@ -220,19 +255,29 @@ require __DIR__ . '/partials/header.php';
         <p class="small text-muted mb-2">Define o tempo previsto na criação. O tempo gasto é gerido depois em cada tarefa.</p>
         <form method="post" class="row g-2">
             <input type="hidden" name="action" value="create_task">
-            <div class="col-md-3"><input class="form-control" name="title" placeholder="Título" required></div>
-            <div class="col-md-3"><input class="form-control" name="description" placeholder="Descrição"></div>
-            <div class="col-md-2"><input class="form-control" type="number" min="0" name="estimated_minutes" placeholder="Previsto (min)"></div>
-            <div class="col-md-4">
-                <select class="form-select" name="checklist_template_id">
-                    <option value="0">Checklist: sem modelo</option>
-                    <?php foreach ($checklistTemplates as $template): ?>
-                        <option value="<?= (int) $template['id'] ?>"><?= h($template['name']) ?> (<?= (int) $template['items_count'] ?> itens)</option>
-                    <?php endforeach; ?>
-                </select>
-                <small class="text-muted">Pode gerir modelos em <a href="checklists.php">Checklists</a>.</small>
-            </div>
-            <div class="col-12"><textarea class="form-control" name="new_checklist_items" rows="2" placeholder="Ou escreva novos itens de checklist (1 por linha)"></textarea></div>
+            <?php if (!empty($taskCreationRules['title']['is_visible'])): ?>
+                <div class="col-md-3"><input class="form-control" name="title" placeholder="Título" <?= !empty($taskCreationRules['title']['is_required']) ? 'required' : '' ?>></div>
+            <?php endif; ?>
+            <?php if (!empty($taskCreationRules['description']['is_visible'])): ?>
+                <div class="col-md-3"><input class="form-control" name="description" placeholder="Descrição" <?= !empty($taskCreationRules['description']['is_required']) ? 'required' : '' ?>></div>
+            <?php endif; ?>
+            <?php if (!empty($taskCreationRules['estimated_minutes']['is_visible'])): ?>
+                <div class="col-md-2"><input class="form-control" type="number" min="0" name="estimated_minutes" placeholder="Previsto (min)" <?= !empty($taskCreationRules['estimated_minutes']['is_required']) ? 'required' : '' ?>></div>
+            <?php endif; ?>
+            <?php if (!empty($taskCreationRules['checklist_template_id']['is_visible'])): ?>
+                <div class="col-md-4">
+                    <select class="form-select" name="checklist_template_id" <?= !empty($taskCreationRules['checklist_template_id']['is_required']) ? 'required' : '' ?>>
+                        <option value="0">Checklist: sem modelo</option>
+                        <?php foreach ($checklistTemplates as $template): ?>
+                            <option value="<?= (int) $template['id'] ?>"><?= h($template['name']) ?> (<?= (int) $template['items_count'] ?> itens)</option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small class="text-muted">Pode gerir modelos em <a href="checklists.php">Checklists</a>.</small>
+                </div>
+            <?php endif; ?>
+            <?php if (!empty($taskCreationRules['new_checklist_items']['is_visible'])): ?>
+                <div class="col-12"><textarea class="form-control" name="new_checklist_items" rows="2" placeholder="Ou escreva novos itens de checklist (1 por linha)" <?= !empty($taskCreationRules['new_checklist_items']['is_required']) ? 'required' : '' ?>></textarea></div>
+            <?php endif; ?>
             <div class="col-md-2"><button class="btn btn-primary w-100">Criar</button></div>
         </form>
     </div>
