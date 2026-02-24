@@ -23,12 +23,25 @@ function stopTaskTimer(taskId) {
     return Math.max(1, Math.round(elapsedMs / 60000));
 }
 
+function setTimerButtonState(taskId, active) {
+    document.querySelectorAll(`.js-start-timer[data-task-id="${taskId}"]`).forEach((button) => {
+        button.classList.toggle('btn-success', active);
+        button.classList.toggle('btn-outline-success', !active);
+    });
+}
+
 if (window.taskPage) {
+    document.querySelectorAll('.js-auto-submit-select').forEach((form) => {
+        form.querySelectorAll('.js-auto-submit-trigger').forEach((field) => {
+            field.addEventListener('change', () => form.submit());
+        });
+    });
+
     document.querySelectorAll('.js-start-timer').forEach((button) => {
         button.addEventListener('click', () => {
             const taskId = button.dataset.taskId;
             startTaskTimer(taskId);
-            button.textContent = 'Play ativo';
+            setTimerButtonState(taskId, true);
         });
     });
 
@@ -41,6 +54,7 @@ if (window.taskPage) {
                 return;
             }
 
+            setTimerButtonState(taskId, false);
             const form = document.getElementById(`timerForm${taskId}`);
             if (!form) {
                 return;
@@ -54,7 +68,6 @@ if (window.taskPage) {
         });
     });
 }
-
 
 function syncCollapseToggleIcon(button, isShown) {
     const icon = button.querySelector('i.bi');
