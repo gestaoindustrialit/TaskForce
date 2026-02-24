@@ -274,6 +274,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+
+    if ($action === 'add_project_note_reply') {
+        $projectNoteId = (int) ($_POST['project_note_id'] ?? 0);
+        $reply = trim((string) ($_POST['reply'] ?? ''));
+        if ($projectNoteId > 0 && $reply !== '') {
+            $stmt = $pdo->prepare('INSERT INTO project_note_replies(project_note_id, reply, created_by) SELECT pn.id, ?, ? FROM project_notes pn WHERE pn.id = ? AND pn.project_id = ?');
+            $stmt->execute([$reply, $userId, $projectNoteId, $projectId]);
+        }
+    }
+
     if ($action === 'upload_project_document') {
         $file = $_FILES['document'] ?? null;
         $hasFile = $file && is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK;
@@ -345,6 +355,13 @@ $teamMembers = $teamMembersStmt->fetchAll(PDO::FETCH_ASSOC);
 $projectNotesStmt = $pdo->prepare('SELECT pn.*, u.name AS user_name FROM project_notes pn INNER JOIN users u ON u.id = pn.created_by WHERE pn.project_id = ? ORDER BY pn.created_at DESC');
 $projectNotesStmt->execute([$projectId]);
 $projectNotes = $projectNotesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$projectNoteRepliesStmt = $pdo->prepare('SELECT pr.*, u.name AS user_name, pn.project_id FROM project_note_replies pr INNER JOIN project_notes pn ON pn.id = pr.project_note_id INNER JOIN users u ON u.id = pr.created_by WHERE pn.project_id = ? ORDER BY pr.created_at ASC');
+$projectNoteRepliesStmt->execute([$projectId]);
+$projectNoteRepliesByNote = [];
+foreach ($projectNoteRepliesStmt->fetchAll(PDO::FETCH_ASSOC) as $replyRow) {
+    $projectNoteRepliesByNote[(int) $replyRow['project_note_id']][] = $replyRow;
+}
 
 $projectDocumentsStmt = $pdo->prepare('SELECT pd.*, u.name AS user_name FROM project_documents pd INNER JOIN users u ON u.id = pd.uploaded_by WHERE pd.project_id = ? ORDER BY pd.created_at DESC');
 $projectDocumentsStmt->execute([$projectId]);
@@ -493,6 +510,18 @@ require __DIR__ . '/partials/header.php';
                     <div class="small border rounded p-2 mb-2 bg-light">
                         <?= h($note['note']) ?><br>
                         <small class="text-muted"><?= h($note['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($note['created_at']))) ?></small>
+                        <?php foreach (($projectNoteRepliesByNote[(int) $note['id']] ?? []) as $reply): ?>
+                            <div class="border rounded bg-white mt-2 p-2">
+                                <?= h($reply['reply']) ?><br>
+                                <small class="text-muted"><?= h($reply['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime((string) $reply['created_at']))) ?></small>
+                            </div>
+                        <?php endforeach; ?>
+                        <form method="post" class="d-flex gap-2 mt-2">
+                            <input type="hidden" name="action" value="add_project_note_reply">
+                            <input type="hidden" name="project_note_id" value="<?= (int) $note['id'] ?>">
+                            <input class="form-control form-control-sm" name="reply" placeholder="Responder à nota" required>
+                            <button class="btn btn-sm btn-outline-secondary">Responder</button>
+                        </form>
                     </div>
                 <?php endforeach; ?>
             </div>

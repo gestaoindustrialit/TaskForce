@@ -68,6 +68,7 @@ header('Content-Type: text/html; charset=UTF-8');
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Administra&ccedil;&atilde;o</a>
                             <ul class="dropdown-menu dropdown-menu-end dropdown-menu-lg-start">
                                 <li><a class="dropdown-item" href="company_profile.php">Empresa &amp; Branding</a></li>
+                                <li><a class="dropdown-item" href="users.php">Utilizadores</a></li>
                                 <li><a class="dropdown-item" href="app_logs.php">Logs da aplica&ccedil;&atilde;o</a></li>
                             </ul>
                         </div>

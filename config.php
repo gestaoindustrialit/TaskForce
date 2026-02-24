@@ -546,6 +546,18 @@ $pdo->exec(
 );
 
 $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS project_note_replies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_note_id INTEGER NOT NULL,
+        reply TEXT NOT NULL,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(project_note_id) REFERENCES project_notes(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
     'CREATE TABLE IF NOT EXISTS team_notes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         team_id INTEGER NOT NULL,
