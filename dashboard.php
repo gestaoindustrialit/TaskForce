@@ -219,6 +219,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+
+    if ($action === 'update_project_scheduled_task') {
+        $taskId = (int) ($_POST['task_id'] ?? 0);
+        $status = trim((string) ($_POST['status'] ?? 'todo'));
+        $dueDateInput = trim((string) ($_POST['due_date'] ?? ''));
+        $estimatedMinutes = ($_POST['estimated_minutes'] ?? '') !== '' ? max(0, (int) $_POST['estimated_minutes']) : null;
+        $actualMinutes = ($_POST['actual_minutes'] ?? '') !== '' ? max(0, (int) $_POST['actual_minutes']) : null;
+
+        if ($taskId <= 0 || !in_array($status, ['todo', 'in_progress', 'done'], true)) {
+            $flashError = 'Dados inválidos para atualizar tarefa de projeto.';
+        } else {
+            $dueDate = null;
+            if ($dueDateInput !== '') {
+                $parsedDate = DateTimeImmutable::createFromFormat('Y-m-d', $dueDateInput);
+                if (!$parsedDate || $parsedDate->format('Y-m-d') !== $dueDateInput) {
+                    $flashError = 'Data prevista inválida.';
+                } else {
+                    $dueDate = $dueDateInput;
+                }
+            }
+
+            if ($flashError === null) {
+                $updateStmt = $pdo->prepare('UPDATE tasks SET status = ?, due_date = ?, estimated_minutes = ?, actual_minutes = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = ? AND assignee_user_id = ?');
+                $updateStmt->execute([$status, $dueDate, $estimatedMinutes, $actualMinutes, $userId, $taskId, $userId]);
+                if ($updateStmt->rowCount() > 0) {
+                    $flashSuccess = 'Tarefa de projeto atualizada com sucesso.';
+                }
+            }
+        }
+    }
+
     if ($action === 'create_team_ticket') {
         $teamId = (int) ($_POST['team_id'] ?? 0);
         $title = trim($_POST['title'] ?? '');
@@ -354,6 +385,16 @@ $scheduledTasksStmt = $pdo->prepare("SELECT tt.id, tt.title, tt.status, tt.urgen
 $scheduledTasksStmt->execute([$userId, $userId]);
 $scheduledTasks = $scheduledTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 $scheduledTaskIds = array_map(static fn (array $task): int => (int) $task['id'], $scheduledTasks);
+
+$scheduledProjectTasksStmt = $pdo->prepare("SELECT t.id, t.title, t.status, t.due_date, t.estimated_minutes, t.actual_minutes, t.created_at, p.id AS project_id, p.name AS project_name
+    FROM tasks t
+    INNER JOIN projects p ON p.id = t.project_id
+    INNER JOIN team_members tm ON tm.team_id = p.team_id
+    WHERE t.assignee_user_id = ? AND tm.user_id = ?
+    ORDER BY CASE WHEN t.due_date IS NULL THEN 1 ELSE 0 END ASC, t.due_date ASC, t.created_at DESC");
+$scheduledProjectTasksStmt->execute([$userId, $userId]);
+$scheduledProjectTasks = $scheduledProjectTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+
 $scheduledTaskHistoryByTicket = [];
 if ($scheduledTaskIds) {
     $placeholders = implode(',', array_fill(0, count($scheduledTaskIds), '?'));
@@ -617,6 +658,58 @@ require __DIR__ . '/partials/header.php';
                     <button class="btn btn-primary">Criar ticket</button>
                 </form>
                 <a href="requests.php" class="btn btn-link px-0 mt-2">Ver todos os pedidos</a>
+            </div>
+        </div>
+
+        <div class="card shadow-sm soft-card mb-4">
+            <div class="card-header bg-white border-0 pt-4 px-4">
+                <h2 class="h5 mb-0">Tarefas de projetos atribuídas</h2>
+            </div>
+            <div class="card-body p-4">
+                <?php if ($scheduledProjectTasks): ?>
+                    <div class="vstack gap-3">
+                        <?php foreach ($scheduledProjectTasks as $task): ?>
+                            <form method="post" class="border rounded p-3 vstack gap-2">
+                                <input type="hidden" name="action" value="update_project_scheduled_task">
+                                <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+                                    <div>
+                                        <strong><?= h($task['title']) ?></strong>
+                                        <div class="small text-muted">Projeto: <?= h($task['project_name']) ?></div>
+                                    </div>
+                                    <span class="badge bg-<?= task_badge_class((string) $task['status']) ?>"><?= h(status_label((string) $task['status'])) ?></span>
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-md-4">
+                                        <label class="form-label mb-1 small">Estado</label>
+                                        <select class="form-select form-select-sm" name="status">
+                                            <option value="todo" <?= (string) $task['status'] === 'todo' ? 'selected' : '' ?>>Por Fazer</option>
+                                            <option value="in_progress" <?= (string) $task['status'] === 'in_progress' ? 'selected' : '' ?>>Em Progresso</option>
+                                            <option value="done" <?= (string) $task['status'] === 'done' ? 'selected' : '' ?>>Concluída</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label mb-1 small">Data prevista</label>
+                                        <input class="form-control form-control-sm" type="date" name="due_date" value="<?= h((string) ($task['due_date'] ?? '')) ?>">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label mb-1 small">Previsto</label>
+                                        <input class="form-control form-control-sm" type="number" min="0" name="estimated_minutes" value="<?= $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : '' ?>">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label mb-1 small">Real</label>
+                                        <input class="form-control form-control-sm" type="number" min="0" name="actual_minutes" value="<?= $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : '' ?>">
+                                    </div>
+                                </div>
+                                <div class="d-flex justify-content-end">
+                                    <button class="btn btn-sm btn-outline-dark icon-btn" aria-label="Guardar tarefa de projeto"><i class="bi bi-save"></i></button>
+                                </div>
+                            </form>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <p class="text-muted mb-0">Sem tarefas de projeto atribuídas.</p>
+                <?php endif; ?>
             </div>
         </div>
     </div>

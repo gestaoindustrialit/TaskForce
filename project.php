@@ -153,10 +153,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create_subtask') {
         $parentId = (int) ($_POST['parent_task_id'] ?? 0);
         $title = trim($_POST['title'] ?? '');
+        $dueDateInput = trim((string) ($_POST['due_date'] ?? ''));
+        $dueDate = null;
+
+        if ($dueDateInput !== '') {
+            $parsedDate = DateTimeImmutable::createFromFormat('Y-m-d', $dueDateInput);
+            if ($parsedDate && $parsedDate->format('Y-m-d') === $dueDateInput) {
+                $dueDate = $dueDateInput;
+            }
+        }
 
         if ($parentId && $title !== '') {
-            $stmt = $pdo->prepare('INSERT INTO tasks(project_id, parent_task_id, title, status, created_by, updated_at, updated_by) VALUES (?, ?, ?, "todo", ?, CURRENT_TIMESTAMP, ?)');
-            $stmt->execute([$projectId, $parentId, $title, $userId, $userId]);
+            $parentAssigneeStmt = $pdo->prepare('SELECT assignee_user_id FROM tasks WHERE id = ? AND project_id = ?');
+            $parentAssigneeStmt->execute([$parentId, $projectId]);
+            $parentAssignee = $parentAssigneeStmt->fetchColumn();
+
+            $stmt = $pdo->prepare('INSERT INTO tasks(project_id, parent_task_id, title, status, due_date, created_by, assignee_user_id, updated_at, updated_by) VALUES (?, ?, ?, "todo", ?, ?, ?, CURRENT_TIMESTAMP, ?)');
+            $stmt->execute([$projectId, $parentId, $title, $dueDate, $userId, $parentAssignee !== false ? $parentAssignee : null, $userId]);
         }
     }
 
@@ -264,6 +277,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $stmt = $pdo->prepare('UPDATE tasks SET assignee_user_id = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = ? AND project_id = ?');
         $stmt->execute([$assigneeUserIdValue, $userId, $taskId, $projectId]);
+    }
+
+    if ($action === 'update_due_date') {
+        $taskId = (int) ($_POST['task_id'] ?? 0);
+        $dueDateInput = trim((string) ($_POST['due_date'] ?? ''));
+        $dueDate = null;
+
+        if ($dueDateInput !== '') {
+            $parsedDate = DateTimeImmutable::createFromFormat('Y-m-d', $dueDateInput);
+            if ($parsedDate && $parsedDate->format('Y-m-d') === $dueDateInput) {
+                $dueDate = $dueDateInput;
+            }
+        }
+
+        $stmt = $pdo->prepare('UPDATE tasks SET due_date = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = ? AND project_id = ?');
+        $stmt->execute([$dueDate, $userId, $taskId, $projectId]);
     }
 
     if ($action === 'add_project_note') {
@@ -510,10 +539,9 @@ require __DIR__ . '/partials/header.php';
                     <strong><?= h($task['title']) ?></strong>
                     <p class="small text-muted mb-1"><?= h($task['description']) ?></p>
                     <div class="small d-flex gap-2 mb-2"><span class="time-chip">Prev: <?= h(format_minutes($task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : null)) ?></span><span class="time-chip">Real: <?= h(format_minutes($task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : null)) ?></span><?php if ($delta !== null): ?><span class="time-chip <?= $delta > 0 ? 'text-danger' : 'text-success' ?>">Δ <?= $delta > 0 ? '+' : '' ?><?= h(format_minutes(abs($delta))) ?></span><?php endif; ?></div>
-                    <form method="post" class="d-flex gap-2">
+                    <form method="post" class="d-flex gap-2 js-auto-submit-select">
                         <input type="hidden" name="action" value="change_status"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
-                        <select name="status" class="form-select form-select-sm"><option value="todo" <?= $task['status']==='todo'?'selected':'' ?>>Por Fazer</option><option value="in_progress" <?= $task['status']==='in_progress'?'selected':'' ?>>Em Progresso</option><option value="done" <?= $task['status']==='done'?'selected':'' ?>>Concluída</option></select>
-                        <button class="btn btn-sm btn-outline-primary">Atualizar</button>
+                        <select name="status" class="form-select form-select-sm js-auto-submit-trigger"><option value="todo" <?= $task['status']==='todo'?'selected':'' ?>>Por Fazer</option><option value="in_progress" <?= $task['status']==='in_progress'?'selected':'' ?>>Em Progresso</option><option value="done" <?= $task['status']==='done'?'selected':'' ?>>Concluída</option></select>
                     </form>
                 </div>
             <?php endforeach; ?>
@@ -526,36 +554,34 @@ require __DIR__ . '/partials/header.php';
     <?php $estimated = $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : null; $actual = $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : null; $delta = task_time_delta($estimated, $actual); ?>
     <div class="card shadow-sm soft-card"><div class="card-body">
         <div class="d-flex justify-content-between align-items-start mb-2"><div><h2 class="h5 mb-1"><?= h($task['title']) ?></h2><p class="text-muted mb-1"><?= h($task['description']) ?></p><small class="text-muted">Criada por <?= h($task['creator_name']) ?> · Atribuído a <?= h($task['assignee_name'] ?? 'Sem responsável') ?></small></div><span class="badge bg-<?= task_badge_class($task['status']) ?>"><?= h(status_label($task['status'])) ?></span></div>
-        <div class="d-flex gap-2 mb-3"><span class="time-chip">Tempo previsto: <?= h(format_minutes($estimated)) ?></span><span class="time-chip">Tempo real: <?= h(format_minutes($actual)) ?></span><?php if ($delta !== null): ?><span class="time-chip <?= $delta > 0 ? 'text-danger' : 'text-success' ?>">Discrepância: <?= $delta > 0 ? '+' : '-' ?><?= h(format_minutes(abs($delta))) ?></span><?php endif; ?></div>
+        <div class="d-flex gap-2 mb-3 flex-wrap"><span class="time-chip">Tempo previsto: <?= h(format_minutes($estimated)) ?></span><span class="time-chip">Tempo real: <?= h(format_minutes($actual)) ?></span><span class="time-chip">Entrega: <?= h($task['due_date'] ? date('d/m/Y', strtotime((string) $task['due_date'])) : 'Sem data') ?></span><?php if ($delta !== null): ?><span class="time-chip <?= $delta > 0 ? 'text-danger' : 'text-success' ?>">Discrepância: <?= $delta > 0 ? '+' : '-' ?><?= h(format_minutes(abs($delta))) ?></span><?php endif; ?></div>
         <div class="row g-2 align-items-end">
             <div class="col-lg-3 col-md-6">
-                <form method="post" class="vstack gap-1">
+                <form method="post" class="vstack gap-1 js-auto-submit-select">
                     <input type="hidden" name="action" value="change_status">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
                     <label class="form-label small mb-0">Estado</label>
                     <div class="d-flex gap-2">
-                        <select name="status" class="form-select form-select-sm">
+                        <select name="status" class="form-select form-select-sm js-auto-submit-trigger">
                             <option value="todo" <?= $task['status']==='todo'?'selected':'' ?>>Por Fazer</option>
                             <option value="in_progress" <?= $task['status']==='in_progress'?'selected':'' ?>>Em Progresso</option>
                             <option value="done" <?= $task['status']==='done'?'selected':'' ?>>Concluída</option>
                         </select>
-                        <button class="btn btn-sm btn-outline-primary">Atualizar</button>
                     </div>
                 </form>
             </div>
             <div class="col-lg-3 col-md-6">
-                <form method="post" class="vstack gap-1">
+                <form method="post" class="vstack gap-1 js-auto-submit-select">
                     <input type="hidden" name="action" value="assign_task">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
                     <label class="form-label small mb-0">Atribuído</label>
                     <div class="d-flex gap-2">
-                        <select name="assignee_user_id" class="form-select form-select-sm">
+                        <select name="assignee_user_id" class="form-select form-select-sm js-auto-submit-trigger">
                             <option value="0">Sem responsável</option>
                             <?php foreach ($teamMembers as $member): ?>
                                 <option value="<?= (int) $member['id'] ?>" <?= (int) ($task['assignee_user_id'] ?? 0) === (int) $member['id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <button class="btn btn-sm btn-outline-info">Guardar</button>
                     </div>
                 </form>
             </div>
@@ -572,23 +598,35 @@ require __DIR__ . '/partials/header.php';
                         <input class="form-control form-control-sm" type="text" name="actual_minutes" value="<?= h(format_minutes($actual)) ?>" placeholder="00:00:00" pattern="\d{1,3}:\d{2}:\d{2}">
                     </div>
                     <div class="col-md-2 d-grid">
-                        <button class="btn btn-sm btn-outline-dark">Guardar</button>
+                        <button class="btn btn-sm btn-outline-dark icon-btn" aria-label="Guardar tempo"><i class="bi bi-save"></i></button>
                     </div>
                 </form>
                 <div class="d-flex gap-2 mt-2">
-                    <button type="button" class="btn btn-sm btn-outline-success js-start-timer" data-task-id="<?= (int) $task['id'] ?>">Play</button>
-                    <button type="button" class="btn btn-sm btn-outline-warning js-stop-timer" data-task-id="<?= (int) $task['id'] ?>">Stop + guardar</button>
+                    <button type="button" class="btn btn-sm btn-outline-success js-start-timer" data-task-id="<?= (int) $task['id'] ?>" aria-label="Iniciar contador"><i class="bi bi-play-fill"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-warning js-stop-timer" data-task-id="<?= (int) $task['id'] ?>" aria-label="Parar contador e guardar"><i class="bi bi-stop-fill"></i></button>
                 </div>
             </div>
+            <div class="col-12 col-md-4">
+                <form method="post" class="vstack gap-1 js-auto-submit-select">
+                    <input type="hidden" name="action" value="update_due_date">
+                    <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
+                    <label class="form-label small mb-0">Data prevista de entrega</label>
+                    <input type="date" name="due_date" class="form-control form-control-sm js-auto-submit-trigger" value="<?= h((string) ($task['due_date'] ?? '')) ?>">
+                </form>
+            </div>
             <div class="col-12">
-                <form method="post" class="d-flex gap-2 align-items-end">
+                <form method="post" class="d-flex gap-2 align-items-end flex-wrap">
                     <input type="hidden" name="action" value="create_subtask">
                     <input type="hidden" name="parent_task_id" value="<?= (int) $task['id'] ?>">
                     <div class="flex-grow-1">
                         <label class="form-label small mb-0">Nova sub tarefa</label>
                         <input name="title" class="form-control form-control-sm" placeholder="Descrição da sub tarefa" required>
                     </div>
-                    <button class="btn btn-sm btn-outline-secondary">Adicionar</button>
+                    <div>
+                        <label class="form-label small mb-0">Data prevista</label>
+                        <input type="date" name="due_date" class="form-control form-control-sm">
+                    </div>
+                    <button class="btn btn-sm btn-outline-secondary icon-btn" aria-label="Adicionar sub tarefa"><i class="bi bi-plus-lg"></i></button>
                 </form>
             </div>
         </div>
@@ -597,9 +635,24 @@ require __DIR__ . '/partials/header.php';
                 <div class="small fw-semibold mb-2">Sub tarefas</div>
                 <div class="vstack gap-1">
                     <?php foreach ($subtasksByParent[$task['id']] as $subtask): ?>
-                        <div class="small d-flex justify-content-between align-items-center border rounded px-2 py-1 bg-white">
-                            <span><?= h($subtask['title']) ?></span>
-                            <span class="badge bg-<?= task_badge_class((string) $subtask['status']) ?>"><?= h(status_label((string) $subtask['status'])) ?></span>
+                        <?php $subEstimated = $subtask['estimated_minutes'] !== null ? (int) $subtask['estimated_minutes'] : null; $subActual = $subtask['actual_minutes'] !== null ? (int) $subtask['actual_minutes'] : null; ?>
+                        <div class="small border rounded px-2 py-1 bg-white">
+                            <div class="d-flex justify-content-between align-items-center gap-2">
+                                <span><?= h($subtask['title']) ?></span>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="badge bg-<?= task_badge_class((string) $subtask['status']) ?>"><?= h(status_label((string) $subtask['status'])) ?></span>
+                                    <button class="btn btn-sm btn-outline-secondary icon-btn" type="button" data-bs-toggle="collapse" data-bs-target="#subtaskTimer<?= (int) $subtask['id'] ?>" aria-expanded="false" aria-label="Abrir sub tarefa"><i class="bi bi-chevron-down"></i></button>
+                                </div>
+                            </div>
+                            <div class="collapse mt-2" id="subtaskTimer<?= (int) $subtask['id'] ?>">
+                                <div class="d-flex align-items-center gap-2 flex-wrap">
+                                    <span class="time-chip">Prev: <?= h(format_minutes($subEstimated)) ?></span>
+                                    <span class="time-chip">Real: <?= h(format_minutes($subActual)) ?></span>
+                                    <button type="button" class="btn btn-sm btn-outline-success js-start-timer" data-task-id="<?= (int) $subtask['id'] ?>" aria-label="Iniciar contador sub tarefa"><i class="bi bi-play-fill"></i></button>
+                                    <button type="button" class="btn btn-sm btn-outline-warning js-stop-timer" data-task-id="<?= (int) $subtask['id'] ?>" aria-label="Parar contador sub tarefa"><i class="bi bi-stop-fill"></i></button>
+                                </div>
+                                <form method="post" class="d-none" id="timerForm<?= (int) $subtask['id'] ?>"><input type="hidden" name="action" value="update_time"><input type="hidden" name="task_id" value="<?= (int) $subtask['id'] ?>"><input type="hidden" name="estimated_minutes" value="<?= h(format_minutes($subEstimated)) ?>"><input type="hidden" name="add_actual_minutes" value="0" class="js-add-actual"></form>
+                            </div>
                         </div>
                     <?php endforeach; ?>
                 </div>
