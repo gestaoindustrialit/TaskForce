@@ -440,6 +440,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'reopen_recurring_task') {
+        $recurringTaskId = (int) ($_POST['recurring_task_id'] ?? 0);
+        $occurrenceDateInput = trim($_POST['occurrence_date'] ?? '');
+        $occurrenceDate = DateTimeImmutable::createFromFormat('Y-m-d', $occurrenceDateInput);
+
+        if (!$occurrenceDate || $occurrenceDate->format('Y-m-d') !== $occurrenceDateInput) {
+            $flashError = 'Data inválida para reabrir tarefa recorrente.';
+        } else {
+            $taskStmt = $pdo->prepare('SELECT * FROM team_recurring_tasks WHERE id = ? AND team_id = ?');
+            $taskStmt->execute([$recurringTaskId, $teamId]);
+            $task = $taskStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$task) {
+                $flashError = 'Tarefa recorrente inválida.';
+            } else {
+                $occurrences = recurring_task_occurrences($pdo, $task, $occurrenceDate, $occurrenceDate);
+                if (!$occurrences) {
+                    $flashError = 'Esta tarefa não está agendada para a data selecionada.';
+                } else {
+                    $reopenStmt = $pdo->prepare('DELETE FROM team_recurring_task_completions WHERE recurring_task_id = ? AND occurrence_date = ?');
+                    $reopenStmt->execute([$recurringTaskId, $occurrenceDate->format('Y-m-d')]);
+
+                    if ($reopenStmt->rowCount() > 0) {
+                        $flashSuccess = 'Tarefa recorrente reaberta com sucesso.';
+                    } else {
+                        $flashError = 'Esta ocorrência já estava em aberto.';
+                    }
+                }
+            }
+        }
+    }
+
 
     if ($action === 'save_recurring_task_checklist_state') {
         $recurringTaskId = (int) ($_POST['recurring_task_id'] ?? 0);
@@ -1199,7 +1231,12 @@ require __DIR__ . '/partials/header.php';
                                                                 <button class="btn btn-sm btn-outline-success py-0 px-2" title="Marcar como concluída">✓</button>
                                                             </form>
                                                         <?php else: ?>
-                                                            <button class="btn btn-sm btn-success py-0 px-2" disabled title="Concluída">✓</button>
+                                                            <form method="post" class="m-0">
+                                                                <input type="hidden" name="action" value="reopen_recurring_task">
+                                                                <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
+                                                                <input type="hidden" name="occurrence_date" value="<?= h($occurrence['occurrence_date']) ?>">
+                                                                <button class="btn btn-sm btn-success py-0 px-2" title="Reabrir tarefa recorrente">✓</button>
+                                                            </form>
                                                         <?php endif; ?>
                                                         <?php if ($canManageProjects): ?>
                                                             <form method="post" class="m-0" onsubmit="return confirm('Remover esta tarefa recorrente?');">
@@ -1314,7 +1351,12 @@ require __DIR__ . '/partials/header.php';
                                                             <button class="btn btn-sm btn-outline-success py-0 px-2" title="Marcar como concluída">✓</button>
                                                         </form>
                                                     <?php else: ?>
-                                                        <button class="btn btn-sm btn-success py-0 px-2" disabled title="Concluída">✓</button>
+                                                        <form method="post" class="m-0">
+                                                            <input type="hidden" name="action" value="reopen_recurring_task">
+                                                            <input type="hidden" name="recurring_task_id" value="<?= (int) $occurrence['id'] ?>">
+                                                            <input type="hidden" name="occurrence_date" value="<?= h($occurrence['occurrence_date']) ?>">
+                                                            <button class="btn btn-sm btn-success py-0 px-2" title="Reabrir tarefa recorrente">✓</button>
+                                                        </form>
                                                     <?php endif; ?>
                                                     <?php if ($canManageProjects): ?>
                                                         <form method="post" class="m-0" onsubmit="return confirm('Remover esta tarefa recorrente?');">
