@@ -33,13 +33,21 @@ if (!function_exists('taskforce_log_bootstrap_error')) {
 if (!function_exists('taskforce_render_internal_error')) {
     function taskforce_render_internal_error(string $errorId): void
     {
+        $forceVisibleError = isset($_GET['tf_debug_error']) && $_GET['tf_debug_error'] === '1';
+
         if (!headers_sent()) {
-            http_response_code(500);
+            http_response_code($forceVisibleError ? 200 : 500);
             header('Content-Type: text/html; charset=UTF-8');
+            if ($forceVisibleError) {
+                header('X-TaskForce-Debug-Error: ' . $errorId);
+            }
         }
 
         echo '<h1>Erro interno (500)</h1>';
         echo '<p>Ocorreu um erro inesperado ao processar o pedido.</p>';
+        if ($forceVisibleError) {
+            echo '<p><strong>Modo diagnóstico ativo:</strong> status HTTP devolvido como 200 para evitar página genérica do servidor.</p>';
+        }
         echo '<p>Referência do erro: <code>' . htmlspecialchars($errorId, ENT_QUOTES, 'UTF-8') . '</code></p>';
         exit;
     }
