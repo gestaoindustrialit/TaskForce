@@ -3,6 +3,17 @@ body {
     min-height: 100vh;
 }
 
+.container,
+.container-sm,
+.container-md,
+.container-lg,
+.container-xl,
+.container-xxl {
+    width: 90vw;
+    max-width: 90vw;
+}
+
+
 .navbar {
     background: linear-gradient(90deg, #111827 0%, #1f2937 100%) !important;
 }
