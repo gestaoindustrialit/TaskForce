@@ -890,26 +890,6 @@ require __DIR__ . '/partials/header.php';
 
 <div class="vstack gap-4">
     <div class="card shadow-sm soft-card">
-        <div class="card-header bg-white"><h2 class="h5 mb-0">Notas da equipa</h2></div>
-        <div class="card-body">
-            <form method="post" class="d-flex gap-2 mb-3">
-                <input type="hidden" name="action" value="add_team_note">
-                <input class="form-control form-control-sm" name="note" placeholder="Adicionar nota para a equipa" required>
-                <button class="btn btn-sm btn-outline-primary">Guardar</button>
-            </form>
-            <?php if (!$teamNotes): ?>
-                <p class="small text-muted mb-0">Ainda não existem notas da equipa.</p>
-            <?php endif; ?>
-            <?php foreach ($teamNotes as $note): ?>
-                <div class="small border rounded p-2 mb-2 bg-light">
-                    <?= h($note['note']) ?><br>
-                    <small class="text-muted"><?= h($note['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($note['created_at']))) ?></small>
-                </div>
-            <?php endforeach; ?>
-        </div>
-    </div>
-
-    <div class="card shadow-sm soft-card">
         <div class="card-header d-flex justify-content-between align-items-center bg-white">
             <h2 class="h5 mb-0">Projetos</h2>
             <div class="d-flex align-items-center gap-2">
@@ -1062,12 +1042,12 @@ require __DIR__ . '/partials/header.php';
     <div class="card shadow-sm soft-card">
         <div class="card-header d-flex justify-content-between align-items-center bg-white">
             <h2 class="h5 mb-0">Tickets</h2>
-            <button class="btn btn-sm btn-outline-secondary js-collapse-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#teamTicketsCollapse" aria-expanded="true" aria-controls="teamTicketsCollapse" title="Mostrar/Ocultar tickets">
+            <button class="btn btn-sm btn-outline-secondary js-collapse-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#teamTicketsCollapse" aria-expanded="false" aria-controls="teamTicketsCollapse" title="Mostrar/Ocultar tickets">
                 <i class="bi bi-eye" aria-hidden="true"></i>
                 <span class="visually-hidden">Mostrar/Ocultar tickets</span>
             </button>
         </div>
-        <div class="collapse show" id="teamTicketsCollapse">
+        <div class="collapse" id="teamTicketsCollapse">
             <div class="list-group list-group-flush">
             <?php foreach ($teamTasks as $task): ?>
                 <?php
@@ -1381,12 +1361,32 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 
+    <div class="card shadow-sm soft-card">
+        <div class="card-header bg-white"><h2 class="h5 mb-0">Notas da equipa</h2></div>
+        <div class="card-body">
+            <form method="post" class="d-flex gap-2 mb-3">
+                <input type="hidden" name="action" value="add_team_note">
+                <input class="form-control form-control-sm" name="note" placeholder="Adicionar nota para a equipa" required>
+                <button class="btn btn-sm btn-outline-primary">Guardar</button>
+            </form>
+            <?php if (!$teamNotes): ?>
+                <p class="small text-muted mb-0">Ainda não existem notas da equipa.</p>
+            <?php endif; ?>
+            <?php foreach ($teamNotes as $note): ?>
+                <div class="small border rounded p-2 mb-2 bg-light">
+                    <?= h($note['note']) ?><br>
+                    <small class="text-muted"><?= h($note['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($note['created_at']))) ?></small>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+
 </div>
 
 <div class="row g-4 mt-1">
     <div class="col-lg-6">
         <div class="card shadow-sm soft-card h-100">
-            <div class="card-header bg-white"><h2 class="h6 mb-0">Membros da equipa</h2></div>
+            <div class="card-header bg-white"><h2 class="h6 mb-0">Membros da Equipa</h2></div>
             <ul class="list-group list-group-flush">
                 <?php foreach ($members as $member): ?>
                     <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -1400,7 +1400,7 @@ require __DIR__ . '/partials/header.php';
 
     <div class="col-lg-6">
         <div class="card shadow-sm soft-card h-100">
-            <div class="card-header bg-white"><h2 class="h6 mb-0">Adicionar membro</h2></div>
+            <div class="card-header bg-white"><h2 class="h6 mb-0">Adicionar Membro</h2></div>
             <div class="card-body">
                 <form method="post" class="vstack gap-2">
                     <input type="hidden" name="action" value="invite_member">
