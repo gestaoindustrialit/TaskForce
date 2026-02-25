@@ -1,5 +1,25 @@
 <?php
-require_once __DIR__ . '/config.php';
+$taskforceConfigCandidates = [
+    __DIR__ . '/config.php',
+    dirname(__DIR__) . '/taskforce/config.php',
+];
+
+$taskforceConfigFile = null;
+foreach ($taskforceConfigCandidates as $candidate) {
+    if (is_file($candidate)) {
+        $taskforceConfigFile = $candidate;
+        break;
+    }
+}
+
+if ($taskforceConfigFile === null) {
+    http_response_code(500);
+    header('Content-Type: text/plain; charset=UTF-8');
+    echo 'Erro de configuração: config.php não encontrado.';
+    exit;
+}
+
+require_once $taskforceConfigFile;
 
 function is_logged_in(): bool
 {
