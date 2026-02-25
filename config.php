@@ -5,6 +5,94 @@ if (session_status() === PHP_SESSION_NONE) {
 
 date_default_timezone_set('Europe/Lisbon');
 
+if (!function_exists('taskforce_error_id')) {
+    function taskforce_error_id(): string
+    {
+        try {
+            if (function_exists('random_bytes')) {
+                return strtoupper(substr(bin2hex(random_bytes(6)), 0, 12));
+            }
+        } catch (Throwable $exception) {
+            // Fallback below.
+        }
+
+        return strtoupper(substr(sha1(uniqid((string) mt_rand(), true)), 0, 12));
+    }
+}
+
+if (!function_exists('taskforce_log_bootstrap_error')) {
+    function taskforce_log_bootstrap_error(string $message): void
+    {
+        error_log($message);
+
+        $logLine = '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL;
+        @file_put_contents(__DIR__ . '/bootstrap_errors.log', $logLine, FILE_APPEND);
+    }
+}
+
+if (!function_exists('taskforce_render_internal_error')) {
+    function taskforce_render_internal_error(string $errorId): void
+    {
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: text/html; charset=UTF-8');
+        }
+
+        echo '<h1>Erro interno (500)</h1>';
+        echo '<p>Ocorreu um erro inesperado ao processar o pedido.</p>';
+        echo '<p>Referência do erro: <code>' . htmlspecialchars($errorId, ENT_QUOTES, 'UTF-8') . '</code></p>';
+        exit;
+    }
+}
+
+if (!defined('TASKFORCE_ERROR_HANDLERS_REGISTERED')) {
+    define('TASKFORCE_ERROR_HANDLERS_REGISTERED', true);
+
+    set_exception_handler(static function (Throwable $exception): void {
+        try {
+            $errorId = taskforce_error_id();
+            taskforce_log_bootstrap_error('[TaskForce][' . $errorId . '] Exceção não tratada: ' . $exception->getMessage() . ' em ' . $exception->getFile() . ':' . $exception->getLine());
+            taskforce_render_internal_error($errorId);
+        } catch (Throwable $handlerException) {
+            if (!headers_sent()) {
+                http_response_code(500);
+                header('Content-Type: text/plain; charset=UTF-8');
+            }
+            echo 'Erro interno (500).';
+            exit;
+        }
+    });
+
+    register_shutdown_function(static function (): void {
+        try {
+            $lastError = error_get_last();
+            if ($lastError === null) {
+                return;
+            }
+
+            $fatalTypes = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR];
+            if (!in_array($lastError['type'] ?? 0, $fatalTypes, true)) {
+                return;
+            }
+
+            $errorId = taskforce_error_id();
+            $message = $lastError['message'] ?? 'Erro fatal desconhecido';
+            $file = $lastError['file'] ?? 'ficheiro desconhecido';
+            $line = (int) ($lastError['line'] ?? 0);
+
+            taskforce_log_bootstrap_error('[TaskForce][' . $errorId . '] Erro fatal: ' . $message . ' em ' . $file . ':' . $line);
+            taskforce_render_internal_error($errorId);
+        } catch (Throwable $handlerException) {
+            if (!headers_sent()) {
+                http_response_code(500);
+                header('Content-Type: text/plain; charset=UTF-8');
+            }
+            echo 'Erro interno (500).';
+            exit;
+        }
+    });
+}
+
 $dbFile = __DIR__ . '/database.sqlite';
 if (!extension_loaded('pdo_sqlite')) {
     http_response_code(500);
