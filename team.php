@@ -1257,24 +1257,34 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 
-    <div class="card shadow-sm soft-card">
-        <div class="card-header bg-white"><h2 class="h5 mb-0">Notas da equipa</h2></div>
-        <div class="card-body">
-            <form method="post" class="d-flex gap-2 mb-3">
-                <input type="hidden" name="action" value="add_team_note">
-                <input class="form-control form-control-sm" name="note" placeholder="Adicionar nota para a equipa" required>
-                <button class="btn btn-sm btn-outline-primary">Guardar</button>
-            </form>
-            <?php if (!$teamNotes): ?>
-                <p class="small text-muted mb-0">Ainda não existem notas da equipa.</p>
-            <?php endif; ?>
-            <?php foreach ($teamNotes as $note): ?>
-                <div class="small border rounded p-2 mb-2 bg-light">
-                    <?= h($note['note']) ?><br>
-                    <small class="text-muted"><?= h($note['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($note['created_at']))) ?></small>
-                </div>
-            <?php endforeach; ?>
+    <?php $hasTeamNotes = !empty($teamNotes); ?>
+    <div class="card shadow-sm soft-card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center bg-white">
+            <h2 class="h5 mb-0">Notas da equipa</h2>
+            <button class="btn btn-sm btn-outline-secondary js-collapse-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#teamNotesCollapse" aria-expanded="<?= $hasTeamNotes ? 'true' : 'false' ?>" aria-controls="teamNotesCollapse" title="Mostrar/Ocultar notas">
+                <i class="bi bi-eye" aria-hidden="true"></i>
+                <span class="visually-hidden">Mostrar/Ocultar notas</span>
+            </button>
         </div>
+        <div class="collapse <?= $hasTeamNotes ? 'show' : '' ?>" id="teamNotesCollapse">
+            <div class="card-body">
+                <form method="post" class="d-flex gap-2 mb-3">
+                    <input type="hidden" name="action" value="add_team_note">
+                    <input class="form-control form-control-sm" name="note" placeholder="Adicionar nota para a equipa" required>
+                    <button class="btn btn-sm btn-outline-primary">Guardar</button>
+                </form>
+                <?php if (!$teamNotes): ?>
+                    <p class="small text-muted mb-0">Ainda não existem notas da equipa.</p>
+                <?php endif; ?>
+                <?php foreach ($teamNotes as $note): ?>
+                    <div class="small border rounded p-2 mb-2 bg-light">
+                        <?= h($note['note']) ?><br>
+                        <small class="text-muted"><?= h($note['user_name']) ?> · <?= h(date('d/m/Y H:i', strtotime($note['created_at']))) ?></small>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
     <?php if ($canManageProjects): ?>
     <div class="card shadow-sm soft-card">
         <div class="card-header d-flex justify-content-between align-items-center bg-white">
