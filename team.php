@@ -389,7 +389,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     $overrideStmt->execute([$recurringTaskId, $occurrenceDateValue, $projectIdValue, $assigneeUserIdValue, $title, $description, $timeOfDay !== '' ? $timeOfDay : null, $userId]);
                                 }
 
-                                $flashSuccess = 'Ocorrência desta tarefa recorrente atualizada com sucesso.';
+                                $markCompletedStmt = $pdo->prepare('INSERT OR IGNORE INTO team_recurring_task_completions(recurring_task_id, occurrence_date, completed_by) VALUES (?, ?, ?)');
+                                $markCompletedStmt->execute([$recurringTaskId, $occurrenceDateValue, $userId]);
+
+                                if ($markCompletedStmt->rowCount() > 0) {
+                                    $flashSuccess = 'Ocorrência desta tarefa recorrente atualizada e concluída com sucesso.';
+                                } else {
+                                    $flashSuccess = 'Ocorrência desta tarefa recorrente atualizada com sucesso.';
+                                }
                             }
                         }
                     }
