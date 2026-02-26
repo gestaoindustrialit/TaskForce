@@ -935,117 +935,6 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 
-    <?php if ($canManageProjects): ?>
-    <div class="card shadow-sm soft-card">
-        <div class="card-header d-flex justify-content-between align-items-center bg-white">
-            <h2 class="h5 mb-0">Campos na criação de tarefas</h2>
-            <button class="btn btn-sm btn-outline-secondary js-collapse-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#teamTaskFieldsCollapse" aria-expanded="true" aria-controls="teamTaskFieldsCollapse" title="Mostrar/Ocultar configuração">
-                <i class="bi bi-eye" aria-hidden="true"></i>
-                <span class="visually-hidden">Mostrar/Ocultar configuração</span>
-            </button>
-        </div>
-        <div class="collapse show" id="teamTaskFieldsCollapse">
-            <div class="card-body">
-                <p class="text-muted small">Crie campos personalizados (tipo texto, número, data, seleção) e configure visibilidade/obrigatoriedade por âmbito sem gerar listas infinitas.</p>
-
-                <form method="post" class="border rounded p-3 mb-3 row g-2 align-items-end">
-                    <input type="hidden" name="action" value="create_task_custom_field">
-                    <div class="col-md-3">
-                        <label class="form-label small mb-1">Nome do campo</label>
-                        <input class="form-control" name="custom_label" placeholder="Ex.: Cliente final" required>
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label small mb-1">Tipo</label>
-                        <select class="form-select" name="custom_type" required>
-                            <option value="text">Texto</option>
-                            <option value="textarea">Texto longo</option>
-                            <option value="number">Número</option>
-                            <option value="date">Data</option>
-                            <option value="select">Seleção</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label small mb-1">Opções (1 por linha, para seleção)</label>
-                        <textarea class="form-control" name="custom_options" rows="2" placeholder="Opção A&#10;Opção B"></textarea>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="form-check"><input class="form-check-input" type="checkbox" name="custom_visible" value="1" checked id="customVisible"><label class="form-check-label" for="customVisible">Mostrar</label></div>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" name="custom_required" value="1" id="customRequired"><label class="form-check-label" for="customRequired">Obrigatório</label></div>
-                    </div>
-                    <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">Adicionar campo</button></div>
-                </form>
-
-                <?php if ($customTaskFields): ?>
-                    <div class="border rounded p-3 mb-3">
-                        <div class="fw-semibold mb-2">Campos personalizados</div>
-                        <div class="d-flex flex-wrap gap-2">
-                            <?php foreach ($customTaskFields as $customFieldKey => $customFieldMeta): ?>
-                                <form method="post" class="d-flex align-items-center gap-2 border rounded px-2 py-1" onsubmit="return confirm('Remover este campo personalizado?');">
-                                    <input type="hidden" name="action" value="delete_task_custom_field">
-                                    <input type="hidden" name="field_key" value="<?= h($customFieldKey) ?>">
-                                    <span class="small"><?= h($customFieldMeta['label']) ?> (<?= h((string) ($customFieldMeta['type'] ?? 'text')) ?>)</span>
-                                    <button class="btn btn-sm btn-outline-danger">Remover</button>
-                                </form>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                <?php endif; ?>
-
-                <div class="border rounded p-3 mb-3">
-                    <form method="get" class="row g-2 align-items-end">
-                        <input type="hidden" name="id" value="<?= (int) $teamId ?>">
-                        <div class="col-md-4">
-                            <label class="form-label small mb-1">Âmbito da configuração</label>
-                            <select class="form-select" name="fields_scope_project_id" onchange="this.form.submit()">
-                                <option value="0" <?= $scopeProjectIdValue === null ? 'selected' : '' ?>>Padrão da equipa</option>
-                                <?php foreach ($projects as $project): ?>
-                                    <option value="<?= (int) $project['id'] ?>" <?= $scopeProjectIdValue === (int) $project['id'] ? 'selected' : '' ?>>Projeto: <?= h($project['name']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="col-md-8 small text-muted">
-                            <?= $scopeProjectIdValue ? 'A editar regras específicas do projeto selecionado.' : 'A editar regras padrão que se aplicam à equipa.' ?>
-                        </div>
-                    </form>
-                </div>
-
-                <form method="post" class="border rounded p-3">
-                    <input type="hidden" name="action" value="save_task_creation_fields_config">
-                    <input type="hidden" name="config_project_id" value="<?= $scopeProjectIdValue !== null ? (int) $scopeProjectIdValue : 0 ?>">
-                    <div class="row g-2">
-                        <?php foreach ($taskCreationFieldCatalog as $fieldKey => $fieldMeta): ?>
-                            <?php $fieldRules = $activeTaskCreationFieldRules[$fieldKey] ?? ['is_visible' => !empty($fieldMeta['default_visible']), 'is_required' => !empty($fieldMeta['default_required'])]; ?>
-                            <div class="col-md-6">
-                                <div class="border rounded p-2 h-100">
-                                    <div class="d-flex justify-content-between align-items-start">
-                                        <div>
-                                            <div class="fw-semibold"><?= h($fieldMeta['label']) ?></div>
-                                            <div class="small text-muted">Tipo: <?= h((string) ($fieldMeta['type'] ?? 'text')) ?></div>
-                                        </div>
-                                        <?php if (empty($fieldMeta['is_builtin'])): ?>
-                                            <span class="badge bg-secondary">Personalizado</span>
-                                        <?php endif; ?>
-                                    </div>
-                                    <div class="form-check mt-2">
-                                        <input class="form-check-input js-visible-toggle" type="checkbox" id="scopeVisible<?= h($fieldKey) ?>" name="visible_fields[]" value="<?= h($fieldKey) ?>" <?= !empty($fieldRules['is_visible']) ? 'checked' : '' ?>>
-                                        <label class="form-check-label" for="scopeVisible<?= h($fieldKey) ?>">Mostrar</label>
-                                    </div>
-                                    <div class="form-check">
-                                        <input class="form-check-input js-required-toggle" type="checkbox" id="scopeRequired<?= h($fieldKey) ?>" name="required_fields[]" value="<?= h($fieldKey) ?>" <?= !empty($fieldRules['is_required']) ? 'checked' : '' ?>>
-                                        <label class="form-check-label" for="scopeRequired<?= h($fieldKey) ?>">Obrigatório</label>
-                                    </div>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <div class="mt-3"><button class="btn btn-sm btn-primary">Guardar configuração</button></div>
-                </form>
-            </div>
-        </div>
-    </div>
-    <?php endif; ?>
-
-
     <div class="card shadow-sm soft-card">
         <div class="card-header d-flex justify-content-between align-items-center bg-white">
             <h2 class="h5 mb-0">Tickets</h2>
@@ -1386,6 +1275,117 @@ require __DIR__ . '/partials/header.php';
                 </div>
             <?php endforeach; ?>
         </div>
+    <?php if ($canManageProjects): ?>
+    <div class="card shadow-sm soft-card">
+        <div class="card-header d-flex justify-content-between align-items-center bg-white">
+            <h2 class="h5 mb-0">Campos na criação de tarefas</h2>
+            <button class="btn btn-sm btn-outline-secondary js-collapse-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#teamTaskFieldsCollapse" aria-expanded="true" aria-controls="teamTaskFieldsCollapse" title="Mostrar/Ocultar configuração">
+                <i class="bi bi-eye" aria-hidden="true"></i>
+                <span class="visually-hidden">Mostrar/Ocultar configuração</span>
+            </button>
+        </div>
+        <div class="collapse show" id="teamTaskFieldsCollapse">
+            <div class="card-body">
+                <p class="text-muted small">Crie campos personalizados (tipo texto, número, data, seleção) e configure visibilidade/obrigatoriedade por âmbito sem gerar listas infinitas.</p>
+
+                <form method="post" class="border rounded p-3 mb-3 row g-2 align-items-end">
+                    <input type="hidden" name="action" value="create_task_custom_field">
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Nome do campo</label>
+                        <input class="form-control" name="custom_label" placeholder="Ex.: Cliente final" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Tipo</label>
+                        <select class="form-select" name="custom_type" required>
+                            <option value="text">Texto</option>
+                            <option value="textarea">Texto longo</option>
+                            <option value="number">Número</option>
+                            <option value="date">Data</option>
+                            <option value="select">Seleção</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Opções (1 por linha, para seleção)</label>
+                        <textarea class="form-control" name="custom_options" rows="2" placeholder="Opção A&#10;Opção B"></textarea>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-check"><input class="form-check-input" type="checkbox" name="custom_visible" value="1" checked id="customVisible"><label class="form-check-label" for="customVisible">Mostrar</label></div>
+                        <div class="form-check"><input class="form-check-input" type="checkbox" name="custom_required" value="1" id="customRequired"><label class="form-check-label" for="customRequired">Obrigatório</label></div>
+                    </div>
+                    <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">Adicionar campo</button></div>
+                </form>
+
+                <?php if ($customTaskFields): ?>
+                    <div class="border rounded p-3 mb-3">
+                        <div class="fw-semibold mb-2">Campos personalizados</div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <?php foreach ($customTaskFields as $customFieldKey => $customFieldMeta): ?>
+                                <form method="post" class="d-flex align-items-center gap-2 border rounded px-2 py-1" onsubmit="return confirm('Remover este campo personalizado?');">
+                                    <input type="hidden" name="action" value="delete_task_custom_field">
+                                    <input type="hidden" name="field_key" value="<?= h($customFieldKey) ?>">
+                                    <span class="small"><?= h($customFieldMeta['label']) ?> (<?= h((string) ($customFieldMeta['type'] ?? 'text')) ?>)</span>
+                                    <button class="btn btn-sm btn-outline-danger">Remover</button>
+                                </form>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
+                <div class="border rounded p-3 mb-3">
+                    <form method="get" class="row g-2 align-items-end">
+                        <input type="hidden" name="id" value="<?= (int) $teamId ?>">
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1">Âmbito da configuração</label>
+                            <select class="form-select" name="fields_scope_project_id" onchange="this.form.submit()">
+                                <option value="0" <?= $scopeProjectIdValue === null ? 'selected' : '' ?>>Padrão da equipa</option>
+                                <?php foreach ($projects as $project): ?>
+                                    <option value="<?= (int) $project['id'] ?>" <?= $scopeProjectIdValue === (int) $project['id'] ? 'selected' : '' ?>>Projeto: <?= h($project['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-8 small text-muted">
+                            <?= $scopeProjectIdValue ? 'A editar regras específicas do projeto selecionado.' : 'A editar regras padrão que se aplicam à equipa.' ?>
+                        </div>
+                    </form>
+                </div>
+
+                <form method="post" class="border rounded p-3">
+                    <input type="hidden" name="action" value="save_task_creation_fields_config">
+                    <input type="hidden" name="config_project_id" value="<?= $scopeProjectIdValue !== null ? (int) $scopeProjectIdValue : 0 ?>">
+                    <div class="row g-2">
+                        <?php foreach ($taskCreationFieldCatalog as $fieldKey => $fieldMeta): ?>
+                            <?php $fieldRules = $activeTaskCreationFieldRules[$fieldKey] ?? ['is_visible' => !empty($fieldMeta['default_visible']), 'is_required' => !empty($fieldMeta['default_required'])]; ?>
+                            <div class="col-md-6">
+                                <div class="border rounded p-2 h-100">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div>
+                                            <div class="fw-semibold"><?= h($fieldMeta['label']) ?></div>
+                                            <div class="small text-muted">Tipo: <?= h((string) ($fieldMeta['type'] ?? 'text')) ?></div>
+                                        </div>
+                                        <?php if (empty($fieldMeta['is_builtin'])): ?>
+                                            <span class="badge bg-secondary">Personalizado</span>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="form-check mt-2">
+                                        <input class="form-check-input js-visible-toggle" type="checkbox" id="scopeVisible<?= h($fieldKey) ?>" name="visible_fields[]" value="<?= h($fieldKey) ?>" <?= !empty($fieldRules['is_visible']) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="scopeVisible<?= h($fieldKey) ?>">Mostrar</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input js-required-toggle" type="checkbox" id="scopeRequired<?= h($fieldKey) ?>" name="required_fields[]" value="<?= h($fieldKey) ?>" <?= !empty($fieldRules['is_required']) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="scopeRequired<?= h($fieldKey) ?>">Obrigatório</label>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="mt-3"><button class="btn btn-sm btn-primary">Guardar configuração</button></div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
+
     </div>
 
 </div>
