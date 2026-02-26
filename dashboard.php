@@ -389,6 +389,78 @@ $scheduledTasksStmt->execute([$userId, $userId, $todayDate, $todayDate]);
 $scheduledTasks = $scheduledTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 $scheduledTaskIds = array_map(static fn (array $task): int => (int) $task['id'], $scheduledTasks);
 
+$todayDateObj = new DateTimeImmutable($todayDate);
+$recurringTasksTodayStmt = $pdo->prepare('SELECT rt.*, t.name AS team_name, p.name AS project_name, a.name AS assignee_name FROM team_recurring_tasks rt INNER JOIN teams t ON t.id = rt.team_id INNER JOIN team_members tm ON tm.team_id = rt.team_id LEFT JOIN projects p ON p.id = rt.project_id LEFT JOIN users a ON a.id = rt.assignee_user_id WHERE tm.user_id = ? ORDER BY rt.created_at ASC');
+$recurringTasksTodayStmt->execute([$userId]);
+$recurringTasksForDashboard = $recurringTasksTodayStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$scheduledRecurringTasks = [];
+$scheduledRecurringTaskIds = array_values(array_unique(array_map(static fn (array $task): int => (int) $task['id'], $recurringTasksForDashboard)));
+$recurringOverridesByTask = [];
+$recurringCompletionsByTask = [];
+
+if ($scheduledRecurringTaskIds) {
+    $recurringDateParams = [$todayDate, $todayDate];
+    $recurringDateParams = array_merge($recurringDateParams, $scheduledRecurringTaskIds);
+    $recurringPlaceholders = implode(',', array_fill(0, count($scheduledRecurringTaskIds), '?'));
+
+    $recurringOverrideStmt = $pdo->prepare('SELECT o.*, p.name AS project_name, a.name AS assignee_name FROM team_recurring_task_overrides o LEFT JOIN projects p ON p.id = o.project_id LEFT JOIN users a ON a.id = o.assignee_user_id WHERE o.occurrence_date BETWEEN ? AND ? AND o.recurring_task_id IN (' . $recurringPlaceholders . ')');
+    $recurringOverrideStmt->execute($recurringDateParams);
+    foreach ($recurringOverrideStmt->fetchAll(PDO::FETCH_ASSOC) as $override) {
+        $recurringOverridesByTask[(int) $override['recurring_task_id']] = [
+            'project_id' => $override['project_id'] !== null ? (int) $override['project_id'] : null,
+            'assignee_user_id' => $override['assignee_user_id'] !== null ? (int) $override['assignee_user_id'] : null,
+            'title' => (string) $override['title'],
+            'description' => (string) ($override['description'] ?? ''),
+            'time_of_day' => (string) ($override['time_of_day'] ?? ''),
+            'project_name' => (string) ($override['project_name'] ?? ''),
+            'assignee_name' => (string) ($override['assignee_name'] ?? ''),
+        ];
+    }
+
+    $recurringCompletionStmt = $pdo->prepare('SELECT c.recurring_task_id, c.completed_at, u.name AS completed_by_name FROM team_recurring_task_completions c INNER JOIN users u ON u.id = c.completed_by WHERE c.occurrence_date BETWEEN ? AND ? AND c.recurring_task_id IN (' . $recurringPlaceholders . ')');
+    $recurringCompletionStmt->execute($recurringDateParams);
+    foreach ($recurringCompletionStmt->fetchAll(PDO::FETCH_ASSOC) as $completion) {
+        $recurringCompletionsByTask[(int) $completion['recurring_task_id']] = [
+            'completed_at' => (string) $completion['completed_at'],
+            'completed_by_name' => (string) $completion['completed_by_name'],
+        ];
+    }
+}
+
+foreach ($recurringTasksForDashboard as $recurringTask) {
+    $occurrences = recurring_task_occurrences($pdo, $recurringTask, $todayDateObj, $todayDateObj);
+    if (!$occurrences) {
+        continue;
+    }
+
+    $taskId = (int) $recurringTask['id'];
+    $override = $recurringOverridesByTask[$taskId] ?? null;
+    $assigneeUserId = $override['assignee_user_id'] ?? ($recurringTask['assignee_user_id'] !== null ? (int) $recurringTask['assignee_user_id'] : null);
+    if ($assigneeUserId !== $userId) {
+        continue;
+    }
+
+    $completion = $recurringCompletionsByTask[$taskId] ?? null;
+    $scheduledRecurringTasks[] = [
+        'id' => $taskId,
+        'title' => $override['title'] ?? (string) $recurringTask['title'],
+        'description' => $override['description'] ?? (string) ($recurringTask['description'] ?? ''),
+        'time_of_day' => $override['time_of_day'] ?? (string) ($recurringTask['time_of_day'] ?? ''),
+        'team_name' => (string) ($recurringTask['team_name'] ?? ''),
+        'project_name' => $override['project_name'] ?? (string) ($recurringTask['project_name'] ?? ''),
+        'recurrence_label' => recurring_task_recurrence_label($pdo, (string) ($recurringTask['recurrence_type'] ?? 'weekly')),
+        'completed_at' => $completion['completed_at'] ?? null,
+        'completed_by_name' => $completion['completed_by_name'] ?? null,
+    ];
+}
+
+usort($scheduledRecurringTasks, static function (array $left, array $right): int {
+    $leftTime = $left['time_of_day'] !== '' ? (string) $left['time_of_day'] : '23:59';
+    $rightTime = $right['time_of_day'] !== '' ? (string) $right['time_of_day'] : '23:59';
+    return strcmp($leftTime, $rightTime);
+});
+
 $scheduledProjectTasksStmt = $pdo->prepare("SELECT t.id, t.title, t.status, t.due_date, t.estimated_minutes, t.actual_minutes, t.created_at, p.id AS project_id, p.name AS project_name
     FROM tasks t
     INNER JOIN projects p ON p.id = t.project_id
@@ -605,6 +677,28 @@ require __DIR__ . '/partials/header.php';
                         <?php endforeach; ?>
                     </div>
                     <p class="text-muted mb-0 d-none" id="scheduledTasksEmptyState">Sem tarefas pendentes com o filtro atual.</p>
+
+                <hr>
+                <h3 class="h6">Tarefas recorrentes para hoje</h3>
+                <?php if ($scheduledRecurringTasks): ?>
+                    <div class="vstack gap-2 mb-3">
+                        <?php foreach ($scheduledRecurringTasks as $recurringTask): ?>
+                            <div class="border rounded p-2">
+                                <div class="d-flex justify-content-between align-items-start gap-2">
+                                    <div>
+                                        <strong><?= h((string) $recurringTask['title']) ?></strong>
+                                        <div class="small text-muted">Equipa: <?= h((string) $recurringTask['team_name']) ?><?= $recurringTask['project_name'] !== '' ? ' · Projeto: ' . h((string) $recurringTask['project_name']) : '' ?></div>
+                                    </div>
+                                    <span class="badge <?= $recurringTask['completed_at'] ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= $recurringTask['completed_at'] ? 'Concluída' : 'Pendente' ?></span>
+                                </div>
+                                <div class="small text-muted">Recorrência: <?= h((string) $recurringTask['recurrence_label']) ?> · Hora: <?= h($recurringTask['time_of_day'] !== '' ? (string) $recurringTask['time_of_day'] : 'Sem hora') ?></div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <p class="text-muted mb-3">Sem tarefas recorrentes atribuídas para hoje.</p>
+                <?php endif; ?>
+
                 <hr>
                 <h3 class="h6">Tarefas de projeto atribuídas hoje</h3>
                 <?php if (!$todayProjectTasks): ?>
@@ -623,7 +717,26 @@ require __DIR__ . '/partials/header.php';
                     </ul>
                 <?php endif; ?>
                 <?php else: ?>
-                    <p class="text-muted mb-0">Ainda não tens tarefas atribuídas.</p>
+                    <p class="text-muted mb-3">Sem tickets de equipa para hoje.</p>
+                    <h3 class="h6">Tarefas recorrentes para hoje</h3>
+                    <?php if ($scheduledRecurringTasks): ?>
+                        <div class="vstack gap-2 mb-0">
+                            <?php foreach ($scheduledRecurringTasks as $recurringTask): ?>
+                                <div class="border rounded p-2">
+                                    <div class="d-flex justify-content-between align-items-start gap-2">
+                                        <div>
+                                            <strong><?= h((string) $recurringTask['title']) ?></strong>
+                                            <div class="small text-muted">Equipa: <?= h((string) $recurringTask['team_name']) ?><?= $recurringTask['project_name'] !== '' ? ' · Projeto: ' . h((string) $recurringTask['project_name']) : '' ?></div>
+                                        </div>
+                                        <span class="badge <?= $recurringTask['completed_at'] ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= $recurringTask['completed_at'] ? 'Concluída' : 'Pendente' ?></span>
+                                    </div>
+                                    <div class="small text-muted">Recorrência: <?= h((string) $recurringTask['recurrence_label']) ?> · Hora: <?= h($recurringTask['time_of_day'] !== '' ? (string) $recurringTask['time_of_day'] : 'Sem hora') ?></div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <p class="text-muted mb-0">Sem tarefas recorrentes atribuídas para hoje.</p>
+                    <?php endif; ?>
                 <?php endif; ?>
             </div>
             </div>
