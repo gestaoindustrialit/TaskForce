@@ -610,17 +610,31 @@ function default_recurring_task_recurrence_options(): array
     ];
 }
 
-function default_pending_ticket_department_options(): array
+function default_pending_ticket_department_options(PDO $pdo): array
 {
-    return [
-        ['value' => 'desenho_tecnico', 'label' => 'Desenho técnico', 'enabled' => true],
-        ['value' => 'manutencao', 'label' => 'Manutenção', 'enabled' => true],
-    ];
+    $stmt = $pdo->query('SELECT id, name FROM teams ORDER BY name ASC');
+    $teams = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $options = [];
+    foreach ($teams as $team) {
+        $teamId = (int) ($team['id'] ?? 0);
+        if ($teamId <= 0) {
+            continue;
+        }
+
+        $options[] = [
+            'value' => 'team_' . $teamId,
+            'label' => trim((string) ($team['name'] ?? '')),
+            'enabled' => true,
+        ];
+    }
+
+    return $options;
 }
 
 function pending_ticket_department_catalog(PDO $pdo): array
 {
-    $defaults = default_pending_ticket_department_options();
+    $defaults = default_pending_ticket_department_options($pdo);
     $defaultByValue = [];
     foreach ($defaults as $option) {
         $defaultByValue[(string) $option['value']] = $option;

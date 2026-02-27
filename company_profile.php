@@ -74,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $allowedRecurrences[(string) $defaultRecurrence['value']] = (string) $defaultRecurrence['label'];
         }
 
-        $defaultPendingDepartments = default_pending_ticket_department_options();
+        $defaultPendingDepartments = default_pending_ticket_department_options($pdo);
         $allowedPendingDepartments = [];
         foreach ($defaultPendingDepartments as $defaultDepartment) {
             $allowedPendingDepartments[(string) $defaultDepartment['value']] = (string) $defaultDepartment['label'];
@@ -182,7 +182,7 @@ $ticketStatuses = ticket_statuses($pdo);
 $recurrenceCatalog = recurring_task_recurrence_catalog($pdo);
 $pendingDepartmentCatalog = function_exists('pending_ticket_department_catalog')
     ? pending_ticket_department_catalog($pdo)
-    : default_pending_ticket_department_options();
+    : default_pending_ticket_department_options($pdo);
 
 $pageTitle = 'Empresa e Branding';
 require __DIR__ . '/partials/header.php';

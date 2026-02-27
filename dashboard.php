@@ -637,7 +637,7 @@ foreach ($teamPendingTickets as $pendingTask) {
         continue;
     }
 
-    $presetType = (string) (infer_team_ticket_preset((string) $pendingTask['team_name'])['ticket_type'] ?? '');
+    $presetType = 'team_' . (int) $pendingTask['team_id'];
     if (!array_key_exists($presetType, $pendingTasksByPreset)) {
         continue;
     }
@@ -699,7 +699,7 @@ if ($pendingRecurringTaskIds) {
             continue;
         }
 
-        $presetType = (string) (infer_team_ticket_preset((string) $pendingRecurringOccurrence['team_name'])['ticket_type'] ?? '');
+        $presetType = 'team_' . (int) $pendingRecurringOccurrence['team_id'];
         if (!array_key_exists($presetType, $pendingTasksByPreset)) {
             continue;
         }
