@@ -390,24 +390,40 @@ $scheduledTasks = $scheduledTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 $scheduledTaskIds = array_map(static fn (array $task): int => (int) $task['id'], $scheduledTasks);
 
 $todayDateObj = new DateTimeImmutable($todayDate);
-$recurringTasksTodayStmt = $pdo->prepare('SELECT rt.*, t.name AS team_name, p.name AS project_name, a.name AS assignee_name FROM team_recurring_tasks rt INNER JOIN teams t ON t.id = rt.team_id INNER JOIN team_members tm ON tm.team_id = rt.team_id LEFT JOIN projects p ON p.id = rt.project_id LEFT JOIN users a ON a.id = rt.assignee_user_id WHERE tm.user_id = ? ORDER BY rt.created_at ASC');
-$recurringTasksTodayStmt->execute([$userId]);
+$recurringTasksTodayStmt = $pdo->prepare('SELECT rt.*, t.name AS team_name, p.name AS project_name, a.name AS assignee_name
+    FROM team_recurring_tasks rt
+    INNER JOIN teams t ON t.id = rt.team_id
+    LEFT JOIN projects p ON p.id = rt.project_id
+    LEFT JOIN users a ON a.id = rt.assignee_user_id
+    WHERE EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = rt.team_id AND tm.user_id = ?)
+       OR rt.assignee_user_id = ?
+       OR EXISTS (
+            SELECT 1
+            FROM team_recurring_task_overrides o
+            WHERE o.recurring_task_id = rt.id
+              AND date(o.occurrence_date) = ?
+              AND o.assignee_user_id = ?
+       )
+    ORDER BY rt.created_at ASC');
+$recurringTasksTodayStmt->execute([$userId, $userId, $todayDate, $userId]);
 $recurringTasksForDashboard = $recurringTasksTodayStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $scheduledRecurringTasks = [];
 $scheduledRecurringTaskIds = array_values(array_unique(array_map(static fn (array $task): int => (int) $task['id'], $recurringTasksForDashboard)));
-$recurringOverridesByTask = [];
-$recurringCompletionsByTask = [];
+$recurringOverridesByTaskAndDate = [];
+$recurringCompletionsByTaskAndDate = [];
 
 if ($scheduledRecurringTaskIds) {
-    $recurringDateParams = [$todayDate, $todayDate];
+    $recurringDateParams = [$todayDate];
     $recurringDateParams = array_merge($recurringDateParams, $scheduledRecurringTaskIds);
     $recurringPlaceholders = implode(',', array_fill(0, count($scheduledRecurringTaskIds), '?'));
 
-    $recurringOverrideStmt = $pdo->prepare('SELECT o.*, p.name AS project_name, a.name AS assignee_name FROM team_recurring_task_overrides o LEFT JOIN projects p ON p.id = o.project_id LEFT JOIN users a ON a.id = o.assignee_user_id WHERE o.occurrence_date BETWEEN ? AND ? AND o.recurring_task_id IN (' . $recurringPlaceholders . ')');
+    $recurringOverrideStmt = $pdo->prepare('SELECT o.*, p.name AS project_name, a.name AS assignee_name FROM team_recurring_task_overrides o LEFT JOIN projects p ON p.id = o.project_id LEFT JOIN users a ON a.id = o.assignee_user_id WHERE date(o.occurrence_date) = ? AND o.recurring_task_id IN (' . $recurringPlaceholders . ')');
     $recurringOverrideStmt->execute($recurringDateParams);
     foreach ($recurringOverrideStmt->fetchAll(PDO::FETCH_ASSOC) as $override) {
-        $recurringOverridesByTask[(int) $override['recurring_task_id']] = [
+        $overrideDate = date('Y-m-d', strtotime((string) $override['occurrence_date']));
+        $overrideKey = (int) $override['recurring_task_id'] . '|' . $overrideDate;
+        $recurringOverridesByTaskAndDate[$overrideKey] = [
             'project_id' => $override['project_id'] !== null ? (int) $override['project_id'] : null,
             'assignee_user_id' => $override['assignee_user_id'] !== null ? (int) $override['assignee_user_id'] : null,
             'title' => (string) $override['title'],
@@ -418,10 +434,12 @@ if ($scheduledRecurringTaskIds) {
         ];
     }
 
-    $recurringCompletionStmt = $pdo->prepare('SELECT c.recurring_task_id, c.completed_at, u.name AS completed_by_name FROM team_recurring_task_completions c INNER JOIN users u ON u.id = c.completed_by WHERE c.occurrence_date BETWEEN ? AND ? AND c.recurring_task_id IN (' . $recurringPlaceholders . ')');
+    $recurringCompletionStmt = $pdo->prepare('SELECT c.recurring_task_id, c.occurrence_date, c.completed_at, u.name AS completed_by_name FROM team_recurring_task_completions c INNER JOIN users u ON u.id = c.completed_by WHERE date(c.occurrence_date) = ? AND c.recurring_task_id IN (' . $recurringPlaceholders . ')');
     $recurringCompletionStmt->execute($recurringDateParams);
     foreach ($recurringCompletionStmt->fetchAll(PDO::FETCH_ASSOC) as $completion) {
-        $recurringCompletionsByTask[(int) $completion['recurring_task_id']] = [
+        $completionDate = date('Y-m-d', strtotime((string) $completion['occurrence_date']));
+        $completionKey = (int) $completion['recurring_task_id'] . '|' . $completionDate;
+        $recurringCompletionsByTaskAndDate[$completionKey] = [
             'completed_at' => (string) $completion['completed_at'],
             'completed_by_name' => (string) $completion['completed_by_name'],
         ];
@@ -435,13 +453,16 @@ foreach ($recurringTasksForDashboard as $recurringTask) {
     }
 
     $taskId = (int) $recurringTask['id'];
-    $override = $recurringOverridesByTask[$taskId] ?? null;
+    $occurrenceDate = $occurrences[0]->format('Y-m-d');
+    $occurrenceKey = $taskId . '|' . $occurrenceDate;
+
+    $override = $recurringOverridesByTaskAndDate[$occurrenceKey] ?? null;
     $assigneeUserId = $override['assignee_user_id'] ?? ($recurringTask['assignee_user_id'] !== null ? (int) $recurringTask['assignee_user_id'] : null);
     if ($assigneeUserId !== $userId) {
         continue;
     }
 
-    $completion = $recurringCompletionsByTask[$taskId] ?? null;
+    $completion = $recurringCompletionsByTaskAndDate[$occurrenceKey] ?? null;
     $scheduledRecurringTasks[] = [
         'id' => $taskId,
         'title' => $override['title'] ?? (string) $recurringTask['title'],
@@ -510,10 +531,15 @@ foreach ($ticketStatuses as $status) {
     }
 }
 
-$pendingTasksByPreset = [
-    'desenho_tecnico' => [],
-    'manutencao' => [],
-];
+$pendingDepartments = pending_ticket_department_catalog($pdo);
+$pendingTasksByPreset = [];
+foreach ($pendingDepartments as $pendingDepartment) {
+    if (empty($pendingDepartment['enabled'])) {
+        continue;
+    }
+
+    $pendingTasksByPreset[(string) $pendingDepartment['value']] = [];
+}
 
 if ($isAdmin) {
     $teamPendingTicketsStmt = $pdo->query("SELECT tt.id, tt.title, tt.status, tt.urgency, tt.due_date, t.id AS team_id, t.name AS team_name
@@ -751,15 +777,40 @@ require __DIR__ . '/partials/header.php';
             </div>
             <div class="collapse" id="pendingByTypeContent">
                 <div class="card-body p-4 vstack gap-3">
-                    <div>
-                        <label class="form-label mb-1" for="pendingBoardFilter">Ver pendentes de</label>
-                        <select class="form-select" id="pendingBoardFilter">
-                            <option value="desenho_tecnico">Desenho técnico</option>
-                            <option value="manutencao">Manutenção</option>
-                        </select>
-                    </div>
-                    <ul class="list-group" id="pendingBoardList"></ul>
-                    <p class="text-muted mb-0 d-none" id="pendingBoardEmpty">Não existem tarefas pendentes neste grupo.</p>
+                    <?php if (!$pendingTasksByPreset): ?>
+                        <p class="text-muted mb-0">Sem departamentos ativos para mostrar pendentes. Configure em Empresa e Branding.</p>
+                    <?php else: ?>
+                        <?php foreach ($pendingDepartments as $pendingDepartment): ?>
+                            <?php
+                                if (empty($pendingDepartment['enabled'])) {
+                                    continue;
+                                }
+                                $departmentValue = (string) $pendingDepartment['value'];
+                                $departmentTasks = $pendingTasksByPreset[$departmentValue] ?? [];
+                            ?>
+                            <div class="border rounded p-3">
+                                <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                                    <h3 class="h6 mb-0"><?= h((string) $pendingDepartment['label']) ?></h3>
+                                    <span class="badge text-bg-light border"><?= (int) count($departmentTasks) ?> pendente(s)</span>
+                                </div>
+                                <?php if (!$departmentTasks): ?>
+                                    <p class="text-muted mb-0">Não existem tarefas pendentes neste grupo.</p>
+                                <?php else: ?>
+                                    <ul class="list-group">
+                                        <?php foreach ($departmentTasks as $task): ?>
+                                            <li class="list-group-item d-flex justify-content-between align-items-start gap-3">
+                                                <div>
+                                                    <strong><?= h((string) $task['title']) ?></strong>
+                                                    <div class="small text-muted"><?= h((string) $task['team_name']) ?> · <?= h((string) $task['urgency']) ?><?= $task['due_date'] !== '' ? ' · Até ' . h((string) $task['due_date']) : '' ?></div>
+                                                </div>
+                                                <a class="btn btn-sm btn-outline-primary" href="team.php?id=<?= (int) $task['team_id'] ?>">Abrir</a>
+                                            </li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -887,7 +938,6 @@ require __DIR__ . '/partials/header.php';
 <script>
 const dashboardTicketTypeTemplates = <?= json_encode($ticketTypeTemplates, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const dashboardTeamTicketPresets = <?= json_encode($teamTicketPresets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-const dashboardPendingTasksByPreset = <?= json_encode($pendingTasksByPreset, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const dashboardTeamSelect = document.getElementById('dashboardTeamSelect');
 const dashboardTicketTypeSelect = document.getElementById('dashboardTicketType');
 const dashboardTicketTypeFields = document.getElementById('dashboardTicketTypeFields');
@@ -900,9 +950,6 @@ const scheduledTaskRows = document.querySelectorAll('.js-scheduled-task');
 const scheduledTasksEmptyState = document.getElementById('scheduledTasksEmptyState');
 const scheduledTasksVisibilityBtn = document.getElementById('scheduledTasksVisibilityBtn');
 const pendingByTypeVisibilityBtn = document.getElementById('pendingByTypeVisibilityBtn');
-const pendingByTypeFilter = document.getElementById('pendingBoardFilter');
-const pendingByTypeList = document.getElementById('pendingBoardList');
-const pendingByTypeEmpty = document.getElementById('pendingBoardEmpty');
 
 function refreshScheduledTasksVisibility() {
     if (!toggleCompletedTasks || scheduledTaskRows.length === 0) {
@@ -938,31 +985,6 @@ function updateCollapseEyeIcon(buttonElement, isExpanded) {
     icon.classList.toggle('bi-eye-slash', !isExpanded);
 }
 
-function renderPendingTasksByPreset() {
-    if (!pendingByTypeFilter || !pendingByTypeList || !pendingByTypeEmpty) {
-        return;
-    }
-
-    const selectedPreset = pendingByTypeFilter.value;
-    const tasks = dashboardPendingTasksByPreset[selectedPreset] || [];
-    pendingByTypeList.innerHTML = '';
-
-    tasks.forEach((task) => {
-        const dueDateLabel = task.due_date ? ` · Até ${task.due_date}` : '';
-        const listItem = document.createElement('li');
-        listItem.className = 'list-group-item d-flex justify-content-between align-items-start gap-3';
-        listItem.innerHTML = `
-            <div>
-                <strong>${task.title}</strong>
-                <div class="small text-muted">${task.team_name} · ${task.urgency}${dueDateLabel}</div>
-            </div>
-            <a class="btn btn-sm btn-outline-primary" href="team.php?id=${task.team_id}">Abrir</a>
-        `;
-        pendingByTypeList.appendChild(listItem);
-    });
-
-    pendingByTypeEmpty.classList.toggle('d-none', tasks.length > 0);
-}
 
 function buildDashboardTicketTypeFields() {
     if (!dashboardTicketTypeSelect || !dashboardTicketTypeFields) {
@@ -1104,10 +1126,6 @@ if (pendingByTypeCollapse) {
     pendingByTypeCollapse.addEventListener('hidden.bs.collapse', () => updateCollapseEyeIcon(pendingByTypeVisibilityBtn, false));
 }
 
-if (pendingByTypeFilter) {
-    pendingByTypeFilter.addEventListener('change', renderPendingTasksByPreset);
-    renderPendingTasksByPreset();
-}
 </script>
 
 <div class="modal fade" id="teamModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post"><input type="hidden" name="action" value="create_team"><div class="modal-header"><h5 class="modal-title">Criar Equipa</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body vstack gap-3"><input class="form-control" name="name" placeholder="Nome da equipa" required><textarea class="form-control" name="description" placeholder="Descrição"></textarea></div><div class="modal-footer"><button class="btn btn-primary">Criar</button></div></form></div></div>

@@ -32,6 +32,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $recurrenceEnabled = $_POST['recurrence_enabled'] ?? [];
         $recurrenceCatalog = [];
 
+        $pendingDepartmentValues = $_POST['pending_department_value'] ?? [];
+        $pendingDepartmentEnabled = $_POST['pending_department_enabled'] ?? [];
+        $pendingDepartmentCatalog = [];
+
         foreach ($statusValues as $index => $rawValue) {
             $value = strtolower(trim((string) $rawValue));
             $label = trim((string) ($statusLabels[$index] ?? ''));
@@ -68,6 +72,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $allowedRecurrences = [];
         foreach ($defaultRecurrences as $defaultRecurrence) {
             $allowedRecurrences[(string) $defaultRecurrence['value']] = (string) $defaultRecurrence['label'];
+        }
+
+        $defaultPendingDepartments = default_pending_ticket_department_options();
+        $allowedPendingDepartments = [];
+        foreach ($defaultPendingDepartments as $defaultDepartment) {
+            $allowedPendingDepartments[(string) $defaultDepartment['value']] = (string) $defaultDepartment['label'];
+        }
+
+        foreach ($pendingDepartmentValues as $index => $rawValue) {
+            $value = strtolower(trim((string) $rawValue));
+            if (!isset($allowedPendingDepartments[$value]) || isset($pendingDepartmentCatalog[$value])) {
+                continue;
+            }
+
+            $pendingDepartmentCatalog[$value] = [
+                'value' => $value,
+                'label' => $allowedPendingDepartments[$value],
+                'enabled' => isset($pendingDepartmentEnabled[$index]) && $pendingDepartmentEnabled[$index] === '1',
+            ];
+        }
+
+        foreach ($defaultPendingDepartments as $defaultDepartment) {
+            $value = (string) $defaultDepartment['value'];
+            if (!isset($pendingDepartmentCatalog[$value])) {
+                $pendingDepartmentCatalog[$value] = [
+                    'value' => $value,
+                    'label' => (string) $defaultDepartment['label'],
+                    'enabled' => !empty($defaultDepartment['enabled']),
+                ];
+            }
         }
 
         foreach ($recurrenceValues as $index => $rawValue) {
@@ -107,6 +141,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flashError = 'Defina pelo menos um estado não concluído para os tickets.';
         } elseif (!array_filter($recurrenceCatalog, static fn (array $entry): bool => !empty($entry['enabled']))) {
             $flashError = 'Ative pelo menos um tipo de recorrência para tarefas recorrentes.';
+        } elseif (!array_filter($pendingDepartmentCatalog, static fn (array $entry): bool => !empty($entry['enabled']))) {
+            $flashError = 'Ative pelo menos um departamento para pendentes no dashboard.';
         } else {
             set_app_setting($pdo, 'company_name', $companyName);
             set_app_setting($pdo, 'company_address', $companyAddress);
@@ -114,6 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_app_setting($pdo, 'company_phone', $companyPhone);
             set_app_setting($pdo, 'ticket_statuses_json', json_encode(array_values($ticketStatuses), JSON_UNESCAPED_UNICODE));
             set_app_setting($pdo, 'recurring_task_recurrences_json', json_encode(array_values($recurrenceCatalog), JSON_UNESCAPED_UNICODE));
+            set_app_setting($pdo, 'pending_ticket_departments_json', json_encode(array_values($pendingDepartmentCatalog), JSON_UNESCAPED_UNICODE));
 
             $savedLogos = 0;
             $lightPath = save_brand_logo($_FILES['logo_navbar_light'] ?? [], 'navbar_light');
@@ -143,6 +180,9 @@ $navbarLogo = app_setting($pdo, 'logo_navbar_light');
 $reportLogo = app_setting($pdo, 'logo_report_dark');
 $ticketStatuses = ticket_statuses($pdo);
 $recurrenceCatalog = recurring_task_recurrence_catalog($pdo);
+$pendingDepartmentCatalog = function_exists('pending_ticket_department_catalog')
+    ? pending_ticket_department_catalog($pdo)
+    : default_pending_ticket_department_options();
 
 $pageTitle = 'Empresa e Branding';
 require __DIR__ . '/partials/header.php';
@@ -217,6 +257,26 @@ require __DIR__ . '/partials/header.php';
                                         <button type="button" class="btn btn-sm btn-outline-danger remove-ticket-status">×</button>
                                     </div>
                                 <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <hr>
+                <label class="form-label mb-0">Departamentos pendentes no dashboard</label>
+                <p class="small text-muted mb-2">Escolha os departamentos que devem aparecer automaticamente no bloco de pendentes por equipa técnica.</p>
+                <div id="pending-department-list" class="vstack gap-2 mb-2">
+                    <?php foreach ($pendingDepartmentCatalog as $index => $department): ?>
+                        <div class="row g-2 align-items-center">
+                            <div class="col-md-4"><input class="form-control form-control-sm" name="pending_department_value[]" value="<?= h($department['value']) ?>" readonly></div>
+                            <div class="col-md-5"><input class="form-control form-control-sm" value="<?= h($department['label']) ?>" readonly></div>
+                            <div class="col-md-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="pending_department_enabled[<?= (int) $index ?>]" value="1" <?= !empty($department['enabled']) ? 'checked' : '' ?> <?= !$isAdmin ? 'disabled' : '' ?>>
+                                    <label class="form-check-label small">Ativo</label>
+                                </div>
                             </div>
                         </div>
                     <?php endforeach; ?>

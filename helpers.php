@@ -610,6 +610,60 @@ function default_recurring_task_recurrence_options(): array
     ];
 }
 
+function default_pending_ticket_department_options(): array
+{
+    return [
+        ['value' => 'desenho_tecnico', 'label' => 'Desenho técnico', 'enabled' => true],
+        ['value' => 'manutencao', 'label' => 'Manutenção', 'enabled' => true],
+    ];
+}
+
+function pending_ticket_department_catalog(PDO $pdo): array
+{
+    $defaults = default_pending_ticket_department_options();
+    $defaultByValue = [];
+    foreach ($defaults as $option) {
+        $defaultByValue[(string) $option['value']] = $option;
+    }
+
+    $raw = app_setting($pdo, 'pending_ticket_departments_json', '');
+    if (!is_string($raw) || trim($raw) === '') {
+        return $defaults;
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return $defaults;
+    }
+
+    $catalog = [];
+    foreach ($decoded as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+
+        $value = strtolower(trim((string) ($entry['value'] ?? '')));
+        if (!isset($defaultByValue[$value])) {
+            continue;
+        }
+
+        $catalog[$value] = [
+            'value' => $value,
+            'label' => (string) $defaultByValue[$value]['label'],
+            'enabled' => !empty($entry['enabled']),
+        ];
+    }
+
+    foreach ($defaults as $defaultOption) {
+        $value = (string) $defaultOption['value'];
+        if (!isset($catalog[$value])) {
+            $catalog[$value] = $defaultOption;
+        }
+    }
+
+    return array_values($catalog);
+}
+
 function recurring_task_recurrence_catalog(PDO $pdo): array
 {
     $defaults = default_recurring_task_recurrence_options();
@@ -693,9 +747,9 @@ function recurring_task_anchor_date(array $task): DateTimeImmutable
     $createdAt = !empty($task['created_at']) ? new DateTimeImmutable((string) $task['created_at']) : new DateTimeImmutable('today');
 
     if (!empty($task['start_date'])) {
-        $startDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) $task['start_date']);
+        $startDate = DateTimeImmutable::createFromFormat('!Y-m-d', (string) $task['start_date']);
         if ($startDate instanceof DateTimeImmutable) {
-            return $startDate;
+            return $startDate->setTime(0, 0);
         }
     }
 
