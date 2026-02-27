@@ -536,6 +536,20 @@ $pdo->exec(
 );
 
 $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS team_recurring_task_statuses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recurring_task_id INTEGER NOT NULL,
+        occurrence_date DATE NOT NULL,
+        status TEXT NOT NULL DEFAULT "todo",
+        updated_by INTEGER NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(recurring_task_id) REFERENCES team_recurring_tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE(recurring_task_id, occurrence_date)
+    )'
+);
+
+$pdo->exec(
     'CREATE TABLE IF NOT EXISTS team_recurring_task_overrides (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         recurring_task_id INTEGER NOT NULL,
