@@ -250,6 +250,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'update_recurring_scheduled_task') {
+        $recurringTaskId = (int) ($_POST['recurring_task_id'] ?? 0);
+        $occurrenceDateInput = trim((string) ($_POST['occurrence_date'] ?? ''));
+        $status = trim((string) ($_POST['status'] ?? 'todo'));
+        $allowedStatuses = ['todo', 'in_progress', 'done'];
+
+        if ($recurringTaskId <= 0 || !in_array($status, $allowedStatuses, true)) {
+            $flashError = 'Dados inválidos para atualizar tarefa recorrente.';
+        } else {
+            $occurrenceDateObj = DateTimeImmutable::createFromFormat('Y-m-d', $occurrenceDateInput);
+            if (!$occurrenceDateObj || $occurrenceDateObj->format('Y-m-d') !== $occurrenceDateInput) {
+                $flashError = 'Data inválida para tarefa recorrente.';
+            } else {
+                $taskStmt = $pdo->prepare('SELECT rt.* FROM team_recurring_tasks rt LEFT JOIN team_recurring_task_overrides o ON o.recurring_task_id = rt.id AND date(o.occurrence_date) = ? WHERE rt.id = ? AND (rt.assignee_user_id = ? OR o.assignee_user_id = ?) LIMIT 1');
+                $taskStmt->execute([$occurrenceDateInput, $recurringTaskId, $userId, $userId]);
+                $recurringTask = $taskStmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$recurringTask) {
+                    $flashError = 'Sem permissão para atualizar esta tarefa recorrente.';
+                } else {
+                    $occurrences = recurring_task_occurrences($pdo, $recurringTask, $occurrenceDateObj, $occurrenceDateObj);
+                    if (!$occurrences) {
+                        $flashError = 'Esta tarefa recorrente não está agendada para a data escolhida.';
+                    } else {
+                        $statusStmt = $pdo->prepare('INSERT INTO team_recurring_task_statuses(recurring_task_id, occurrence_date, status, updated_by) VALUES (?, ?, ?, ?) ON CONFLICT(recurring_task_id, occurrence_date) DO UPDATE SET status = excluded.status, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP');
+                        $statusStmt->execute([$recurringTaskId, $occurrenceDateInput, $status, $userId]);
+
+                        if ($status === 'done') {
+                            $completeStmt = $pdo->prepare('INSERT OR IGNORE INTO team_recurring_task_completions(recurring_task_id, occurrence_date, completed_by) VALUES (?, ?, ?)');
+                            $completeStmt->execute([$recurringTaskId, $occurrenceDateInput, $userId]);
+                        } else {
+                            $reopenStmt = $pdo->prepare('DELETE FROM team_recurring_task_completions WHERE recurring_task_id = ? AND occurrence_date = ?');
+                            $reopenStmt->execute([$recurringTaskId, $occurrenceDateInput]);
+                        }
+
+                        $flashSuccess = 'Tarefa recorrente atualizada com sucesso.';
+                    }
+                }
+            }
+        }
+    }
+
     if ($action === 'create_team_ticket') {
         $teamId = (int) ($_POST['team_id'] ?? 0);
         $title = trim($_POST['title'] ?? '');
@@ -412,6 +454,7 @@ $scheduledRecurringTasks = [];
 $scheduledRecurringTaskIds = array_values(array_unique(array_map(static fn (array $task): int => (int) $task['id'], $recurringTasksForDashboard)));
 $recurringOverridesByTaskAndDate = [];
 $recurringCompletionsByTaskAndDate = [];
+$recurringStatusesByTaskAndDate = [];
 
 if ($scheduledRecurringTaskIds) {
     $recurringDateParams = [$todayDate];
@@ -444,6 +487,14 @@ if ($scheduledRecurringTaskIds) {
             'completed_by_name' => (string) $completion['completed_by_name'],
         ];
     }
+
+    $recurringStatusStmt = $pdo->prepare('SELECT recurring_task_id, occurrence_date, status FROM team_recurring_task_statuses WHERE date(occurrence_date) = ? AND recurring_task_id IN (' . $recurringPlaceholders . ')');
+    $recurringStatusStmt->execute($recurringDateParams);
+    foreach ($recurringStatusStmt->fetchAll(PDO::FETCH_ASSOC) as $statusRow) {
+        $statusDate = date('Y-m-d', strtotime((string) $statusRow['occurrence_date']));
+        $statusKey = (int) $statusRow['recurring_task_id'] . '|' . $statusDate;
+        $recurringStatusesByTaskAndDate[$statusKey] = (string) $statusRow['status'];
+    }
 }
 
 foreach ($recurringTasksForDashboard as $recurringTask) {
@@ -463,14 +514,17 @@ foreach ($recurringTasksForDashboard as $recurringTask) {
     }
 
     $completion = $recurringCompletionsByTaskAndDate[$occurrenceKey] ?? null;
+    $recurringStatus = $recurringStatusesByTaskAndDate[$occurrenceKey] ?? ($completion ? 'done' : 'todo');
     $scheduledRecurringTasks[] = [
         'id' => $taskId,
+        'occurrence_date' => $occurrenceDate,
         'title' => $override['title'] ?? (string) $recurringTask['title'],
         'description' => $override['description'] ?? (string) ($recurringTask['description'] ?? ''),
         'time_of_day' => $override['time_of_day'] ?? (string) ($recurringTask['time_of_day'] ?? ''),
         'team_name' => (string) ($recurringTask['team_name'] ?? ''),
         'project_name' => $override['project_name'] ?? (string) ($recurringTask['project_name'] ?? ''),
         'recurrence_label' => recurring_task_recurrence_label($pdo, (string) ($recurringTask['recurrence_type'] ?? 'weekly')),
+        'status' => in_array($recurringStatus, ['todo', 'in_progress', 'done'], true) ? $recurringStatus : 'todo',
         'completed_at' => $completion['completed_at'] ?? null,
         'completed_by_name' => $completion['completed_by_name'] ?? null,
     ];
@@ -772,16 +826,32 @@ require __DIR__ . '/partials/header.php';
                 <?php if ($scheduledRecurringTasks): ?>
                     <div class="vstack gap-2 mb-3">
                         <?php foreach ($scheduledRecurringTasks as $recurringTask): ?>
-                            <div class="border rounded p-2">
+                            <form method="post" class="border rounded p-2 vstack gap-2">
+                                <input type="hidden" name="action" value="update_recurring_scheduled_task">
+                                <input type="hidden" name="recurring_task_id" value="<?= (int) $recurringTask['id'] ?>">
+                                <input type="hidden" name="occurrence_date" value="<?= h((string) $recurringTask['occurrence_date']) ?>">
                                 <div class="d-flex justify-content-between align-items-start gap-2">
                                     <div>
                                         <strong><?= h((string) $recurringTask['title']) ?></strong>
                                         <div class="small text-muted">Equipa: <?= h((string) $recurringTask['team_name']) ?><?= $recurringTask['project_name'] !== '' ? ' · Projeto: ' . h((string) $recurringTask['project_name']) : '' ?></div>
                                     </div>
-                                    <span class="badge <?= $recurringTask['completed_at'] ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= $recurringTask['completed_at'] ? 'Concluída' : 'Pendente' ?></span>
+                                    <span class="badge <?= $recurringTask['status'] === 'done' ? 'text-bg-success' : ($recurringTask['status'] === 'in_progress' ? 'text-bg-warning text-dark' : 'text-bg-secondary') ?>"><?= $recurringTask['status'] === 'done' ? 'Concluída' : ($recurringTask['status'] === 'in_progress' ? 'Em curso' : 'Pendente') ?></span>
                                 </div>
                                 <div class="small text-muted">Recorrência: <?= h((string) $recurringTask['recurrence_label']) ?> · Hora: <?= h($recurringTask['time_of_day'] !== '' ? (string) $recurringTask['time_of_day'] : 'Sem hora') ?></div>
-                            </div>
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-8">
+                                        <label class="form-label mb-1 small">Estado</label>
+                                        <select class="form-select form-select-sm" name="status">
+                                            <option value="todo" <?= $recurringTask['status'] === 'todo' ? 'selected' : '' ?>>Pendente</option>
+                                            <option value="in_progress" <?= $recurringTask['status'] === 'in_progress' ? 'selected' : '' ?>>Em curso</option>
+                                            <option value="done" <?= $recurringTask['status'] === 'done' ? 'selected' : '' ?>>Concluída</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <button class="btn btn-sm btn-primary w-100">Guardar</button>
+                                    </div>
+                                </div>
+                            </form>
                         <?php endforeach; ?>
                     </div>
                 <?php else: ?>
@@ -811,16 +881,32 @@ require __DIR__ . '/partials/header.php';
                     <?php if ($scheduledRecurringTasks): ?>
                         <div class="vstack gap-2 mb-0">
                             <?php foreach ($scheduledRecurringTasks as $recurringTask): ?>
-                                <div class="border rounded p-2">
+                                <form method="post" class="border rounded p-2 vstack gap-2">
+                                    <input type="hidden" name="action" value="update_recurring_scheduled_task">
+                                    <input type="hidden" name="recurring_task_id" value="<?= (int) $recurringTask['id'] ?>">
+                                    <input type="hidden" name="occurrence_date" value="<?= h((string) $recurringTask['occurrence_date']) ?>">
                                     <div class="d-flex justify-content-between align-items-start gap-2">
                                         <div>
                                             <strong><?= h((string) $recurringTask['title']) ?></strong>
                                             <div class="small text-muted">Equipa: <?= h((string) $recurringTask['team_name']) ?><?= $recurringTask['project_name'] !== '' ? ' · Projeto: ' . h((string) $recurringTask['project_name']) : '' ?></div>
                                         </div>
-                                        <span class="badge <?= $recurringTask['completed_at'] ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= $recurringTask['completed_at'] ? 'Concluída' : 'Pendente' ?></span>
+                                        <span class="badge <?= $recurringTask['status'] === 'done' ? 'text-bg-success' : ($recurringTask['status'] === 'in_progress' ? 'text-bg-warning text-dark' : 'text-bg-secondary') ?>"><?= $recurringTask['status'] === 'done' ? 'Concluída' : ($recurringTask['status'] === 'in_progress' ? 'Em curso' : 'Pendente') ?></span>
                                     </div>
                                     <div class="small text-muted">Recorrência: <?= h((string) $recurringTask['recurrence_label']) ?> · Hora: <?= h($recurringTask['time_of_day'] !== '' ? (string) $recurringTask['time_of_day'] : 'Sem hora') ?></div>
-                                </div>
+                                    <div class="row g-2 align-items-end">
+                                        <div class="col-md-8">
+                                            <label class="form-label mb-1 small">Estado</label>
+                                            <select class="form-select form-select-sm" name="status">
+                                                <option value="todo" <?= $recurringTask['status'] === 'todo' ? 'selected' : '' ?>>Pendente</option>
+                                                <option value="in_progress" <?= $recurringTask['status'] === 'in_progress' ? 'selected' : '' ?>>Em curso</option>
+                                                <option value="done" <?= $recurringTask['status'] === 'done' ? 'selected' : '' ?>>Concluída</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <button class="btn btn-sm btn-primary w-100">Guardar</button>
+                                        </div>
+                                    </div>
+                                </form>
                             <?php endforeach; ?>
                         </div>
                     <?php else: ?>
