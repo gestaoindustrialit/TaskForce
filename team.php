@@ -9,40 +9,6 @@ $flashSuccess = null;
 $flashError = null;
 $ticketStatuses = ticket_statuses($pdo);
 
-function parse_ticket_description(string $description): array
-{
-    $normalized = str_replace("\r\n", "\n", trim($description));
-    if ($normalized == '') {
-        return ['summary' => '', 'details_title' => '', 'details' => []];
-    }
-
-    if (!preg_match('/\n\nDetalhes de ([^\n:]+):\n((?:- .*\n?)+)/u', $normalized, $matches, PREG_OFFSET_CAPTURE)) {
-        return ['summary' => $normalized, 'details_title' => '', 'details' => []];
-    }
-
-    $markerOffset = (int) $matches[0][1];
-    $summary = trim(substr($normalized, 0, $markerOffset));
-    $detailsTitle = trim($matches[1][0]);
-    $detailsBlock = trim($matches[2][0]);
-
-    $details = [];
-    foreach (preg_split('/\n+/', $detailsBlock) as $line) {
-        $line = trim($line);
-        if (str_starts_with($line, '- ')) {
-            $line = trim(substr($line, 2));
-        }
-        if ($line !== '') {
-            $details[] = $line;
-        }
-    }
-
-    return [
-        'summary' => $summary,
-        'details_title' => $detailsTitle,
-        'details' => $details,
-    ];
-}
-
 if (!$teamId || !team_accessible($pdo, $teamId, $userId)) {
     http_response_code(403);
     exit('Acesso negado à equipa.');

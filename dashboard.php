@@ -410,7 +410,7 @@ $users = $isAdmin ? $pdo->query('SELECT id, name, email, is_admin FROM users ORD
 
 $todayDate = date('Y-m-d');
 
-$scheduledTasksStmt = $pdo->prepare("SELECT tt.id, tt.title, tt.status, tt.urgency, tt.due_date, tt.created_at, tt.estimated_minutes, tt.actual_minutes, t.id AS team_id, t.name AS team_name
+$scheduledTasksStmt = $pdo->prepare("SELECT tt.id, tt.title, tt.description, tt.status, tt.urgency, tt.due_date, tt.created_at, tt.estimated_minutes, tt.actual_minutes, t.id AS team_id, t.name AS team_name
     FROM team_tickets tt
     INNER JOIN teams t ON t.id = tt.team_id
     INNER JOIN team_members tm ON tm.team_id = t.id
@@ -752,6 +752,7 @@ require __DIR__ . '/partials/header.php';
                 <?php if ($scheduledTasks): ?>
                     <div class="vstack gap-3" id="scheduledTasksList">
                         <?php foreach ($scheduledTasks as $task): ?>
+                            <?php $ticketDescription = parse_ticket_description((string) ($task['description'] ?? '')); ?>
                             <form method="post" class="border rounded p-3 vstack gap-2 js-scheduled-task" data-is-completed="<?= ticket_status_is_completed($pdo, (string) $task['status']) ? '1' : '0' ?>">
                                 <input type="hidden" name="action" value="update_scheduled_task">
                                 <input type="hidden" name="ticket_id" value="<?= (int) $task['id'] ?>">
@@ -759,6 +760,16 @@ require __DIR__ . '/partials/header.php';
                                     <div>
                                         <strong><?= h($task['title']) ?></strong>
                                         <div class="small text-muted">Equipa: <?= h($task['team_name']) ?></div>
+                                        <?php if ($ticketDescription['summary'] !== ''): ?>
+                                            <p class="small text-muted mb-0 mt-1"><?= h($ticketDescription['summary']) ?></p>
+                                        <?php endif; ?>
+                                        <?php if (!empty($ticketDescription['details'])): ?>
+                                            <ul class="small text-muted mb-0 mt-1 ps-3">
+                                                <?php foreach ($ticketDescription['details'] as $detailLine): ?>
+                                                    <li><?= h($detailLine) ?></li>
+                                                <?php endforeach; ?>
+                                            </ul>
+                                        <?php endif; ?>
                                     </div>
                                     <span class="badge" style="<?= h(ticket_status_badge_style($pdo, (string) $task['status'])) ?>"><?= h(ticket_status_label($pdo, (string) $task['status'])) ?></span>
                                 </div>
