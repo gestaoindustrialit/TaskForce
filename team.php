@@ -357,6 +357,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                                 $markCompletedStmt = $pdo->prepare('INSERT OR IGNORE INTO team_recurring_task_completions(recurring_task_id, occurrence_date, completed_by) VALUES (?, ?, ?)');
                                 $markCompletedStmt->execute([$recurringTaskId, $occurrenceDateValue, $userId]);
+                                $statusStmt = $pdo->prepare('INSERT INTO team_recurring_task_statuses(recurring_task_id, occurrence_date, status, updated_by) VALUES (?, ?, "done", ?) ON CONFLICT(recurring_task_id, occurrence_date) DO UPDATE SET status = "done", updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP');
+                                $statusStmt->execute([$recurringTaskId, $occurrenceDateValue, $userId]);
 
                                 if ($markCompletedStmt->rowCount() > 0) {
                                     $flashSuccess = 'Ocorrência desta tarefa recorrente atualizada e concluída com sucesso.';
@@ -402,6 +404,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $completeStmt = $pdo->prepare('INSERT OR IGNORE INTO team_recurring_task_completions(recurring_task_id, occurrence_date, completed_by) VALUES (?, ?, ?)');
                     $completeStmt->execute([$recurringTaskId, $occurrenceDate->format('Y-m-d'), $userId]);
+                    $statusStmt = $pdo->prepare('INSERT INTO team_recurring_task_statuses(recurring_task_id, occurrence_date, status, updated_by) VALUES (?, ?, "done", ?) ON CONFLICT(recurring_task_id, occurrence_date) DO UPDATE SET status = "done", updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP');
+                    $statusStmt->execute([$recurringTaskId, $occurrenceDate->format('Y-m-d'), $userId]);
 
                     if ($completeStmt->rowCount() > 0) {
                         $flashSuccess = 'Tarefa recorrente concluída com sucesso.';
@@ -434,6 +438,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $reopenStmt = $pdo->prepare('DELETE FROM team_recurring_task_completions WHERE recurring_task_id = ? AND occurrence_date = ?');
                     $reopenStmt->execute([$recurringTaskId, $occurrenceDate->format('Y-m-d')]);
+                    $statusStmt = $pdo->prepare('INSERT INTO team_recurring_task_statuses(recurring_task_id, occurrence_date, status, updated_by) VALUES (?, ?, "todo", ?) ON CONFLICT(recurring_task_id, occurrence_date) DO UPDATE SET status = "todo", updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP');
+                    $statusStmt->execute([$recurringTaskId, $occurrenceDate->format('Y-m-d'), $userId]);
 
                     if ($reopenStmt->rowCount() > 0) {
                         $flashSuccess = 'Tarefa recorrente reaberta com sucesso.';

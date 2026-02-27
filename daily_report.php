@@ -21,12 +21,54 @@ if ($projectFilter > 0) {
 $tasksSql .= ' ORDER BY p.name, t.updated_at DESC';
 $tasksStmt = $pdo->prepare($tasksSql);
 $tasksStmt->execute($params);
-$tasks = $tasksStmt->fetchAll(PDO::FETCH_ASSOC);
+$projectTasks = $tasksStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$recurringTasksSql = 'SELECT c.recurring_task_id AS id,
+        COALESCE(o.title, rt.title) AS title,
+        "done" AS status,
+        NULL AS estimated_minutes,
+        NULL AS actual_minutes,
+        c.completed_at AS updated_at,
+        COALESCE(o.project_id, rt.project_id) AS project_id,
+        p.name AS project_name,
+        rt.team_id,
+        teams.name AS team_name,
+        c.occurrence_date
+    FROM team_recurring_task_completions c
+    INNER JOIN team_recurring_tasks rt ON rt.id = c.recurring_task_id
+    INNER JOIN team_members tm ON tm.team_id = rt.team_id AND tm.user_id = ?
+    INNER JOIN teams ON teams.id = rt.team_id
+    LEFT JOIN team_recurring_task_overrides o ON o.recurring_task_id = c.recurring_task_id AND o.occurrence_date = c.occurrence_date
+    LEFT JOIN projects p ON p.id = COALESCE(o.project_id, rt.project_id)
+    WHERE c.completed_by = ? AND c.occurrence_date = ?';
+$recurringParams = [$userId, $userId, $selectedDate];
+if ($projectFilter > 0) {
+    $recurringTasksSql .= ' AND COALESCE(o.project_id, rt.project_id) = ?';
+    $recurringParams[] = $projectFilter;
+}
+$recurringTasksSql .= ' ORDER BY c.completed_at DESC';
+$recurringTasksStmt = $pdo->prepare($recurringTasksSql);
+$recurringTasksStmt->execute($recurringParams);
+$recurringTasks = $recurringTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$tasks = [];
+foreach ($projectTasks as $task) {
+    $task['entry_type'] = 'project';
+    $task['entry_key'] = 'project_' . (int) $task['id'];
+    $tasks[] = $task;
+}
+foreach ($recurringTasks as $task) {
+    $task['entry_type'] = 'recurring';
+    $task['entry_key'] = 'recurring_' . (int) $task['id'] . '_' . (string) $task['occurrence_date'];
+    $tasks[] = $task;
+}
+
+usort($tasks, static fn(array $a, array $b): int => strcmp((string) $b['updated_at'], (string) $a['updated_at']));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'send_daily_report') {
-    $selectedTaskIds = array_map('intval', $_POST['task_ids'] ?? []);
+    $selectedTaskIds = array_map('strval', $_POST['task_ids'] ?? []);
     $summaryText = trim($_POST['summary'] ?? '');
-    $reportTasks = array_values(array_filter($tasks, static fn($task) => in_array((int) $task['id'], $selectedTaskIds, true)));
+    $reportTasks = array_values(array_filter($tasks, static fn($task) => in_array((string) ($task['entry_key'] ?? ''), $selectedTaskIds, true)));
 
     if (!$reportTasks) {
         $_SESSION['flash_error'] = 'Selecione pelo menos uma tarefa alterada.';
@@ -43,8 +85,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'send_
         $estimated = $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : null;
         $actual = $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : null;
         $delta = task_time_delta($estimated, $actual);
-        $taskLink = app_base_url() . '/project.php?id=' . (int) $task['project_id'];
-        $rowsHtml .= '<tr><td>' . h($task['project_name']) . '</td><td>' . h($task['title']) . '</td><td>' . h(format_minutes($estimated)) . '</td><td>' . h(format_minutes($actual)) . '</td><td>' . ($delta === null ? '-' : (($delta > 0 ? '+' : '-') . h(format_minutes(abs($delta))))) . '</td><td><a href="' . h($taskLink) . '">Abrir</a></td></tr>';
+        $isRecurring = (string) ($task['entry_type'] ?? 'project') === 'recurring';
+        $taskLink = (int) ($task['project_id'] ?? 0) > 0
+            ? app_base_url() . '/project.php?id=' . (int) $task['project_id']
+            : app_base_url() . '/team.php?id=' . (int) $task['team_id'] . '&reference_date=' . urlencode($selectedDate) . '&calendar_view=week';
+        $taskTypeLabel = $isRecurring ? ' [Recorrente concluída]' : '';
+        $rowsHtml .= '<tr><td>' . h((string) ($task['project_name'] ?? $task['team_name'])) . '</td><td>' . h($task['title'] . $taskTypeLabel) . '</td><td>' . h(format_minutes($estimated)) . '</td><td>' . h(format_minutes($actual)) . '</td><td>' . ($delta === null ? '-' : (($delta > 0 ? '+' : '-') . h(format_minutes(abs($delta))))) . '</td><td><a href="' . h($taskLink) . '">Abrir</a></td></tr>';
     }
 
     $companyDetails = [];
@@ -126,8 +172,8 @@ require __DIR__ . '/partials/header.php';
         <div class="table-responsive"><table class="table align-middle"><thead><tr><th></th><th>Projeto</th><th>Tarefa alterada</th><th>Previsto</th><th>Real</th><th>Discrepância</th><th>Atualizada</th></tr></thead><tbody>
             <?php foreach ($tasks as $task): $estimated = $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : null; $actual = $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : null; $delta = task_time_delta($estimated, $actual); ?>
                 <tr>
-                    <td><input class="form-check-input" type="checkbox" name="task_ids[]" value="<?= (int) $task['id'] ?>" checked></td>
-                    <td><?= h($task['project_name']) ?></td><td><?= h($task['title']) ?></td><td><?= h(format_minutes($estimated)) ?></td><td><?= h(format_minutes($actual)) ?></td><td><?= $delta === null ? '-' : ($delta > 0 ? '+' : '-') . h(format_minutes(abs($delta))) ?></td><td><?= h((string) $task['updated_at']) ?></td>
+                    <td><input class="form-check-input" type="checkbox" name="task_ids[]" value="<?= h((string) $task['entry_key']) ?>" checked></td>
+                    <td><?= h((string) ($task['project_name'] ?: $task['team_name'])) ?></td><td><?= h($task['title']) ?><?php if (($task['entry_type'] ?? '') === 'recurring'): ?> <span class="badge text-bg-success">Recorrente concluída</span><?php endif; ?></td><td><?= h(format_minutes($estimated)) ?></td><td><?= h(format_minutes($actual)) ?></td><td><?= $delta === null ? '-' : ($delta > 0 ? '+' : '-') . h(format_minutes(abs($delta))) ?></td><td><?= h((string) $task['updated_at']) ?></td>
                 </tr>
             <?php endforeach; ?>
             <?php if (!$tasks): ?><tr><td colspan="7" class="text-muted">Sem tarefas alteradas por si nesta data.</td></tr><?php endif; ?>
