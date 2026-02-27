@@ -396,18 +396,20 @@ $recurringTasksForDashboard = $recurringTasksTodayStmt->fetchAll(PDO::FETCH_ASSO
 
 $scheduledRecurringTasks = [];
 $scheduledRecurringTaskIds = array_values(array_unique(array_map(static fn (array $task): int => (int) $task['id'], $recurringTasksForDashboard)));
-$recurringOverridesByTask = [];
-$recurringCompletionsByTask = [];
+$recurringOverridesByTaskAndDate = [];
+$recurringCompletionsByTaskAndDate = [];
 
 if ($scheduledRecurringTaskIds) {
-    $recurringDateParams = [$todayDate, $todayDate];
+    $recurringDateParams = [$todayDate];
     $recurringDateParams = array_merge($recurringDateParams, $scheduledRecurringTaskIds);
     $recurringPlaceholders = implode(',', array_fill(0, count($scheduledRecurringTaskIds), '?'));
 
-    $recurringOverrideStmt = $pdo->prepare('SELECT o.*, p.name AS project_name, a.name AS assignee_name FROM team_recurring_task_overrides o LEFT JOIN projects p ON p.id = o.project_id LEFT JOIN users a ON a.id = o.assignee_user_id WHERE o.occurrence_date BETWEEN ? AND ? AND o.recurring_task_id IN (' . $recurringPlaceholders . ')');
+    $recurringOverrideStmt = $pdo->prepare('SELECT o.*, p.name AS project_name, a.name AS assignee_name FROM team_recurring_task_overrides o LEFT JOIN projects p ON p.id = o.project_id LEFT JOIN users a ON a.id = o.assignee_user_id WHERE date(o.occurrence_date) = ? AND o.recurring_task_id IN (' . $recurringPlaceholders . ')');
     $recurringOverrideStmt->execute($recurringDateParams);
     foreach ($recurringOverrideStmt->fetchAll(PDO::FETCH_ASSOC) as $override) {
-        $recurringOverridesByTask[(int) $override['recurring_task_id']] = [
+        $overrideDate = date('Y-m-d', strtotime((string) $override['occurrence_date']));
+        $overrideKey = (int) $override['recurring_task_id'] . '|' . $overrideDate;
+        $recurringOverridesByTaskAndDate[$overrideKey] = [
             'project_id' => $override['project_id'] !== null ? (int) $override['project_id'] : null,
             'assignee_user_id' => $override['assignee_user_id'] !== null ? (int) $override['assignee_user_id'] : null,
             'title' => (string) $override['title'],
@@ -418,10 +420,12 @@ if ($scheduledRecurringTaskIds) {
         ];
     }
 
-    $recurringCompletionStmt = $pdo->prepare('SELECT c.recurring_task_id, c.completed_at, u.name AS completed_by_name FROM team_recurring_task_completions c INNER JOIN users u ON u.id = c.completed_by WHERE c.occurrence_date BETWEEN ? AND ? AND c.recurring_task_id IN (' . $recurringPlaceholders . ')');
+    $recurringCompletionStmt = $pdo->prepare('SELECT c.recurring_task_id, c.occurrence_date, c.completed_at, u.name AS completed_by_name FROM team_recurring_task_completions c INNER JOIN users u ON u.id = c.completed_by WHERE date(c.occurrence_date) = ? AND c.recurring_task_id IN (' . $recurringPlaceholders . ')');
     $recurringCompletionStmt->execute($recurringDateParams);
     foreach ($recurringCompletionStmt->fetchAll(PDO::FETCH_ASSOC) as $completion) {
-        $recurringCompletionsByTask[(int) $completion['recurring_task_id']] = [
+        $completionDate = date('Y-m-d', strtotime((string) $completion['occurrence_date']));
+        $completionKey = (int) $completion['recurring_task_id'] . '|' . $completionDate;
+        $recurringCompletionsByTaskAndDate[$completionKey] = [
             'completed_at' => (string) $completion['completed_at'],
             'completed_by_name' => (string) $completion['completed_by_name'],
         ];
@@ -435,13 +439,16 @@ foreach ($recurringTasksForDashboard as $recurringTask) {
     }
 
     $taskId = (int) $recurringTask['id'];
-    $override = $recurringOverridesByTask[$taskId] ?? null;
+    $occurrenceDate = $occurrences[0]->format('Y-m-d');
+    $occurrenceKey = $taskId . '|' . $occurrenceDate;
+
+    $override = $recurringOverridesByTaskAndDate[$occurrenceKey] ?? null;
     $assigneeUserId = $override['assignee_user_id'] ?? ($recurringTask['assignee_user_id'] !== null ? (int) $recurringTask['assignee_user_id'] : null);
     if ($assigneeUserId !== $userId) {
         continue;
     }
 
-    $completion = $recurringCompletionsByTask[$taskId] ?? null;
+    $completion = $recurringCompletionsByTaskAndDate[$occurrenceKey] ?? null;
     $scheduledRecurringTasks[] = [
         'id' => $taskId,
         'title' => $override['title'] ?? (string) $recurringTask['title'],
