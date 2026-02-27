@@ -390,8 +390,22 @@ $scheduledTasks = $scheduledTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 $scheduledTaskIds = array_map(static fn (array $task): int => (int) $task['id'], $scheduledTasks);
 
 $todayDateObj = new DateTimeImmutable($todayDate);
-$recurringTasksTodayStmt = $pdo->prepare('SELECT rt.*, t.name AS team_name, p.name AS project_name, a.name AS assignee_name FROM team_recurring_tasks rt INNER JOIN teams t ON t.id = rt.team_id INNER JOIN team_members tm ON tm.team_id = rt.team_id LEFT JOIN projects p ON p.id = rt.project_id LEFT JOIN users a ON a.id = rt.assignee_user_id WHERE tm.user_id = ? ORDER BY rt.created_at ASC');
-$recurringTasksTodayStmt->execute([$userId]);
+$recurringTasksTodayStmt = $pdo->prepare('SELECT rt.*, t.name AS team_name, p.name AS project_name, a.name AS assignee_name
+    FROM team_recurring_tasks rt
+    INNER JOIN teams t ON t.id = rt.team_id
+    LEFT JOIN projects p ON p.id = rt.project_id
+    LEFT JOIN users a ON a.id = rt.assignee_user_id
+    WHERE EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = rt.team_id AND tm.user_id = ?)
+       OR rt.assignee_user_id = ?
+       OR EXISTS (
+            SELECT 1
+            FROM team_recurring_task_overrides o
+            WHERE o.recurring_task_id = rt.id
+              AND date(o.occurrence_date) = ?
+              AND o.assignee_user_id = ?
+       )
+    ORDER BY rt.created_at ASC');
+$recurringTasksTodayStmt->execute([$userId, $userId, $todayDate, $userId]);
 $recurringTasksForDashboard = $recurringTasksTodayStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $scheduledRecurringTasks = [];
