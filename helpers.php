@@ -747,9 +747,9 @@ function recurring_task_anchor_date(array $task): DateTimeImmutable
     $createdAt = !empty($task['created_at']) ? new DateTimeImmutable((string) $task['created_at']) : new DateTimeImmutable('today');
 
     if (!empty($task['start_date'])) {
-        $startDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) $task['start_date']);
+        $startDate = DateTimeImmutable::createFromFormat('!Y-m-d', (string) $task['start_date']);
         if ($startDate instanceof DateTimeImmutable) {
-            return $startDate;
+            return $startDate->setTime(0, 0);
         }
     }
 

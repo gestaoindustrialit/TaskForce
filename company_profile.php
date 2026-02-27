@@ -180,7 +180,9 @@ $navbarLogo = app_setting($pdo, 'logo_navbar_light');
 $reportLogo = app_setting($pdo, 'logo_report_dark');
 $ticketStatuses = ticket_statuses($pdo);
 $recurrenceCatalog = recurring_task_recurrence_catalog($pdo);
-$pendingDepartmentCatalog = pending_ticket_department_catalog($pdo);
+$pendingDepartmentCatalog = function_exists('pending_ticket_department_catalog')
+    ? pending_ticket_department_catalog($pdo)
+    : default_pending_ticket_department_options();
 
 $pageTitle = 'Empresa e Branding';
 require __DIR__ . '/partials/header.php';
