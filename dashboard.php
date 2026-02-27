@@ -597,6 +597,69 @@ foreach ($teamPendingTickets as $pendingTask) {
     ];
 }
 
+if ($isAdmin) {
+    $pendingRecurringTasksStmt = $pdo->query('SELECT rt.id, rt.title, t.id AS team_id, t.name AS team_name
+        FROM team_recurring_tasks rt
+        INNER JOIN teams t ON t.id = rt.team_id
+        ORDER BY rt.created_at DESC');
+    $pendingRecurringTasks = $pendingRecurringTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+} else {
+    $pendingRecurringTasksStmt = $pdo->prepare('SELECT rt.id, rt.title, t.id AS team_id, t.name AS team_name
+        FROM team_recurring_tasks rt
+        INNER JOIN teams t ON t.id = rt.team_id
+        INNER JOIN team_members tm ON tm.team_id = t.id
+        WHERE tm.user_id = ?
+        ORDER BY rt.created_at DESC');
+    $pendingRecurringTasksStmt->execute([$userId]);
+    $pendingRecurringTasks = $pendingRecurringTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+$pendingRecurringOccurrences = [];
+$pendingRecurringTaskIds = [];
+foreach ($pendingRecurringTasks as $pendingRecurringTask) {
+    $occurrences = recurring_task_occurrences($pdo, $pendingRecurringTask, $todayDateObj, $todayDateObj);
+    if (!$occurrences) {
+        continue;
+    }
+
+    $recurringTaskId = (int) $pendingRecurringTask['id'];
+    $pendingRecurringTaskIds[] = $recurringTaskId;
+    $pendingRecurringOccurrences[$recurringTaskId] = [
+        'title' => (string) $pendingRecurringTask['title'],
+        'team_name' => (string) $pendingRecurringTask['team_name'],
+        'team_id' => (int) $pendingRecurringTask['team_id'],
+    ];
+}
+
+if ($pendingRecurringTaskIds) {
+    $pendingRecurringTaskIds = array_values(array_unique($pendingRecurringTaskIds));
+    $recurringPlaceholders = implode(',', array_fill(0, count($pendingRecurringTaskIds), '?'));
+
+    $recurringCompletionStmt = $pdo->prepare('SELECT recurring_task_id FROM team_recurring_task_completions WHERE date(occurrence_date) = ? AND recurring_task_id IN (' . $recurringPlaceholders . ')');
+    $recurringCompletionStmt->execute(array_merge([$todayDate], $pendingRecurringTaskIds));
+    $completedRecurringIds = array_map('intval', $recurringCompletionStmt->fetchAll(PDO::FETCH_COLUMN));
+    $completedRecurringLookup = array_fill_keys($completedRecurringIds, true);
+
+    foreach ($pendingRecurringOccurrences as $recurringTaskId => $pendingRecurringOccurrence) {
+        if (!empty($completedRecurringLookup[$recurringTaskId])) {
+            continue;
+        }
+
+        $presetType = (string) (infer_team_ticket_preset((string) $pendingRecurringOccurrence['team_name'])['ticket_type'] ?? '');
+        if (!array_key_exists($presetType, $pendingTasksByPreset)) {
+            continue;
+        }
+
+        $pendingTasksByPreset[$presetType][] = [
+            'title' => (string) $pendingRecurringOccurrence['title'],
+            'team_name' => (string) $pendingRecurringOccurrence['team_name'],
+            'urgency' => 'Recorrente',
+            'due_date' => $todayDate,
+            'team_id' => (int) $pendingRecurringOccurrence['team_id'],
+        ];
+    }
+}
+
 $pageTitle = 'Dashboard';
 require __DIR__ . '/partials/header.php';
 ?>
