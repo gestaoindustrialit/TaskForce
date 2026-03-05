@@ -136,7 +136,7 @@ body {
     display: flex;
     align-items: flex-end;
     gap: .5rem;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
 }
 
 .controls-field {
@@ -144,11 +144,11 @@ body {
 }
 
 .controls-field-status {
-    flex: 0 1 180px;
+    flex: 0 0 180px;
 }
 
 .controls-field-user {
-    flex: 0 1 240px;
+    flex: 0 0 240px;
 }
 
 .controls-field-time {
@@ -156,15 +156,15 @@ body {
 }
 
 .controls-field-due-date {
-    flex: 0 1 180px;
+    flex: 0 0 170px;
 }
 
 .task-compact-controls .status-select {
-    max-width: 180px;
+    width: 180px;
 }
 
 .task-compact-controls .user-select {
-    max-width: 240px;
+    width: 240px;
 }
 
 .controls-actions {
@@ -172,6 +172,7 @@ body {
     display: flex;
     align-items: center;
     gap: .5rem;
+    white-space: nowrap;
 }
 
 .controls-actions .js-timer-toggle {
@@ -228,6 +229,10 @@ body {
 }
 
 @media (max-width: 991.98px) {
+    .controls-row {
+        flex-wrap: wrap;
+    }
+
     .controls-field-status,
     .controls-field-user,
     .controls-field-time,
@@ -243,6 +248,7 @@ body {
 
     .task-compact-controls .status-select,
     .task-compact-controls .user-select {
+        width: 100%;
         max-width: 100%;
     }
 }
