@@ -584,8 +584,9 @@ require __DIR__ . '/partials/header.php';
     <div class="card shadow-sm soft-card"><div class="card-body">
         <div class="d-flex justify-content-between align-items-start mb-2"><div><h2 class="h5 mb-1"><?= h($task['title']) ?></h2><p class="text-muted mb-1"><?= h($task['description']) ?></p><small class="text-muted">Criada por <?= h($task['creator_name']) ?> · Atribuído a <?= h($task['assignee_name'] ?? 'Sem responsável') ?></small></div><span class="badge bg-<?= task_badge_class($task['status']) ?>"><?= h(status_label($task['status'])) ?></span></div>
         <div class="d-flex gap-2 mb-3 flex-wrap"><span class="time-chip">Tempo previsto: <?= h(format_minutes($estimated)) ?></span><span class="time-chip">Tempo real: <?= h(format_minutes($actual)) ?></span><span class="time-chip">Entrega: <?= h($task['due_date'] ? date('d/m/Y', strtotime((string) $task['due_date'])) : 'Sem data') ?></span><?php if ($delta !== null): ?><span class="time-chip <?= $delta > 0 ? 'text-danger' : 'text-success' ?>">Discrepância: <?= $delta > 0 ? '+' : '-' ?><?= h(format_minutes(abs($delta))) ?></span><?php endif; ?></div>
-        <div class="row g-2 align-items-end task-compact-controls">
-            <div class="col-xl-2 col-lg-3 col-md-6">
+        <!-- Layout clássico mantido para estabilidade visual e evitar regressões na view de projeto. -->
+        <div class="row g-2 align-items-end">
+            <div class="col-lg-3 col-md-6">
                 <form method="post" class="vstack gap-1 js-auto-submit-select">
                     <input type="hidden" name="action" value="change_status">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
