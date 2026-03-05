@@ -584,8 +584,8 @@ require __DIR__ . '/partials/header.php';
     <div class="card shadow-sm soft-card"><div class="card-body">
         <div class="d-flex justify-content-between align-items-start mb-2"><div><h2 class="h5 mb-1"><?= h($task['title']) ?></h2><p class="text-muted mb-1"><?= h($task['description']) ?></p><small class="text-muted">Criada por <?= h($task['creator_name']) ?> · Atribuído a <?= h($task['assignee_name'] ?? 'Sem responsável') ?></small></div><span class="badge bg-<?= task_badge_class($task['status']) ?>"><?= h(status_label($task['status'])) ?></span></div>
         <div class="d-flex gap-2 mb-3 flex-wrap"><span class="time-chip">Tempo previsto: <?= h(format_minutes($estimated)) ?></span><span class="time-chip">Tempo real: <?= h(format_minutes($actual)) ?></span><span class="time-chip">Entrega: <?= h($task['due_date'] ? date('d/m/Y', strtotime((string) $task['due_date'])) : 'Sem data') ?></span><?php if ($delta !== null): ?><span class="time-chip <?= $delta > 0 ? 'text-danger' : 'text-success' ?>">Discrepância: <?= $delta > 0 ? '+' : '-' ?><?= h(format_minutes(abs($delta))) ?></span><?php endif; ?></div>
-        <div class="row g-2 align-items-end">
-            <div class="col-lg-3 col-md-6">
+        <div class="row g-2 align-items-end task-compact-controls">
+            <div class="col-xl-2 col-lg-3 col-md-6">
                 <form method="post" class="vstack gap-1 js-auto-submit-select">
                     <input type="hidden" name="action" value="change_status">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
@@ -599,7 +599,7 @@ require __DIR__ . '/partials/header.php';
                     </div>
                 </form>
             </div>
-            <div class="col-lg-3 col-md-6">
+            <div class="col-xl-3 col-lg-4 col-md-6">
                 <form method="post" class="vstack gap-1 js-auto-submit-select">
                     <input type="hidden" name="action" value="assign_task">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
@@ -614,28 +614,28 @@ require __DIR__ . '/partials/header.php';
                     </div>
                 </form>
             </div>
-            <div class="col-lg-6 col-md-12">
+            <div class="col-xl-5 col-lg-5 col-md-12">
                 <form method="post" class="row g-2 align-items-end">
                     <input type="hidden" name="action" value="update_time">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
-                    <div class="col-md-5">
+                    <div class="col-5">
                         <label class="form-label small mb-0">Tempo previsto</label>
                         <input class="form-control form-control-sm" type="text" name="estimated_minutes" value="<?= h(format_minutes($estimated)) ?>" placeholder="00:00:00" pattern="\d{1,3}:\d{2}:\d{2}">
                     </div>
-                    <div class="col-md-5">
+                    <div class="col-5">
                         <label class="form-label small mb-0">Tempo real</label>
                         <input class="form-control form-control-sm" type="text" name="actual_minutes" value="<?= h(format_minutes($actual)) ?>" placeholder="00:00:00" pattern="\d{1,3}:\d{2}:\d{2}">
                     </div>
-                    <div class="col-md-2 d-grid">
+                    <div class="col-2 d-grid">
                         <button class="btn btn-sm btn-outline-dark icon-btn" aria-label="Guardar tempo"><i class="bi bi-save"></i></button>
                     </div>
                 </form>
-                <div class="d-flex gap-2 mt-2">
+                <div class="d-flex gap-2 mt-1">
                     <button type="button" class="btn btn-sm btn-outline-success js-start-timer" data-task-id="<?= (int) $task['id'] ?>" aria-label="Iniciar contador"><i class="bi bi-play-fill"></i></button>
                     <button type="button" class="btn btn-sm btn-outline-warning js-stop-timer" data-task-id="<?= (int) $task['id'] ?>" aria-label="Parar contador e guardar"><i class="bi bi-stop-fill"></i></button>
                 </div>
             </div>
-            <div class="col-12 col-md-4">
+            <div class="col-xl-2 col-lg-12 col-md-6">
                 <form method="post" class="vstack gap-1 js-auto-submit-select">
                     <input type="hidden" name="action" value="update_due_date">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
@@ -644,7 +644,7 @@ require __DIR__ . '/partials/header.php';
                 </form>
             </div>
             <div class="col-12">
-                <form method="post" class="d-flex gap-2 align-items-end flex-wrap">
+                <form method="post" class="d-flex gap-2 align-items-end task-compact-subtask-form">
                     <input type="hidden" name="action" value="create_subtask">
                     <input type="hidden" name="parent_task_id" value="<?= (int) $task['id'] ?>">
                     <div class="flex-grow-1">
