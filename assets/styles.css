@@ -121,6 +121,54 @@ body {
     border: 1px solid rgba(15, 23, 42, 0.15);
 }
 
+
+.task-compact-controls .form-label {
+    font-size: .78rem;
+}
+
+.task-compact-controls .form-control,
+.task-compact-controls .form-select {
+    padding-top: .25rem;
+    padding-bottom: .25rem;
+}
+
+.task-compact-subtask-form .form-label {
+    font-size: .78rem;
+}
+
+@media (min-width: 1200px) {
+    .task-compact-controls {
+        row-gap: .35rem !important;
+    }
+
+    .task-compact-controls .vstack {
+        gap: .2rem !important;
+    }
+
+    .task-compact-controls .task-compact-label,
+    .task-compact-subtask-form .task-compact-label {
+        display: none;
+    }
+
+    .task-compact-controls .form-control,
+    .task-compact-controls .form-select {
+        min-height: 32px;
+    }
+
+    .task-compact-subtask-form {
+        flex-wrap: nowrap;
+    }
+
+    .task-compact-subtask-form > div:first-of-type {
+        min-width: 0;
+    }
+
+    .task-compact-subtask-form > div:nth-of-type(2) {
+        width: 170px;
+        flex: 0 0 170px;
+    }
+}
+
 .report-sheet {
     background: white;
     max-width: 210mm;
