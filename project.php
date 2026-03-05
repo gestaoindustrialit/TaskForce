@@ -570,7 +570,7 @@ require __DIR__ . '/partials/header.php';
                     <div class="small d-flex gap-2 mb-2"><span class="time-chip">Prev: <?= h(format_minutes($task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : null)) ?></span><span class="time-chip">Real: <?= h(format_minutes($task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : null)) ?></span><?php if ($delta !== null): ?><span class="time-chip <?= $delta > 0 ? 'text-danger' : 'text-success' ?>">Δ <?= $delta > 0 ? '+' : '' ?><?= h(format_minutes(abs($delta))) ?></span><?php endif; ?></div>
                     <form method="post" class="d-flex gap-2 js-auto-submit-select">
                         <input type="hidden" name="action" value="change_status"><input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
-                        <select name="status" class="form-select form-select-sm js-auto-submit-trigger"><option value="todo" <?= $task['status']==='todo'?'selected':'' ?>>Por Fazer</option><option value="in_progress" <?= $task['status']==='in_progress'?'selected':'' ?>>Em Progresso</option><option value="done" <?= $task['status']==='done'?'selected':'' ?>>Concluída</option></select>
+                        <select name="status" class="form-select form-select-sm js-auto-submit-trigger" aria-label="Estado da tarefa" title="Estado"><option value="todo" <?= $task['status']==='todo'?'selected':'' ?>>Por Fazer</option><option value="in_progress" <?= $task['status']==='in_progress'?'selected':'' ?>>Em Progresso</option><option value="done" <?= $task['status']==='done'?'selected':'' ?>>Concluída</option></select>
                     </form>
                 </div>
             <?php endforeach; ?>
@@ -590,9 +590,9 @@ require __DIR__ . '/partials/header.php';
                 <form method="post" class="vstack gap-1 js-auto-submit-select">
                     <input type="hidden" name="action" value="change_status">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
-                    <label class="form-label small mb-0">Estado</label>
+                    <label class="form-label small mb-0 task-compact-label">Estado</label>
                     <div class="d-flex gap-2">
-                        <select name="status" class="form-select form-select-sm js-auto-submit-trigger">
+                        <select name="status" class="form-select form-select-sm js-auto-submit-trigger" aria-label="Estado da tarefa" title="Estado">
                             <option value="todo" <?= $task['status']==='todo'?'selected':'' ?>>Por Fazer</option>
                             <option value="in_progress" <?= $task['status']==='in_progress'?'selected':'' ?>>Em Progresso</option>
                             <option value="done" <?= $task['status']==='done'?'selected':'' ?>>Concluída</option>
@@ -600,13 +600,13 @@ require __DIR__ . '/partials/header.php';
                     </div>
                 </form>
             </div>
-            <div class="col-lg-3 col-md-6">
+            <div class="col-xl-3 col-lg-4 col-md-6">
                 <form method="post" class="vstack gap-1 js-auto-submit-select">
                     <input type="hidden" name="action" value="assign_task">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
-                    <label class="form-label small mb-0">Atribuído</label>
+                    <label class="form-label small mb-0 task-compact-label">Atribuído</label>
                     <div class="d-flex gap-2">
-                        <select name="assignee_user_id" class="form-select form-select-sm js-auto-submit-trigger">
+                        <select name="assignee_user_id" class="form-select form-select-sm js-auto-submit-trigger" aria-label="Responsável da tarefa" title="Atribuído">
                             <option value="0">Sem responsável</option>
                             <?php foreach ($teamMembers as $member): ?>
                                 <option value="<?= (int) $member['id'] ?>" <?= (int) ($task['assignee_user_id'] ?? 0) === (int) $member['id'] ? 'selected' : '' ?>><?= h($member['name']) ?></option>
@@ -615,45 +615,45 @@ require __DIR__ . '/partials/header.php';
                     </div>
                 </form>
             </div>
-            <div class="col-lg-6 col-md-12">
+            <div class="col-xl-5 col-lg-5 col-md-12">
                 <form method="post" class="row g-2 align-items-end">
                     <input type="hidden" name="action" value="update_time">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
-                    <div class="col-md-5">
-                        <label class="form-label small mb-0">Tempo previsto</label>
-                        <input class="form-control form-control-sm" type="text" name="estimated_minutes" value="<?= h(format_minutes($estimated)) ?>" placeholder="00:00:00" pattern="\d{1,3}:\d{2}:\d{2}">
+                    <div class="col-5">
+                        <label class="form-label small mb-0 task-compact-label">Tempo previsto</label>
+                        <input class="form-control form-control-sm" type="text" name="estimated_minutes" value="<?= h(format_minutes($estimated)) ?>" placeholder="Previsto (00:00:00)" pattern="\d{1,3}:\d{2}:\d{2}" aria-label="Tempo previsto" title="Tempo previsto">
                     </div>
-                    <div class="col-md-5">
-                        <label class="form-label small mb-0">Tempo real</label>
-                        <input class="form-control form-control-sm" type="text" name="actual_minutes" value="<?= h(format_minutes($actual)) ?>" placeholder="00:00:00" pattern="\d{1,3}:\d{2}:\d{2}">
+                    <div class="col-5">
+                        <label class="form-label small mb-0 task-compact-label">Tempo real</label>
+                        <input class="form-control form-control-sm" type="text" name="actual_minutes" value="<?= h(format_minutes($actual)) ?>" placeholder="Real (00:00:00)" pattern="\d{1,3}:\d{2}:\d{2}" aria-label="Tempo real" title="Tempo real">
                     </div>
-                    <div class="col-md-2 d-grid">
+                    <div class="col-2 d-grid">
                         <button class="btn btn-sm btn-outline-dark icon-btn" aria-label="Guardar tempo"><i class="bi bi-save"></i></button>
                     </div>
                 </form>
-                <div class="d-flex gap-2 mt-2">
+                <div class="d-flex gap-2 mt-1">
                     <button type="button" class="btn btn-sm btn-outline-success js-start-timer" data-task-id="<?= (int) $task['id'] ?>" aria-label="Iniciar contador"><i class="bi bi-play-fill"></i></button>
                     <button type="button" class="btn btn-sm btn-outline-warning js-stop-timer" data-task-id="<?= (int) $task['id'] ?>" aria-label="Parar contador e guardar"><i class="bi bi-stop-fill"></i></button>
                 </div>
             </div>
-            <div class="col-12 col-md-4">
+            <div class="col-xl-2 col-lg-12 col-md-6">
                 <form method="post" class="vstack gap-1 js-auto-submit-select">
                     <input type="hidden" name="action" value="update_due_date">
                     <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
-                    <label class="form-label small mb-0">Data prevista de entrega</label>
-                    <input type="date" name="due_date" class="form-control form-control-sm js-auto-submit-trigger" value="<?= h((string) ($task['due_date'] ?? '')) ?>">
+                    <label class="form-label small mb-0 task-compact-label">Data prevista de entrega</label>
+                    <input type="date" name="due_date" class="form-control form-control-sm js-auto-submit-trigger" value="<?= h((string) ($task['due_date'] ?? '')) ?>" aria-label="Data prevista de entrega" title="Data prevista de entrega">
                 </form>
             </div>
             <div class="col-12">
-                <form method="post" class="d-flex gap-2 align-items-end flex-wrap">
+                <form method="post" class="d-flex gap-2 align-items-end task-compact-subtask-form">
                     <input type="hidden" name="action" value="create_subtask">
                     <input type="hidden" name="parent_task_id" value="<?= (int) $task['id'] ?>">
                     <div class="flex-grow-1">
-                        <label class="form-label small mb-0">Nova sub tarefa</label>
+                        <label class="form-label small mb-0 task-compact-label">Nova sub tarefa</label>
                         <input name="title" class="form-control form-control-sm" placeholder="Descrição da sub tarefa" required>
                     </div>
                     <div>
-                        <label class="form-label small mb-0">Data prevista</label>
+                        <label class="form-label small mb-0 task-compact-label">Data prevista</label>
                         <input type="date" name="due_date" class="form-control form-control-sm">
                     </div>
                     <button class="btn btn-sm btn-outline-secondary icon-btn" aria-label="Adicionar sub tarefa"><i class="bi bi-plus-lg"></i></button>
