@@ -138,7 +138,21 @@ body {
 
 @media (min-width: 1200px) {
     .task-compact-controls {
-        row-gap: .4rem !important;
+        row-gap: .35rem !important;
+    }
+
+    .task-compact-controls .vstack {
+        gap: .2rem !important;
+    }
+
+    .task-compact-controls .task-compact-label,
+    .task-compact-subtask-form .task-compact-label {
+        display: none;
+    }
+
+    .task-compact-controls .form-control,
+    .task-compact-controls .form-select {
+        min-height: 32px;
     }
 
     .task-compact-subtask-form {
