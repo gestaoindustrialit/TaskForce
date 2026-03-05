@@ -136,7 +136,7 @@ body {
     font-size: .78rem;
 }
 
-@media (min-width: 1200px) {
+@media (min-width: 992px) {
     .task-compact-controls {
         row-gap: .35rem !important;
     }
@@ -153,6 +153,16 @@ body {
     .task-compact-controls .form-control,
     .task-compact-controls .form-select {
         min-height: 32px;
+    }
+
+    .task-compact-controls .time-actions {
+        display: flex;
+        gap: .5rem;
+        margin-top: .2rem !important;
+    }
+
+    .task-compact-controls .time-actions .btn {
+        min-width: 32px;
     }
 
     .task-compact-subtask-form {
