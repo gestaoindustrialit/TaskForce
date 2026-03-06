@@ -1,6 +1,7 @@
 body {
     background: linear-gradient(180deg, #f2f5fb 0%, #eef2ff 100%);
     min-height: 100vh;
+    color: #1f2937;
 }
 
 .container,
@@ -12,7 +13,6 @@ body {
     width: 90vw;
     max-width: 90vw;
 }
-
 
 .navbar {
     background: linear-gradient(90deg, #111827 0%, #1f2937 100%) !important;
@@ -72,7 +72,8 @@ body {
 
 .soft-card {
     border: 1px solid rgba(15, 23, 42, 0.06);
-    border-radius: 14px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.96);
 }
 
 .team-card {
@@ -106,6 +107,7 @@ body {
 
 .task-card {
     box-shadow: 0 6px 18px rgba(2, 6, 23, 0.08);
+    border-radius: 16px;
 }
 
 .brand-logo {
@@ -117,25 +119,58 @@ body {
 .time-chip {
     font-size: .8rem;
     border-radius: 999px;
-    padding: .25rem .6rem;
-    border: 1px solid rgba(15, 23, 42, 0.15);
+    padding: .28rem .68rem;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    background: #fff;
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
 }
 
-
-.task-compact-controls .form-label {
-    font-size: .78rem;
+.time-chip.text-success {
+    color: #198754 !important;
+    border-color: rgba(25, 135, 84, 0.22);
+    background: rgba(25, 135, 84, 0.05);
 }
 
-.task-compact-controls .form-control,
-.task-compact-controls .form-select {
-    padding-top: .25rem;
-    padding-bottom: .25rem;
+.time-chip.text-danger {
+    color: #dc3545 !important;
+    border-color: rgba(220, 53, 69, 0.22);
+    background: rgba(220, 53, 69, 0.05);
+}
+
+.icon-btn {
+    min-width: 34px;
+    height: 34px;
+    padding: .25rem .55rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.task-compact-label {
+    font-size: .72rem;
+    line-height: 1.1;
+    color: #4b5563;
+    margin-bottom: .28rem !important;
+}
+
+.task-compact-controls {
+    display: flex;
+    flex-direction: column;
+    gap: .65rem;
+    width: 100%;
 }
 
 .controls-row {
     display: flex;
     align-items: flex-end;
     gap: .5rem;
+    width: 100%;
+    min-width: 0;
+}
+
+.controls-row-main {
     flex-wrap: nowrap;
 }
 
@@ -144,137 +179,126 @@ body {
 }
 
 .controls-field-status {
-    flex: 0 0 180px;
+    flex: 0 0 160px;
 }
 
 .controls-field-user {
-    flex: 0 0 240px;
+    flex: 0 0 220px;
 }
 
 .controls-field-time {
-    flex: 1 1 360px;
+    flex: 0 0 315px;
 }
 
 .controls-field-due-date {
-    flex: 0 0 145px;
+    flex: 0 0 140px;
 }
 
+.controls-field-status .form-select,
+.controls-field-user .form-select,
 .controls-field-due-date .form-control {
-    max-width: 145px;
+    width: 100%;
+    max-width: 100%;
 }
 
-.task-compact-controls .status-select {
-    width: 180px;
+.time-inline-form {
+    display: flex;
+    align-items: flex-end;
+    gap: .45rem;
+    min-width: 0;
 }
 
-.task-compact-controls .user-select {
-    width: 240px;
+.time-inline-group {
+    flex: 0 0 150px;
+    min-width: 0;
+}
+
+.time-inline-group .form-control {
+    width: 100%;
 }
 
 .controls-actions {
     margin-left: auto;
+    flex: 0 0 auto;
     display: flex;
-    align-items: center;
-    gap: .5rem;
+    align-items: flex-end;
+    gap: .4rem;
     white-space: nowrap;
+}
+
+.controls-actions .btn {
+    height: 34px;
 }
 
 .controls-actions .js-timer-toggle {
     display: inline-flex;
     align-items: center;
-    gap: .25rem;
+    gap: .3rem;
 }
 
-.task-compact-subtask-form .form-label {
-    font-size: .78rem;
+.controls-actions .js-timer-toggle span {
+    min-width: 34px;
 }
 
-@media (min-width: 992px) {
-    .task-compact-controls {
-        row-gap: .35rem !important;
-    }
-
-    .task-compact-controls .vstack {
-        gap: .2rem !important;
-    }
-
-    .task-compact-controls .form-control,
-    .task-compact-controls .form-select {
-        min-height: 32px;
-    }
-
-    .task-compact-controls .time-actions {
-        display: flex;
-        gap: .5rem;
-        margin-top: .2rem !important;
-    }
-
-    .task-compact-controls .time-actions .btn {
-        min-width: 32px;
-    }
-
-    .task-compact-subtask-form {
-        flex-wrap: nowrap;
-    }
-
-    .task-compact-subtask-form > div:first-of-type {
-        min-width: 0;
-    }
-
-    .task-compact-subtask-form > div:nth-of-type(2) {
-        width: 145px;
-        flex: 0 0 145px;
-    }
+.subtask-row {
+    width: 100%;
 }
 
-@media (max-width: 991.98px) {
-    .controls-row {
-        flex-wrap: wrap;
-    }
-
-    .controls-field-status,
-    .controls-field-user,
-    .controls-field-time,
-    .controls-field-due-date,
-    .controls-actions {
-        flex: 1 1 100%;
-    }
-
-    .controls-actions {
-        margin-left: 0;
-        justify-content: flex-end;
-    }
-
-    .task-compact-controls .status-select,
-    .task-compact-controls .user-select,
-    .controls-field-due-date .form-control {
-        width: 100%;
-        max-width: 100%;
-    }
+.task-compact-subtask-form {
+    display: flex;
+    align-items: flex-end;
+    gap: .5rem;
+    width: 100%;
+    min-width: 0;
+    flex-wrap: nowrap;
 }
 
-@media (max-width: 991.98px) {
-    .controls-row {
-        flex-wrap: wrap;
-    }
+.subtask-description {
+    flex: 1 1 auto;
+    min-width: 0;
+}
 
-    .controls-field-status,
-    .controls-field-user,
-    .controls-field-time,
-    .controls-field-due-date,
-    .controls-actions {
-        flex: 1 1 100%;
-    }
+.subtask-due {
+    flex: 0 0 140px;
+}
 
-    .controls-actions {
-        margin-left: 0;
-        justify-content: flex-end;
-    }
+.subtask-due .form-control {
+    width: 100%;
+}
 
-    .task-compact-controls .status-select,
-    .task-compact-controls .user-select {
-        width: 100%;
-        max-width: 100%;
+.task-compact-controls .form-control,
+.task-compact-controls .form-select {
+    padding-top: .26rem;
+    padding-bottom: .26rem;
+    min-height: 34px;
+    font-size: .92rem;
+}
+
+.task-compact-controls .form-control:focus,
+.task-compact-controls .form-select:focus {
+    border-color: rgba(79, 70, 229, 0.45);
+    box-shadow: 0 0 0 .18rem rgba(79, 70, 229, 0.12);
+}
+
+.ajax-pending {
+    opacity: .72;
+    pointer-events: none;
+    transition: opacity .15s ease;
+}
+
+.ajax-flash {
+    animation: ajaxSaved .9s ease;
+}
+
+@keyframes ajaxSaved {
+    0% {
+        box-shadow: 0 0 0 0 rgba(25, 135, 84, 0.0);
+    }
+    35% {
+        box-shadow: 0 0 0 0.25rem rgba(25, 135, 84, 0.14);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(25, 135, 84, 0.0);
     }
 }
 
@@ -287,9 +311,18 @@ body {
 }
 
 @media print {
-    body { background: white !important; }
-    .no-print { display: none !important; }
-    .report-sheet { box-shadow: none; padding: 0; }
+    body {
+        background: white !important;
+    }
+
+    .no-print {
+        display: none !important;
+    }
+
+    .report-sheet {
+        box-shadow: none;
+        padding: 0;
+    }
 
     .print-report-page .navbar {
         display: none !important;
@@ -316,7 +349,6 @@ body {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
-
 .auth-row {
     min-height: calc(100vh - 170px);
 }
@@ -335,7 +367,6 @@ body {
     object-fit: contain;
 }
 
-
 .auth-card .form-control {
     border-radius: 10px;
     border-color: rgba(148, 163, 184, 0.45);
@@ -350,4 +381,83 @@ body {
     border-radius: 10px;
     font-weight: 600;
     box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
+}
+
+@media (max-width: 1399.98px) {
+    .controls-row-main {
+        flex-wrap: wrap;
+    }
+
+    .controls-field-status,
+    .controls-field-user,
+    .controls-field-time,
+    .controls-field-due-date,
+    .controls-actions {
+        flex: 1 1 calc(50% - .5rem);
+        max-width: calc(50% - .5rem);
+        margin-left: 0;
+    }
+
+    .time-inline-form {
+        width: 100%;
+    }
+
+    .time-inline-group {
+        flex: 1 1 0;
+    }
+}
+
+@media (max-width: 991.98px) {
+    .container,
+    .container-sm,
+    .container-md,
+    .container-lg,
+    .container-xl,
+    .container-xxl {
+        width: 95vw;
+        max-width: 95vw;
+    }
+
+    .controls-row-main,
+    .task-compact-subtask-form {
+        flex-wrap: wrap;
+    }
+
+    .controls-field-status,
+    .controls-field-user,
+    .controls-field-time,
+    .controls-field-due-date,
+    .controls-actions,
+    .subtask-description,
+    .subtask-due {
+        flex: 1 1 100%;
+        max-width: 100%;
+    }
+
+    .controls-actions {
+        justify-content: flex-end;
+    }
+
+    .time-inline-form {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .time-inline-group {
+        flex: 1 1 calc(50% - .25rem);
+    }
+}
+
+@media (max-width: 575.98px) {
+    .time-inline-group {
+        flex: 1 1 100%;
+    }
+
+    .controls-actions {
+        justify-content: stretch;
+    }
+
+    .controls-actions .btn {
+        flex: 1 1 auto;
+    }
 }
