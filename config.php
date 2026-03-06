@@ -678,3 +678,23 @@ $pdo->exec(
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
     )'
 );
+
+
+$timeStorageVersion = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?');
+$timeStorageVersion->execute(['time_storage_unit_version']);
+$currentTimeStorageVersion = $timeStorageVersion->fetchColumn();
+
+if ($currentTimeStorageVersion === 'minutes') {
+    $pdo->exec('UPDATE tasks SET estimated_minutes = estimated_minutes * 60 WHERE estimated_minutes IS NOT NULL');
+    $pdo->exec('UPDATE tasks SET actual_minutes = actual_minutes * 60 WHERE actual_minutes IS NOT NULL');
+    $pdo->exec('UPDATE team_tickets SET estimated_minutes = estimated_minutes * 60 WHERE estimated_minutes IS NOT NULL');
+    $pdo->exec('UPDATE team_tickets SET actual_minutes = actual_minutes * 60 WHERE actual_minutes IS NOT NULL');
+    $pdo->exec('UPDATE team_form_entries SET estimated_minutes = estimated_minutes * 60 WHERE estimated_minutes IS NOT NULL');
+    $pdo->exec('UPDATE team_form_entries SET actual_minutes = actual_minutes * 60 WHERE actual_minutes IS NOT NULL');
+
+    $pdo->prepare('INSERT INTO app_settings(setting_key, setting_value) VALUES (?, ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value')
+        ->execute(['time_storage_unit_version', 'seconds']);
+} elseif ($currentTimeStorageVersion === false || $currentTimeStorageVersion === null) {
+    $pdo->prepare('INSERT INTO app_settings(setting_key, setting_value) VALUES (?, ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value')
+        ->execute(['time_storage_unit_version', 'seconds']);
+}

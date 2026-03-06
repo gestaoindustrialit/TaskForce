@@ -20,7 +20,7 @@ function stopTaskTimer(taskId) {
     delete timers[taskId];
     localStorage.removeItem(timerStorageKey(taskId));
 
-    return Math.max(1, Math.round(elapsedMs / 60000));
+    return Math.max(1, Math.floor(elapsedMs / 1000));
 }
 
 function setTimerButtonState(taskId, active) {
@@ -48,8 +48,8 @@ if (window.taskPage) {
     document.querySelectorAll('.js-stop-timer').forEach((button) => {
         button.addEventListener('click', () => {
             const taskId = button.dataset.taskId;
-            const elapsedMinutes = stopTaskTimer(taskId);
-            if (!elapsedMinutes) {
+            const elapsedSeconds = stopTaskTimer(taskId);
+            if (!elapsedSeconds) {
                 window.alert('Inicie o contador antes de parar.');
                 return;
             }
@@ -62,7 +62,7 @@ if (window.taskPage) {
 
             const addInput = form.querySelector('.js-add-actual');
             if (addInput) {
-                addInput.value = String(elapsedMinutes);
+                addInput.value = String(elapsedSeconds);
             }
             form.submit();
         });

@@ -559,7 +559,7 @@ function parse_duration_to_minutes(?string $input): ?int
             return null;
         }
 
-        return ($hours * 60) + $minutes + (int) ceil($seconds / 60);
+        return ($hours * 3600) + ($minutes * 60) + $seconds;
     }
 
     if (ctype_digit($value)) {
@@ -575,7 +575,7 @@ function format_minutes(?int $minutes): string
         return '00:00:00';
     }
 
-    $totalSeconds = max(0, $minutes) * 60;
+    $totalSeconds = max(0, $minutes);
     $hours = intdiv($totalSeconds, 3600);
     $remaining = $totalSeconds % 3600;
     $mins = intdiv($remaining, 60);
