@@ -404,6 +404,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $redirectBack();
     }
 
+    if ($action === 'delete_task') {
+        $taskId = (int) ($_POST['task_id'] ?? 0);
+
+        $stmt = $pdo->prepare('DELETE FROM tasks WHERE id = ? AND project_id = ? AND created_by = ?');
+        $stmt->execute([$taskId, $projectId, $userId]);
+
+        if ($stmt->rowCount() > 0) {
+            $_SESSION['flash_success'] = 'Tarefa eliminada.';
+            $ajaxResponse(true, 'Tarefa eliminada.', ['reload' => true]);
+        }
+
+        $_SESSION['flash_error'] = 'Só pode eliminar tarefas criadas por si.';
+        $ajaxResponse(false, 'Só pode eliminar tarefas criadas por si.');
+        $redirectBack();
+    }
+
     if ($action === 'update_due_date') {
         $taskId = (int) ($_POST['task_id'] ?? 0);
         $dueDateInput = trim((string) ($_POST['due_date'] ?? ''));
@@ -896,6 +912,7 @@ require __DIR__ . '/partials/header.php';
                 $estimated = $task['estimated_minutes'] !== null ? (int) $task['estimated_minutes'] : null;
                 $actual = $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : null;
                 $delta = task_time_delta($estimated, $actual);
+                $canDeleteTask = (int) ($task['created_by'] ?? 0) === $userId;
             ?>
             <div class="card shadow-sm soft-card">
                 <div class="card-body">
@@ -1033,6 +1050,18 @@ require __DIR__ . '/partials/header.php';
                                 >
                                     <i class="bi bi-save"></i>
                                 </button>
+
+                                <?php if ($canDeleteTask): ?>
+                                    <form method="post" class="ajax-form-inline" onsubmit="return confirm('Tem a certeza que deseja eliminar esta tarefa?');">
+                                        <input type="hidden" name="action" value="delete_task">
+                                        <input type="hidden" name="task_id" value="<?= $taskId ?>">
+                                        <input type="hidden" name="view" value="<?= h($view) ?>">
+                                        <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
+                                        <button class="btn btn-sm btn-outline-danger icon-btn" aria-label="Eliminar tarefa">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                <?php endif; ?>
                             </div>
                         </div>
 
@@ -1070,6 +1099,7 @@ require __DIR__ . '/partials/header.php';
                                         $subtaskId = (int) $subtask['id'];
                                         $subEstimated = $subtask['estimated_minutes'] !== null ? (int) $subtask['estimated_minutes'] : null;
                                         $subActual = $subtask['actual_minutes'] !== null ? (int) $subtask['actual_minutes'] : null;
+                                        $canDeleteSubtask = (int) ($subtask['created_by'] ?? 0) === $userId;
                                     ?>
                                     <div class="small border rounded px-2 py-2 bg-white">
                                         <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
@@ -1176,6 +1206,18 @@ require __DIR__ . '/partials/header.php';
                                                         <button class="btn btn-sm btn-outline-dark icon-btn js-ajax-submit" type="button" data-form-id="timeEditorForm<?= $subtaskId ?>" aria-label="Guardar tempo sub tarefa">
                                                             <i class="bi bi-save"></i>
                                                         </button>
+
+                                                        <?php if ($canDeleteSubtask): ?>
+                                                            <form method="post" class="ajax-form-inline" onsubmit="return confirm('Tem a certeza que deseja eliminar esta sub tarefa?');">
+                                                                <input type="hidden" name="action" value="delete_task">
+                                                                <input type="hidden" name="task_id" value="<?= $subtaskId ?>">
+                                                                <input type="hidden" name="view" value="<?= h($view) ?>">
+                                                                <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
+                                                                <button class="btn btn-sm btn-outline-danger icon-btn" aria-label="Eliminar sub tarefa">
+                                                                    <i class="bi bi-trash"></i>
+                                                                </button>
+                                                            </form>
+                                                        <?php endif; ?>
                                                     </div>
                                                 </div>
                                             </div>
