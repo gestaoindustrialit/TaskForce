@@ -1367,7 +1367,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    const setButtonState = (button, running) => {
+    const timerIntervals = new Map();
+
+    const formatElapsed = (totalSeconds) => {
+        const safeSeconds = Math.max(0, totalSeconds);
+        const hours = Math.floor(safeSeconds / 3600);
+        const minutes = Math.floor((safeSeconds % 3600) / 60);
+        const seconds = safeSeconds % 60;
+
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    };
+
+    const setButtonState = (button, running, elapsedSeconds = 0) => {
         const icon = button.querySelector('i');
         const label = button.querySelector('span');
 
@@ -1380,28 +1391,56 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (label) {
-            label.textContent = running ? 'Stop' : 'Play';
+            label.textContent = running ? `Stop ${formatElapsed(elapsedSeconds)}` : 'Play';
         }
+    };
+
+    const stopLiveCounter = (taskId) => {
+        const intervalId = timerIntervals.get(taskId);
+        if (intervalId) {
+            window.clearInterval(intervalId);
+            timerIntervals.delete(taskId);
+        }
+    };
+
+    const startLiveCounter = (button, taskId, startedAt) => {
+        stopLiveCounter(taskId);
+
+        const render = () => {
+            const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+            setButtonState(button, true, elapsedSeconds);
+        };
+
+        render();
+        const intervalId = window.setInterval(render, 1000);
+        timerIntervals.set(taskId, intervalId);
     };
 
     document.querySelectorAll('.js-timer-toggle').forEach((button) => {
         const taskId = Number(button.dataset.taskId || 0);
         if (!taskId) return;
 
-        const isRunning = Boolean(Number(localStorage.getItem(timerStorageKey(taskId)) || 0));
-        setButtonState(button, isRunning);
+        const startedAt = Number(localStorage.getItem(timerStorageKey(taskId)) || 0);
+
+        if (startedAt) {
+            startLiveCounter(button, taskId, startedAt);
+        } else {
+            setButtonState(button, false);
+        }
 
         button.addEventListener('click', async () => {
             const now = Date.now();
-            const startedAt = Number(localStorage.getItem(timerStorageKey(taskId)) || 0);
+            const currentStartedAt = Number(localStorage.getItem(timerStorageKey(taskId)) || 0);
 
-            if (!startedAt) {
+            if (!currentStartedAt) {
                 localStorage.setItem(timerStorageKey(taskId), String(now));
-                setButtonState(button, true);
+                startLiveCounter(button, taskId, now);
                 return;
             }
 
-            const elapsedSeconds = Math.max(1, Math.floor((now - startedAt) / 1000));
+            stopLiveCounter(taskId);
+
+            const elapsedSeconds = Math.max(1, Math.floor((now - currentStartedAt) / 1000));
             localStorage.removeItem(timerStorageKey(taskId));
             setButtonState(button, false);
 
