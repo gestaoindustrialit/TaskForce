@@ -132,6 +132,59 @@ body {
     padding-bottom: .25rem;
 }
 
+.controls-row {
+    display: flex;
+    align-items: flex-end;
+    gap: .5rem;
+    flex-wrap: nowrap;
+}
+
+.controls-field {
+    min-width: 0;
+}
+
+.controls-field-status {
+    flex: 0 0 180px;
+}
+
+.controls-field-user {
+    flex: 0 0 240px;
+}
+
+.controls-field-time {
+    flex: 1 1 360px;
+}
+
+.controls-field-due-date {
+    flex: 0 0 145px;
+}
+
+.controls-field-due-date .form-control {
+    max-width: 145px;
+}
+
+.task-compact-controls .status-select {
+    width: 180px;
+}
+
+.task-compact-controls .user-select {
+    width: 240px;
+}
+
+.controls-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    white-space: nowrap;
+}
+
+.controls-actions .js-timer-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+}
+
 .task-compact-subtask-form .form-label {
     font-size: .78rem;
 }
@@ -143,11 +196,6 @@ body {
 
     .task-compact-controls .vstack {
         gap: .2rem !important;
-    }
-
-    .task-compact-controls .task-compact-label,
-    .task-compact-subtask-form .task-compact-label {
-        display: none;
     }
 
     .task-compact-controls .form-control,
@@ -174,8 +222,34 @@ body {
     }
 
     .task-compact-subtask-form > div:nth-of-type(2) {
-        width: 170px;
-        flex: 0 0 170px;
+        width: 145px;
+        flex: 0 0 145px;
+    }
+}
+
+@media (max-width: 991.98px) {
+    .controls-row {
+        flex-wrap: wrap;
+    }
+
+    .controls-field-status,
+    .controls-field-user,
+    .controls-field-time,
+    .controls-field-due-date,
+    .controls-actions {
+        flex: 1 1 100%;
+    }
+
+    .controls-actions {
+        margin-left: 0;
+        justify-content: flex-end;
+    }
+
+    .task-compact-controls .status-select,
+    .task-compact-controls .user-select,
+    .controls-field-due-date .form-control {
+        width: 100%;
+        max-width: 100%;
     }
 }
 
@@ -252,4 +326,3 @@ body {
     font-weight: 600;
     box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
 }
-
