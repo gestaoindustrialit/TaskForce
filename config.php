@@ -678,3 +678,43 @@ $pdo->exec(
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
     )'
 );
+
+
+$timeStorageVersion = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?');
+$timeStorageVersion->execute(['time_storage_unit_version']);
+$currentTimeStorageVersion = $timeStorageVersion->fetchColumn();
+
+if ($currentTimeStorageVersion === 'minutes') {
+    $pdo->exec('UPDATE tasks SET estimated_minutes = estimated_minutes * 60 WHERE estimated_minutes IS NOT NULL');
+    $pdo->exec('UPDATE tasks SET actual_minutes = actual_minutes * 60 WHERE actual_minutes IS NOT NULL');
+    $pdo->exec('UPDATE team_tickets SET estimated_minutes = estimated_minutes * 60 WHERE estimated_minutes IS NOT NULL');
+    $pdo->exec('UPDATE team_tickets SET actual_minutes = actual_minutes * 60 WHERE actual_minutes IS NOT NULL');
+    $pdo->exec('UPDATE team_form_entries SET estimated_minutes = estimated_minutes * 60 WHERE estimated_minutes IS NOT NULL');
+    $pdo->exec('UPDATE team_form_entries SET actual_minutes = actual_minutes * 60 WHERE actual_minutes IS NOT NULL');
+
+    $timeStorageUpdateStmt = $pdo->prepare('UPDATE app_settings SET setting_value = ? WHERE setting_key = ?');
+    $timeStorageUpdateStmt->execute(['seconds', 'time_storage_unit_version']);
+
+    if ($timeStorageUpdateStmt->rowCount() === 0) {
+        $timeStorageInsertStmt = $pdo->prepare('INSERT INTO app_settings(setting_key, setting_value) VALUES (?, ?)');
+
+        try {
+            $timeStorageInsertStmt->execute(['time_storage_unit_version', 'seconds']);
+        } catch (PDOException $exception) {
+            $timeStorageUpdateStmt->execute(['seconds', 'time_storage_unit_version']);
+        }
+    }
+} elseif ($currentTimeStorageVersion === false || $currentTimeStorageVersion === null) {
+    $timeStorageUpdateStmt = $pdo->prepare('UPDATE app_settings SET setting_value = ? WHERE setting_key = ?');
+    $timeStorageUpdateStmt->execute(['seconds', 'time_storage_unit_version']);
+
+    if ($timeStorageUpdateStmt->rowCount() === 0) {
+        $timeStorageInsertStmt = $pdo->prepare('INSERT INTO app_settings(setting_key, setting_value) VALUES (?, ?)');
+
+        try {
+            $timeStorageInsertStmt->execute(['time_storage_unit_version', 'seconds']);
+        } catch (PDOException $exception) {
+            $timeStorageUpdateStmt->execute(['seconds', 'time_storage_unit_version']);
+        }
+    }
+}
