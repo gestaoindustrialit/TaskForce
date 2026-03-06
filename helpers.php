@@ -563,7 +563,7 @@ function parse_duration_to_minutes(?string $input): ?int
     }
 
     if (ctype_digit($value)) {
-        return max(0, (int) $value);
+        return max(0, ((int) $value) * 60);
     }
 
     return null;
