@@ -253,6 +253,31 @@ body {
     }
 }
 
+@media (max-width: 991.98px) {
+    .controls-row {
+        flex-wrap: wrap;
+    }
+
+    .controls-field-status,
+    .controls-field-user,
+    .controls-field-time,
+    .controls-field-due-date,
+    .controls-actions {
+        flex: 1 1 100%;
+    }
+
+    .controls-actions {
+        margin-left: 0;
+        justify-content: flex-end;
+    }
+
+    .task-compact-controls .status-select,
+    .task-compact-controls .user-select {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
 .report-sheet {
     background: white;
     max-width: 210mm;
