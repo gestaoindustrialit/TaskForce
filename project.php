@@ -288,13 +288,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $redirectBack();
         }
 
-        $addActualMinutes = ($_POST['add_actual_minutes'] ?? '') !== '' ? max(0, (int) $_POST['add_actual_minutes']) : 0;
+        $addActualSeconds = ($_POST['add_actual_seconds'] ?? '') !== '' ? max(0, (int) $_POST['add_actual_seconds']) : 0;
 
-        if ($addActualMinutes > 0) {
+        if ($addActualSeconds > 0) {
             $currentStmt = $pdo->prepare('SELECT actual_minutes FROM tasks WHERE id = ? AND project_id = ?');
             $currentStmt->execute([$taskId, $projectId]);
             $currentActual = (int) ($currentStmt->fetchColumn() ?: 0);
-            $actualMinutes = $currentActual + $addActualMinutes;
+            $actualMinutes = $currentActual + $addActualSeconds;
         }
 
         $stmt = $pdo->prepare('UPDATE tasks SET estimated_minutes = ?, actual_minutes = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = ? AND project_id = ?');
@@ -1064,16 +1064,19 @@ require __DIR__ . '/partials/header.php';
                         <div class="mt-3 border rounded p-2 bg-light-subtle">
                             <div class="small fw-semibold mb-2">Sub tarefas</div>
 
-                            <div class="vstack gap-1">
+                            <div class="vstack gap-2">
                                 <?php foreach ($subtasksByParent[$taskId] as $subtask): ?>
                                     <?php
                                         $subtaskId = (int) $subtask['id'];
                                         $subEstimated = $subtask['estimated_minutes'] !== null ? (int) $subtask['estimated_minutes'] : null;
                                         $subActual = $subtask['actual_minutes'] !== null ? (int) $subtask['actual_minutes'] : null;
                                     ?>
-                                    <div class="small border rounded px-2 py-1 bg-white">
-                                        <div class="d-flex justify-content-between align-items-center gap-2">
-                                            <span><?= h($subtask['title']) ?></span>
+                                    <div class="small border rounded px-2 py-2 bg-white">
+                                        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                                            <div>
+                                                <div><?= h($subtask['title']) ?></div>
+                                                <small class="text-muted">Atribuído a <?= h($subtask['assignee_name'] ?? 'Sem responsável') ?></small>
+                                            </div>
                                             <div class="d-flex align-items-center gap-2">
                                                 <span class="badge bg-<?= task_badge_class((string) $subtask['status']) ?>">
                                                     <?= h(status_label((string) $subtask['status'])) ?>
@@ -1091,26 +1094,97 @@ require __DIR__ . '/partials/header.php';
                                             </div>
                                         </div>
 
-                                        <div class="collapse mt-2" id="subtaskTimer<?= $subtaskId ?>">
-                                            <div class="d-flex align-items-center gap-2 flex-wrap">
-                                                <span class="time-chip">Prev: <?= h(format_minutes($subEstimated)) ?></span>
-                                                <span class="time-chip">Real: <?= h(format_minutes($subActual)) ?></span>
+                                        <div class="d-flex gap-2 mt-2 flex-wrap">
+                                            <span class="time-chip">Tempo previsto: <?= h(format_minutes($subEstimated)) ?></span>
+                                            <span class="time-chip">Tempo real: <?= h(format_minutes($subActual)) ?></span>
+                                        </div>
 
-                                                <button
-                                                    type="button"
-                                                    class="btn btn-sm btn-outline-success js-timer-toggle"
-                                                    data-task-id="<?= $subtaskId ?>"
-                                                    aria-label="Iniciar contador sub tarefa"
-                                                >
-                                                    <i class="bi bi-play-fill"></i><span>Play</span>
-                                                </button>
+                                        <div class="collapse mt-2" id="subtaskTimer<?= $subtaskId ?>">
+                                            <div class="task-compact-controls">
+                                                <div class="controls-row controls-row-main">
+                                                    <div class="controls-field controls-field-status">
+                                                        <form method="post" class="ajax-form-inline js-ajax-autosubmit">
+                                                            <input type="hidden" name="action" value="change_status">
+                                                            <input type="hidden" name="task_id" value="<?= $subtaskId ?>">
+                                                            <input type="hidden" name="view" value="<?= h($view) ?>">
+                                                            <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
+
+                                                            <label class="form-label task-compact-label">Estado</label>
+                                                            <select name="status" class="form-select form-select-sm js-auto-submit-trigger" aria-label="Estado da sub tarefa" title="Estado">
+                                                                <option value="todo" <?= $subtask['status'] === 'todo' ? 'selected' : '' ?>>Por Fazer</option>
+                                                                <option value="in_progress" <?= $subtask['status'] === 'in_progress' ? 'selected' : '' ?>>Em Progresso</option>
+                                                                <option value="done" <?= $subtask['status'] === 'done' ? 'selected' : '' ?>>Concluída</option>
+                                                            </select>
+                                                        </form>
+                                                    </div>
+
+                                                    <div class="controls-field controls-field-user">
+                                                        <form method="post" class="ajax-form-inline js-ajax-autosubmit">
+                                                            <input type="hidden" name="action" value="assign_task">
+                                                            <input type="hidden" name="task_id" value="<?= $subtaskId ?>">
+                                                            <input type="hidden" name="view" value="<?= h($view) ?>">
+                                                            <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
+
+                                                            <label class="form-label task-compact-label">Atribuído</label>
+                                                            <select name="assignee_user_id" class="form-select form-select-sm js-auto-submit-trigger" aria-label="Responsável da sub tarefa" title="Atribuído">
+                                                                <option value="0">Sem responsável</option>
+                                                                <?php foreach ($teamMembers as $member): ?>
+                                                                    <option value="<?= (int) $member['id'] ?>" <?= (int) ($subtask['assignee_user_id'] ?? 0) === (int) $member['id'] ? 'selected' : '' ?>>
+                                                                        <?= h($member['name']) ?>
+                                                                    </option>
+                                                                <?php endforeach; ?>
+                                                            </select>
+                                                        </form>
+                                                    </div>
+
+                                                    <div class="controls-field controls-field-time">
+                                                        <form method="post" class="time-inline-form ajax-form-inline" id="timeEditorForm<?= $subtaskId ?>">
+                                                            <input type="hidden" name="action" value="update_time">
+                                                            <input type="hidden" name="task_id" value="<?= $subtaskId ?>">
+                                                            <input type="hidden" name="view" value="<?= h($view) ?>">
+                                                            <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
+
+                                                            <div class="time-inline-group">
+                                                                <label class="form-label task-compact-label">Tempo previsto</label>
+                                                                <input class="form-control form-control-sm" type="text" name="estimated_minutes" value="<?= h(format_minutes($subEstimated)) ?>" placeholder="00:00:00" pattern="\d{1,3}:\d{2}:\d{2}" aria-label="Tempo previsto da sub tarefa" title="Tempo previsto">
+                                                            </div>
+
+                                                            <div class="time-inline-group">
+                                                                <label class="form-label task-compact-label">Tempo real</label>
+                                                                <input class="form-control form-control-sm" type="text" name="actual_minutes" value="<?= h(format_minutes($subActual)) ?>" placeholder="00:00:00" pattern="\d{1,3}:\d{2}:\d{2}" aria-label="Tempo real da sub tarefa" title="Tempo real">
+                                                            </div>
+                                                        </form>
+                                                    </div>
+
+                                                    <div class="controls-field controls-field-due-date">
+                                                        <form method="post" class="ajax-form-inline js-ajax-autosubmit">
+                                                            <input type="hidden" name="action" value="update_due_date">
+                                                            <input type="hidden" name="task_id" value="<?= $subtaskId ?>">
+                                                            <input type="hidden" name="view" value="<?= h($view) ?>">
+                                                            <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
+
+                                                            <label class="form-label task-compact-label">Data prevista</label>
+                                                            <input type="date" name="due_date" class="form-control form-control-sm js-auto-submit-trigger" value="<?= h((string) ($subtask['due_date'] ?? '')) ?>" aria-label="Data prevista da sub tarefa" title="Data prevista da sub tarefa">
+                                                        </form>
+                                                    </div>
+
+                                                    <div class="controls-actions">
+                                                        <button type="button" class="btn btn-sm btn-outline-success js-timer-toggle" data-task-id="<?= $subtaskId ?>" aria-label="Iniciar contador sub tarefa">
+                                                            <i class="bi bi-play-fill"></i><span>Play</span>
+                                                        </button>
+
+                                                        <button class="btn btn-sm btn-outline-dark icon-btn js-ajax-submit" type="button" data-form-id="timeEditorForm<?= $subtaskId ?>" aria-label="Guardar tempo sub tarefa">
+                                                            <i class="bi bi-save"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             </div>
 
                                             <form method="post" class="d-none ajax-form-inline" id="timerForm<?= $subtaskId ?>">
                                                 <input type="hidden" name="action" value="update_time">
                                                 <input type="hidden" name="task_id" value="<?= $subtaskId ?>">
                                                 <input type="hidden" name="estimated_minutes" value="<?= h(format_minutes($subEstimated)) ?>">
-                                                <input type="hidden" name="add_actual_minutes" value="0" class="js-add-actual">
+                                                <input type="hidden" name="add_actual_seconds" value="0" class="js-add-actual">
                                                 <input type="hidden" name="view" value="<?= h($view) ?>">
                                                 <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
                                             </form>
@@ -1125,7 +1199,7 @@ require __DIR__ . '/partials/header.php';
                         <input type="hidden" name="action" value="update_time">
                         <input type="hidden" name="task_id" value="<?= $taskId ?>">
                         <input type="hidden" name="estimated_minutes" value="<?= h(format_minutes($estimated)) ?>">
-                        <input type="hidden" name="add_actual_minutes" value="0" class="js-add-actual">
+                        <input type="hidden" name="add_actual_seconds" value="0" class="js-add-actual">
                         <input type="hidden" name="view" value="<?= h($view) ?>">
                         <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
                     </form>
@@ -1327,7 +1401,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            const elapsedMinutes = Math.max(1, Math.ceil((now - startedAt) / 60000));
+            const elapsedSeconds = Math.max(1, Math.floor((now - startedAt) / 1000));
             localStorage.removeItem(timerStorageKey(taskId));
             setButtonState(button, false);
 
@@ -1337,7 +1411,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const input = form.querySelector('.js-add-actual');
             if (!input) return;
 
-            input.value = String(elapsedMinutes);
+            input.value = String(elapsedSeconds);
 
             await ajaxSubmitForm(form, {
                 pendingTarget: button.closest('.controls-actions') || button.closest('.collapse') || button,
