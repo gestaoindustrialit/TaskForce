@@ -101,6 +101,21 @@ body {
     opacity: .85;
 }
 
+.stat-pill-link {
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+
+.stat-pill-link:hover,
+.stat-pill-link:focus {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 16px rgba(2, 6, 23, 0.2);
+}
+
+.stat-pill-link.active {
+    border-color: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+
 .board-column {
     min-height: 70vh;
 }
