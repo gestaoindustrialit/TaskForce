@@ -577,6 +577,53 @@ $todayProjectTasksStmt = $pdo->prepare("SELECT ta.id, ta.title, ta.status, ta.du
 $todayProjectTasksStmt->execute([$userId, $userId, $todayDate, $todayDate]);
 $todayProjectTasks = $todayProjectTasksStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$taskMetrics = [
+    'todo' => 0,
+    'in_progress' => 0,
+    'pending' => 0,
+    'done' => 0,
+    'overdue' => 0,
+    'due_soon' => 0,
+    'due_today' => 0,
+];
+
+$soonLimitDate = $todayDateObj->modify('+3 days')->format('Y-m-d');
+foreach ($scheduledProjectTasks as $projectTask) {
+    $taskStatus = (string) ($projectTask['status'] ?? 'todo');
+    if ($taskStatus === 'done') {
+        $taskMetrics['done']++;
+    } elseif ($taskStatus === 'in_progress') {
+        $taskMetrics['in_progress']++;
+        $taskMetrics['pending']++;
+    } else {
+        $taskMetrics['todo']++;
+        $taskMetrics['pending']++;
+    }
+
+    if ($taskStatus === 'done') {
+        continue;
+    }
+
+    $taskDueDate = trim((string) ($projectTask['due_date'] ?? ''));
+    if ($taskDueDate === '') {
+        continue;
+    }
+
+    if ($taskDueDate < $todayDate) {
+        $taskMetrics['overdue']++;
+    } elseif ($taskDueDate === $todayDate) {
+        $taskMetrics['due_today']++;
+    } elseif ($taskDueDate <= $soonLimitDate) {
+        $taskMetrics['due_soon']++;
+    }
+}
+
+$newsMetrics = [
+    'new_tasks' => count($todayProjectTasks),
+    'new_comments' => count($recentProjectNotes),
+    'overdue_projects_tasks' => $taskMetrics['overdue'],
+];
+
 $ticketStatuses = ticket_statuses($pdo);
 $completedStatusValues = [];
 foreach ($ticketStatuses as $status) {
@@ -723,7 +770,36 @@ require __DIR__ . '/partials/header.php';
             <h1 class="display-6 fw-semibold mb-2">Gestão da tua operação em tempo real</h1>
             <p class="mb-0 text-white-50">Organiza equipas, projetos, tarefas e pedidos internos num único espaço.</p>
         </div>
-        <div class="col-lg-4"><div class="row g-2 text-center"><div class="col-4"><div class="stat-pill"><strong><?= (int) $stats['total_teams'] ?></strong><span>Equipas</span></div></div><div class="col-4"><div class="stat-pill"><strong><?= (int) $stats['total_projects'] ?></strong><span>Projetos</span></div></div><div class="col-4"><div class="stat-pill"><strong><?= $isAdmin ? (int) $stats['total_users'] : '—' ?></strong><span>Users</span></div></div></div></div>
+        <div class="col-lg-4">
+            <div class="row g-2 text-center mb-2">
+                <div class="col-3">
+                    <a class="stat-pill stat-pill-link d-block text-reset text-decoration-none" href="#assignedProjectTasks" data-task-filter="todo">
+                        <strong><?= (int) $taskMetrics['todo'] ?></strong><span>Por iniciar</span>
+                    </a>
+                </div>
+                <div class="col-3">
+                    <a class="stat-pill stat-pill-link d-block text-reset text-decoration-none" href="#assignedProjectTasks" data-task-filter="in_progress">
+                        <strong><?= (int) $taskMetrics['in_progress'] ?></strong><span>Em trabalho</span>
+                    </a>
+                </div>
+                <div class="col-3">
+                    <a class="stat-pill stat-pill-link d-block text-reset text-decoration-none" href="#assignedProjectTasks" data-task-filter="pending">
+                        <strong><?= (int) $taskMetrics['pending'] ?></strong><span>Pendentes</span>
+                    </a>
+                </div>
+                <div class="col-3">
+                    <a class="stat-pill stat-pill-link d-block text-reset text-decoration-none" href="#assignedProjectTasks" data-task-filter="done">
+                        <strong><?= (int) $taskMetrics['done'] ?></strong><span>Concluídos</span>
+                    </a>
+                </div>
+            </div>
+            <div class="row g-2 text-center mb-2">
+                <div class="col-4"><div class="stat-pill"><strong><?= (int) $taskMetrics['overdue'] ?></strong><span>Fora de prazo</span></div></div>
+                <div class="col-4"><div class="stat-pill"><strong><?= (int) $taskMetrics['due_soon'] ?></strong><span>A expirar</span></div></div>
+                <div class="col-4"><div class="stat-pill"><strong><?= (int) $taskMetrics['due_today'] ?></strong><span>Na data</span></div></div>
+            </div>
+            <div class="row g-2 text-center"><div class="col-4"><div class="stat-pill"><strong><?= (int) $stats['total_teams'] ?></strong><span>Equipas</span></div></div><div class="col-4"><div class="stat-pill"><strong><?= (int) $stats['total_projects'] ?></strong><span>Projetos</span></div></div><div class="col-4"><div class="stat-pill"><strong><?= $isAdmin ? (int) $stats['total_users'] : '—' ?></strong><span>Users</span></div></div></div>
+        </div>
     </div>
 </section>
 
@@ -734,7 +810,10 @@ require __DIR__ . '/partials/header.php';
     <div class="col-lg-8">
         <div class="card shadow-sm soft-card mb-4">
             <div class="card-header bg-white border-0 pt-4 px-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
-                <h2 class="h4 mb-0">Tarefas do dia para ti</h2>
+                <div>
+                    <h2 class="h4 mb-1"><?= (int) $newsMetrics['new_tasks'] ?> Notícias</h2>
+                    <p class="small text-muted mb-0">Novas tasks: <strong><?= (int) $newsMetrics['new_tasks'] ?></strong> · Novos comentários: <strong><?= (int) $newsMetrics['new_comments'] ?></strong> · Fora da data: <strong><?= (int) $newsMetrics['overdue_projects_tasks'] ?></strong></p>
+                </div>
                 <div class="d-flex align-items-center gap-2 ms-auto">
                     <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#ticketModal">Novo ticket</button>
                     <div class="form-check form-switch mb-0">
@@ -996,15 +1075,29 @@ require __DIR__ . '/partials/header.php';
             </div>
         </div>
 
-        <div class="card shadow-sm soft-card mb-4">
-            <div class="card-header bg-white border-0 pt-4 px-4">
+        <div class="card shadow-sm soft-card mb-4" id="assignedProjectTasks">
+            <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center">
                 <h2 class="h5 mb-0">Tarefas de projetos atribuídas</h2>
+                <span class="badge text-bg-light border" id="projectTaskFilterBadge">Filtro: Todas</span>
             </div>
             <div class="card-body p-4">
                 <?php if ($scheduledProjectTasks): ?>
                     <div class="vstack gap-3">
                         <?php foreach ($scheduledProjectTasks as $task): ?>
-                            <form method="post" class="border rounded p-3 vstack gap-2">
+                            <?php
+                                $taskDueDate = trim((string) ($task['due_date'] ?? ''));
+                                $taskDueClass = 'none';
+                                if ($taskDueDate !== '' && (string) $task['status'] !== 'done') {
+                                    if ($taskDueDate < $todayDate) {
+                                        $taskDueClass = 'overdue';
+                                    } elseif ($taskDueDate === $todayDate) {
+                                        $taskDueClass = 'today';
+                                    } elseif ($taskDueDate <= $soonLimitDate) {
+                                        $taskDueClass = 'soon';
+                                    }
+                                }
+                            ?>
+                            <form method="post" class="border rounded p-3 vstack gap-2 js-project-task" data-task-status="<?= h((string) $task['status']) ?>" data-task-due-state="<?= h($taskDueClass) ?>">
                                 <input type="hidden" name="action" value="update_project_scheduled_task">
                                 <input type="hidden" name="task_id" value="<?= (int) $task['id'] ?>">
                                 <div class="d-flex justify-content-between align-items-start gap-3">
@@ -1110,6 +1203,50 @@ const scheduledTaskRows = document.querySelectorAll('.js-scheduled-task');
 const scheduledTasksEmptyState = document.getElementById('scheduledTasksEmptyState');
 const scheduledTasksVisibilityBtn = document.getElementById('scheduledTasksVisibilityBtn');
 const pendingByTypeVisibilityBtn = document.getElementById('pendingByTypeVisibilityBtn');
+const projectTaskRows = document.querySelectorAll('.js-project-task');
+const projectTaskFilterBadge = document.getElementById('projectTaskFilterBadge');
+const taskFilterTriggers = document.querySelectorAll('[data-task-filter]');
+
+function updateProjectTaskFilterBadge(labelText) {
+    if (!projectTaskFilterBadge) {
+        return;
+    }
+
+    projectTaskFilterBadge.textContent = `Filtro: ${labelText}`;
+}
+
+function matchesProjectTaskFilter(taskElement, taskFilter) {
+    if (!taskElement || taskFilter === 'all') {
+        return true;
+    }
+
+    const status = taskElement.dataset.taskStatus || 'todo';
+    if (taskFilter === 'pending') {
+        return status === 'todo' || status === 'in_progress';
+    }
+
+    return status === taskFilter;
+}
+
+function applyProjectTaskFilter(taskFilter) {
+    if (projectTaskRows.length === 0) {
+        return;
+    }
+
+    projectTaskRows.forEach((taskRow) => {
+        taskRow.classList.toggle('d-none', !matchesProjectTaskFilter(taskRow, taskFilter));
+    });
+
+    const filterLabels = {
+        all: 'Todas',
+        todo: 'Por iniciar',
+        in_progress: 'Em trabalho',
+        pending: 'Pendentes',
+        done: 'Concluídos',
+    };
+    updateProjectTaskFilterBadge(filterLabels[taskFilter] || 'Todas');
+}
+
 
 function refreshScheduledTasksVisibility() {
     if (!toggleCompletedTasks || scheduledTaskRows.length === 0) {
@@ -1273,6 +1410,26 @@ if (toggleCompletedTasks) {
     toggleCompletedTasks.addEventListener('change', refreshScheduledTasksVisibility);
     refreshScheduledTasksVisibility();
 }
+
+if (taskFilterTriggers.length > 0) {
+    taskFilterTriggers.forEach((trigger) => {
+        trigger.addEventListener('click', (event) => {
+            const taskFilter = trigger.dataset.taskFilter || 'all';
+            applyProjectTaskFilter(taskFilter);
+            taskFilterTriggers.forEach((item) => item.classList.remove('active'));
+            trigger.classList.add('active');
+            if (event) {
+                event.preventDefault();
+            }
+            const target = document.getElementById('assignedProjectTasks');
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
+    });
+}
+
+applyProjectTaskFilter('all');
 
 const scheduledTasksCollapse = document.getElementById('scheduledTasksContent');
 if (scheduledTasksCollapse) {
