@@ -773,30 +773,30 @@ require __DIR__ . '/partials/header.php';
         <div class="col-lg-4">
             <div class="row g-2 text-center mb-2">
                 <div class="col-3">
-                    <a class="stat-pill stat-pill-link d-block text-reset text-decoration-none" href="#assignedProjectTasks" data-task-filter="todo">
+                    <a class="stat-pill stat-pill-link stat-pill-state-todo d-block text-reset text-decoration-none" href="#assignedProjectTasks" data-task-filter="todo">
                         <strong><?= (int) $taskMetrics['todo'] ?></strong><span>Por iniciar</span>
                     </a>
                 </div>
                 <div class="col-3">
-                    <a class="stat-pill stat-pill-link d-block text-reset text-decoration-none" href="#assignedProjectTasks" data-task-filter="in_progress">
+                    <a class="stat-pill stat-pill-link stat-pill-state-progress d-block text-reset text-decoration-none" href="#assignedProjectTasks" data-task-filter="in_progress">
                         <strong><?= (int) $taskMetrics['in_progress'] ?></strong><span>Em trabalho</span>
                     </a>
                 </div>
                 <div class="col-3">
-                    <a class="stat-pill stat-pill-link d-block text-reset text-decoration-none" href="#assignedProjectTasks" data-task-filter="pending">
-                        <strong><?= (int) $taskMetrics['pending'] ?></strong><span>Pendentes</span>
+                    <a class="stat-pill stat-pill-link stat-pill-state-blocked d-block text-reset text-decoration-none" href="#assignedProjectTasks" data-task-filter="pending">
+                        <strong><?= (int) $taskMetrics['pending'] ?></strong><span>Bloqueadas</span>
                     </a>
                 </div>
                 <div class="col-3">
-                    <a class="stat-pill stat-pill-link d-block text-reset text-decoration-none" href="#assignedProjectTasks" data-task-filter="done">
-                        <strong><?= (int) $taskMetrics['done'] ?></strong><span>Concluídos</span>
+                    <a class="stat-pill stat-pill-link stat-pill-state-total d-block text-reset text-decoration-none" href="#assignedProjectTasks" data-task-filter="all">
+                        <strong><?= (int) ($taskMetrics['todo'] + $taskMetrics['in_progress'] + $taskMetrics['pending'] + $taskMetrics['done']) ?></strong><span>Total</span>
                     </a>
                 </div>
             </div>
             <div class="row g-2 text-center mb-2">
-                <div class="col-4"><div class="stat-pill"><strong><?= (int) $taskMetrics['overdue'] ?></strong><span>Fora de prazo</span></div></div>
-                <div class="col-4"><div class="stat-pill"><strong><?= (int) $taskMetrics['due_soon'] ?></strong><span>A expirar</span></div></div>
-                <div class="col-4"><div class="stat-pill"><strong><?= (int) $taskMetrics['due_today'] ?></strong><span>Na data</span></div></div>
+                <div class="col-4"><div class="stat-pill stat-pill-delay-overdue"><strong><?= (int) $taskMetrics['overdue'] ?></strong><span>Fora de prazo</span></div></div>
+                <div class="col-4"><div class="stat-pill stat-pill-delay-soon"><strong><?= (int) $taskMetrics['due_soon'] ?></strong><span>A expirar</span></div></div>
+                <div class="col-4"><div class="stat-pill stat-pill-delay-ontime"><strong><?= (int) $taskMetrics['due_today'] ?></strong><span>Na data</span></div></div>
             </div>
             <div class="row g-2 text-center"><div class="col-4"><div class="stat-pill"><strong><?= (int) $stats['total_teams'] ?></strong><span>Equipas</span></div></div><div class="col-4"><div class="stat-pill"><strong><?= (int) $stats['total_projects'] ?></strong><span>Projetos</span></div></div><div class="col-4"><div class="stat-pill"><strong><?= $isAdmin ? (int) $stats['total_users'] : '—' ?></strong><span>Users</span></div></div></div>
         </div>
@@ -1054,27 +1054,6 @@ require __DIR__ . '/partials/header.php';
             </div>
         </div>
 
-        <div class="card shadow-sm soft-card h-100">
-            <div class="card-header bg-white border-0 pt-4 px-4"><h2 class="h4 mb-0">Novas notas de projetos</h2></div>
-            <div class="card-body p-4">
-                <p class="small text-muted">Notas publicadas hoje em projetos onde estás envolvido.</p>
-                <?php if (!$recentProjectNotes): ?>
-                    <p class="text-muted mb-0">Sem notas novas hoje.</p>
-                <?php else: ?>
-                    <div class="vstack gap-2">
-                        <?php foreach ($recentProjectNotes as $projectNote): ?>
-                            <div class="border rounded p-2 bg-light small">
-                                <strong><?= h($projectNote['project_name']) ?></strong>
-                                <div><?= h($projectNote['note']) ?></div>
-                                <div class="text-muted"><?= h($projectNote['author_name']) ?> · <?= h(date('d/m/Y H:i', strtotime((string) $projectNote['created_at']))) ?></div>
-                                <a href="project.php?id=<?= (int) $projectNote['project_id'] ?>" class="btn btn-link btn-sm px-0">Abrir projeto</a>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
-
         <div class="card shadow-sm soft-card mb-4" id="assignedProjectTasks">
             <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center">
                 <h2 class="h5 mb-0">Tarefas de projetos atribuídas</h2>
@@ -1137,6 +1116,27 @@ require __DIR__ . '/partials/header.php';
                     </div>
                 <?php else: ?>
                     <p class="text-muted mb-0">Sem tarefas de projeto atribuídas.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="card shadow-sm soft-card h-100">
+            <div class="card-header bg-white border-0 pt-4 px-4"><h2 class="h4 mb-0">Novas notas de projetos</h2></div>
+            <div class="card-body p-4">
+                <p class="small text-muted">Notas publicadas hoje em projetos onde estás envolvido.</p>
+                <?php if (!$recentProjectNotes): ?>
+                    <p class="text-muted mb-0">Sem notas novas hoje.</p>
+                <?php else: ?>
+                    <div class="vstack gap-2">
+                        <?php foreach ($recentProjectNotes as $projectNote): ?>
+                            <div class="border rounded p-2 bg-light small">
+                                <strong><?= h($projectNote['project_name']) ?></strong>
+                                <div><?= h($projectNote['note']) ?></div>
+                                <div class="text-muted"><?= h($projectNote['author_name']) ?> · <?= h(date('d/m/Y H:i', strtotime((string) $projectNote['created_at']))) ?></div>
+                                <a href="project.php?id=<?= (int) $projectNote['project_id'] ?>" class="btn btn-link btn-sm px-0">Abrir projeto</a>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
                 <?php endif; ?>
             </div>
         </div>
@@ -1241,7 +1241,7 @@ function applyProjectTaskFilter(taskFilter) {
         all: 'Todas',
         todo: 'Por iniciar',
         in_progress: 'Em trabalho',
-        pending: 'Pendentes',
+        pending: 'Bloqueadas',
         done: 'Concluídos',
     };
     updateProjectTaskFilterBadge(filterLabels[taskFilter] || 'Todas');

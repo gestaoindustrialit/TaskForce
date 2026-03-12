@@ -116,6 +116,34 @@ body {
     box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
 }
 
+.stat-pill-state-todo {
+    border-color: rgba(248, 113, 113, 0.95);
+}
+
+.stat-pill-state-progress {
+    border-color: rgba(96, 165, 250, 0.95);
+}
+
+.stat-pill-state-blocked {
+    border-color: rgba(250, 204, 21, 0.95);
+}
+
+.stat-pill-state-total {
+    border-color: rgba(74, 222, 128, 0.95);
+}
+
+.stat-pill-delay-overdue {
+    border-color: rgba(248, 113, 113, 0.95);
+}
+
+.stat-pill-delay-soon {
+    border-color: rgba(251, 146, 60, 0.95);
+}
+
+.stat-pill-delay-ontime {
+    border-color: rgba(74, 222, 128, 0.95);
+}
+
 .board-column {
     min-height: 70vh;
 }
