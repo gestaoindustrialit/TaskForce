@@ -8,6 +8,7 @@ Aplicação de gestão de trabalho inspirada no ClickUp, desenvolvida em **PHP +
 - Gestão de Equipas e Projetos
 - Membros por equipa (apenas membros acedem à equipa/projetos)
 - Gestão de utilizadores no dashboard (admin cria users)
+- Módulo RH: departamentos/grupos, horários, calendário de férias e alertas por e-mail
 - Tarefas, Sub Tarefas e Checklist
 - Vista Lista e Vista Quadro (Kanban simples)
 - Envio de relatório diário para líder de projeto/equipa
@@ -51,4 +52,10 @@ php -S 0.0.0.0:8000
 php cron_daily_reports.php
 ```
 
-Se `mail()` não estiver configurado no ambiente, os relatórios ficam registados em `reports_sent.log`.
+### Alertas RH (cron)
+
+```bash
+php cron_hr_alerts.php
+```
+
+Se `mail()` não estiver configurado no ambiente, os relatórios/alertas ficam registados em `reports_sent.log`.
