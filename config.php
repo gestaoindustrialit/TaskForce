@@ -151,11 +151,70 @@ if (!in_array('is_active', $userColumns, true)) {
 if (!in_array('must_change_password', $userColumns, true)) {
     $pdo->exec('ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0');
 }
+if (!in_array('user_type', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN user_type TEXT DEFAULT "Funcionário"');
+}
+if (!in_array('user_number', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN user_number TEXT');
+}
+if (!in_array('title', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN title TEXT');
+}
+if (!in_array('short_name', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN short_name TEXT');
+}
+if (!in_array('initials', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN initials TEXT');
+}
+if (!in_array('email_notifications_active', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN email_notifications_active INTEGER DEFAULT 1');
+}
+if (!in_array('sms_notifications_active', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN sms_notifications_active INTEGER DEFAULT 0');
+}
+if (!in_array('profession', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN profession TEXT');
+}
+if (!in_array('category', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN category TEXT');
+}
+if (!in_array('manager_name', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN manager_name TEXT');
+}
+if (!in_array('department', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN department TEXT');
+}
+if (!in_array('hire_date', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN hire_date TEXT');
+}
+if (!in_array('termination_date', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN termination_date TEXT');
+}
+if (!in_array('timezone', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN timezone TEXT DEFAULT "Europe/Lisbon"');
+}
+if (!in_array('phone', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN phone TEXT');
+}
+if (!in_array('mobile', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN mobile TEXT');
+}
+if (!in_array('notes', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN notes TEXT');
+}
+if (!in_array('send_access_email', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN send_access_email INTEGER DEFAULT 0');
+}
 
 $pdo->exec('UPDATE users SET username = email WHERE username IS NULL OR TRIM(username) = ""');
 $pdo->exec('UPDATE users SET access_profile = "Utilizador" WHERE access_profile IS NULL OR TRIM(access_profile) = ""');
 $pdo->exec('UPDATE users SET is_active = 1 WHERE is_active IS NULL');
 $pdo->exec('UPDATE users SET must_change_password = 0 WHERE must_change_password IS NULL');
+$pdo->exec('UPDATE users SET user_type = "Funcionário" WHERE user_type IS NULL OR TRIM(user_type) = ""');
+$pdo->exec('UPDATE users SET email_notifications_active = 1 WHERE email_notifications_active IS NULL');
+$pdo->exec('UPDATE users SET sms_notifications_active = 0 WHERE sms_notifications_active IS NULL');
+$pdo->exec('UPDATE users SET timezone = "Europe/Lisbon" WHERE timezone IS NULL OR TRIM(timezone) = ""');
+$pdo->exec('UPDATE users SET send_access_email = 0 WHERE send_access_email IS NULL');
 
 $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(username)');
 
