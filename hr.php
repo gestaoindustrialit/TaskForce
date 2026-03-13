@@ -19,26 +19,94 @@ $stats = [
 $pageTitle = 'Módulo RH';
 require __DIR__ . '/partials/header.php';
 ?>
-<a href="dashboard.php" class="btn btn-link px-0">&larr; Voltar à dashboard</a>
+<a href="dashboard.php" class="btn btn-link px-0 mb-2">&larr; Voltar à dashboard</a>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h3 mb-0">Módulo RH</h1>
-</div>
+<section class="hr-shell mb-4">
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-3">
+        <div>
+            <h1 class="h2 mb-1">Painel RH</h1>
+            <p class="text-muted mb-0">Vista central do módulo RH com atalhos para as páginas existentes de gestão.</p>
+        </div>
+        <div class="hr-quick-tabs" role="navigation" aria-label="Navegação RH">
+            <a class="btn btn-dark" href="hr.php"><i class="bi bi-speedometer2 me-1"></i>Painel RH</a>
+            <a class="btn btn-outline-secondary" href="hr_departments.php">Departamentos</a>
+            <a class="btn btn-outline-secondary" href="hr_schedules.php">Horários</a>
+            <a class="btn btn-outline-secondary" href="hr_alerts.php">Alertas</a>
+        </div>
+    </div>
 
-<div class="row g-3 mb-4">
-    <div class="col-md-4"><div class="card shadow-sm"><div class="card-body"><div class="text-muted small">Utilizadores</div><div class="h4 mb-0"><?= $stats['users'] ?></div></div></div></div>
-    <div class="col-md-4"><div class="card shadow-sm"><div class="card-body"><div class="text-muted small">Departamentos</div><div class="h4 mb-0"><?= $stats['departments'] ?></div></div></div></div>
-    <div class="col-md-4"><div class="card shadow-sm"><div class="card-body"><div class="text-muted small">Horários</div><div class="h4 mb-0"><?= $stats['schedules'] ?></div></div></div></div>
-    <div class="col-md-6"><div class="card shadow-sm"><div class="card-body"><div class="text-muted small">Férias registadas</div><div class="h4 mb-0"><?= $stats['vacations'] ?></div></div></div></div>
-    <div class="col-md-6"><div class="card shadow-sm"><div class="card-body"><div class="text-muted small">Alertas ativos</div><div class="h4 mb-0"><?= $stats['alerts'] ?></div></div></div></div>
-</div>
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <article class="soft-card h-100 p-3 hr-stat-card">
+                <p class="text-muted mb-1 small">Utilizadores</p>
+                <p class="display-6 mb-0"><?= $stats['users'] ?></p>
+            </article>
+        </div>
+        <div class="col-6 col-lg-3">
+            <article class="soft-card h-100 p-3 hr-stat-card">
+                <p class="text-muted mb-1 small">Departamentos</p>
+                <p class="display-6 mb-0"><?= $stats['departments'] ?></p>
+            </article>
+        </div>
+        <div class="col-6 col-lg-3">
+            <article class="soft-card h-100 p-3 hr-stat-card">
+                <p class="text-muted mb-1 small">Horários</p>
+                <p class="display-6 mb-0"><?= $stats['schedules'] ?></p>
+            </article>
+        </div>
+        <div class="col-6 col-lg-3">
+            <article class="soft-card h-100 p-3 hr-stat-card hr-stat-card-accent">
+                <p class="text-muted mb-1 small">Alertas ativos</p>
+                <p class="display-6 mb-0"><?= $stats['alerts'] ?></p>
+            </article>
+        </div>
+    </div>
 
-<div class="row g-3">
-    <div class="col-md-6 col-lg-4"><a class="card h-100 text-decoration-none" href="users.php"><div class="card-body"><h2 class="h6">Gestão de utilizadores</h2><p class="text-muted mb-0">Ficha de utilizador com departamento e horário.</p></div></a></div>
-    <div class="col-md-6 col-lg-4"><a class="card h-100 text-decoration-none" href="hr_departments.php"><div class="card-body"><h2 class="h6">Departamentos</h2><p class="text-muted mb-0">Criação de departamentos e grupos (produção, controlo, administrativos).</p></div></a></div>
-    <div class="col-md-6 col-lg-4"><a class="card h-100 text-decoration-none" href="hr_schedules.php"><div class="card-body"><h2 class="h6">Horários</h2><p class="text-muted mb-0">Definição de horários e dias da semana.</p></div></a></div>
-    <div class="col-md-6 col-lg-6"><a class="card h-100 text-decoration-none" href="hr_vacations.php"><div class="card-body"><h2 class="h6">Calendário de férias</h2><p class="text-muted mb-0">Planeamento das ausências e férias.</p></div></a></div>
-    <div class="col-md-6 col-lg-6"><a class="card h-100 text-decoration-none" href="hr_alerts.php"><div class="card-body"><h2 class="h6">Alertas</h2><p class="text-muted mb-0">Alertas automáticos por e-mail (ex.: ausências às 08:00).</p></div></a></div>
-</div>
+    <div class="soft-card p-3 p-lg-4 mb-4">
+        <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-2 mb-3">
+            <h2 class="h4 mb-0">Checklist rápido do módulo</h2>
+            <small class="text-muted">Configuração base para operação RH diária</small>
+        </div>
+        <div class="row g-2">
+            <div class="col-md-6 col-xl-4"><div class="hr-check-item"><i class="bi bi-check-circle-fill text-success"></i>Departamentos agrupados por área</div></div>
+            <div class="col-md-6 col-xl-4"><div class="hr-check-item"><i class="bi bi-check-circle-fill text-success"></i>Horários com dias da semana definidos</div></div>
+            <div class="col-md-6 col-xl-4"><div class="hr-check-item"><i class="bi bi-check-circle-fill text-success"></i>Alertas automáticos ativos</div></div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <a class="soft-card h-100 p-3 p-lg-4 d-block text-decoration-none hr-link-card" href="hr_departments.php">
+                <h3 class="h5 mb-2">Departamentos</h3>
+                <p class="text-muted mb-3">Criação e organização de grupos/departamentos já existentes no sistema.</p>
+                <span class="btn btn-sm btn-outline-dark">Abrir departamentos</span>
+            </a>
+        </div>
+        <div class="col-lg-6">
+            <a class="soft-card h-100 p-3 p-lg-4 d-block text-decoration-none hr-link-card" href="hr_schedules.php">
+                <h3 class="h5 mb-2">Horários</h3>
+                <p class="text-muted mb-3">Definição de turnos, horas e dias para equipas e colaboradores.</p>
+                <span class="btn btn-sm btn-outline-dark">Abrir horários</span>
+            </a>
+        </div>
+        <div class="col-lg-6">
+            <a class="soft-card h-100 p-3 p-lg-4 d-block text-decoration-none hr-link-card" href="hr_alerts.php">
+                <h3 class="h5 mb-2">Alertas RH</h3>
+                <p class="text-muted mb-3">Notificações automáticas por e-mail para ausências e rotinas operacionais.</p>
+                <span class="btn btn-sm btn-outline-dark">Abrir alertas</span>
+            </a>
+        </div>
+        <div class="col-lg-6">
+            <a class="soft-card h-100 p-3 p-lg-4 d-block text-decoration-none hr-link-card" href="hr_vacations.php">
+                <h3 class="h5 mb-2">Calendário de férias</h3>
+                <p class="text-muted mb-3">Registos atuais de férias e ausências programadas para a equipa.</p>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="btn btn-sm btn-outline-dark">Abrir calendário</span>
+                    <span class="badge text-bg-warning-subtle border"><?= $stats['vacations'] ?> registos</span>
+                </div>
+            </a>
+        </div>
+    </div>
+</section>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>

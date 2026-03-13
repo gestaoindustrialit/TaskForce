@@ -612,3 +612,49 @@ body {
         grid-template-columns: 1fr;
     }
 }
+
+.hr-shell .display-6 {
+    font-weight: 500;
+}
+
+.hr-quick-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+}
+
+.hr-stat-card {
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.hr-stat-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+}
+
+.hr-stat-card-accent {
+    border-color: rgba(245, 158, 11, 0.35);
+}
+
+.hr-check-item {
+    border: 1px solid rgba(25, 135, 84, 0.35);
+    background: rgba(25, 135, 84, 0.08);
+    border-radius: 10px;
+    padding: .65rem .75rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    font-size: .94rem;
+}
+
+.hr-link-card {
+    color: inherit;
+    transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
+}
+
+.hr-link-card:hover,
+.hr-link-card:focus {
+    border-color: rgba(15, 23, 42, 0.2);
+    transform: translateY(-1px);
+    box-shadow: 0 12px 20px rgba(15, 23, 42, 0.08);
+}
