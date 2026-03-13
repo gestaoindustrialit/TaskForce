@@ -205,6 +205,12 @@ if (!in_array('notes', $userColumns, true)) {
 if (!in_array('send_access_email', $userColumns, true)) {
     $pdo->exec('ALTER TABLE users ADD COLUMN send_access_email INTEGER DEFAULT 0');
 }
+if (!in_array('department_id', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN department_id INTEGER');
+}
+if (!in_array('schedule_id', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN schedule_id INTEGER');
+}
 
 $pdo->exec('UPDATE users SET username = email WHERE username IS NULL OR TRIM(username) = ""');
 $pdo->exec('UPDATE users SET access_profile = "Utilizador" WHERE access_profile IS NULL OR TRIM(access_profile) = ""');
@@ -215,6 +221,71 @@ $pdo->exec('UPDATE users SET email_notifications_active = 1 WHERE email_notifica
 $pdo->exec('UPDATE users SET sms_notifications_active = 0 WHERE sms_notifications_active IS NULL');
 $pdo->exec('UPDATE users SET timezone = "Europe/Lisbon" WHERE timezone IS NULL OR TRIM(timezone) = ""');
 $pdo->exec('UPDATE users SET send_access_email = 0 WHERE send_access_email IS NULL');
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hr_department_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hr_departments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        group_id INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(group_id) REFERENCES hr_department_groups(id) ON DELETE SET NULL
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hr_schedules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        break_minutes INTEGER NOT NULL DEFAULT 0,
+        weekdays_mask TEXT NOT NULL DEFAULT "1,2,3,4,5",
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hr_vacation_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT "Aprovado",
+        notes TEXT,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hr_alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        alert_type TEXT NOT NULL,
+        recipient_email TEXT NOT NULL,
+        send_time TEXT NOT NULL,
+        weekdays_mask TEXT NOT NULL DEFAULT "1,2,3,4,5",
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
+$defaultGroupStmt = $pdo->prepare('INSERT OR IGNORE INTO hr_department_groups(name) VALUES (?)');
+foreach (['Produção', 'Controlo', 'Administrativos'] as $defaultGroupName) {
+    $defaultGroupStmt->execute([$defaultGroupName]);
+}
 
 $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(username)');
 

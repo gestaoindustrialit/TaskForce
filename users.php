@@ -12,15 +12,13 @@ $accessProfileOptions = ['Utilizador', 'Chefias', 'RH', 'Administração'];
 $userTypeOptions = ['Funcionário', 'Administrador', 'Trabalhador Externo', 'Prestador'];
 $timezoneOptions = ['Europe/Lisbon', 'Europe/Madrid', 'UTC'];
 
-function build_initials(string $name): string
-{
-    $parts = preg_split('/\s+/', trim($name), -1, PREG_SPLIT_NO_EMPTY) ?: [];
-    $initials = '';
-    foreach (array_slice($parts, 0, 3) as $part) {
-        $initials .= strtoupper(substr($part, 0, 1));
-    }
-
-    return $initials;
+$departmentOptionsStmt = $pdo->query('SELECT d.id, d.name, g.name AS group_name FROM hr_departments d LEFT JOIN hr_department_groups g ON g.id = d.group_id ORDER BY d.name COLLATE NOCASE ASC');
+$departmentOptions = $departmentOptionsStmt->fetchAll(PDO::FETCH_ASSOC);
+$scheduleOptionsStmt = $pdo->query('SELECT id, name, start_time, end_time FROM hr_schedules ORDER BY name COLLATE NOCASE ASC');
+$scheduleOptions = $scheduleOptionsStmt->fetchAll(PDO::FETCH_ASSOC);
+$departmentNameById = [];
+foreach ($departmentOptions as $departmentOption) {
+    $departmentNameById[(int) $departmentOption['id']] = (string) $departmentOption['name'];
 }
 
 $flashSuccess = null;
@@ -53,6 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $category = trim((string) ($_POST['category'] ?? ''));
         $managerName = trim((string) ($_POST['manager_name'] ?? ''));
         $department = trim((string) ($_POST['department'] ?? ''));
+        $departmentId = (int) ($_POST['department_id'] ?? 0);
+        $scheduleId = (int) ($_POST['schedule_id'] ?? 0);
         $hireDate = trim((string) ($_POST['hire_date'] ?? ''));
         $terminationDate = trim((string) ($_POST['termination_date'] ?? ''));
         $timezone = trim((string) ($_POST['timezone'] ?? 'Europe/Lisbon'));
@@ -74,8 +74,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $timezone = 'Europe/Lisbon';
             }
 
+            if ($departmentId > 0 && isset($departmentNameById[$departmentId])) {
+                $department = $departmentNameById[$departmentId];
+            }
+
             try {
-                $stmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                $stmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
                 $stmt->execute([
                     $name,
                     $username,
@@ -96,6 +100,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $category,
                     $managerName,
                     $department,
+                    $departmentId > 0 ? $departmentId : null,
+                    $scheduleId > 0 ? $scheduleId : null,
                     $hireDate,
                     $terminationDate,
                     $timezone,
@@ -136,6 +142,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $category = trim((string) ($_POST['category'] ?? ''));
         $managerName = trim((string) ($_POST['manager_name'] ?? ''));
         $department = trim((string) ($_POST['department'] ?? ''));
+        $departmentId = (int) ($_POST['department_id'] ?? 0);
+        $scheduleId = (int) ($_POST['schedule_id'] ?? 0);
         $hireDate = trim((string) ($_POST['hire_date'] ?? ''));
         $terminationDate = trim((string) ($_POST['termination_date'] ?? ''));
         $timezone = trim((string) ($_POST['timezone'] ?? 'Europe/Lisbon'));
@@ -157,13 +165,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $timezone = 'Europe/Lisbon';
             }
 
+            if ($departmentId > 0 && isset($departmentNameById[$departmentId])) {
+                $department = $departmentNameById[$departmentId];
+            }
+
             try {
                 if ($password !== '') {
-                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
-                    $stmt->execute([$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
+                    $stmt->execute([$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
                 } else {
-                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
-                    $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
+                    $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
                 }
                 $flashSuccess = 'Utilizador atualizado com sucesso.';
             } catch (PDOException $e) {
@@ -183,7 +195,7 @@ if ($page > $totalPages) {
     $offset = ($page - 1) * $perPage;
 }
 
-$usersStmt = $pdo->prepare('SELECT id, name, username, email, is_admin, access_profile, is_active, must_change_password, created_at, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?');
+$usersStmt = $pdo->prepare('SELECT id, name, username, email, is_admin, access_profile, is_active, must_change_password, created_at, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?');
 $usersStmt->bindValue(1, $perPage, PDO::PARAM_INT);
 $usersStmt->bindValue(2, $offset, PDO::PARAM_INT);
 $usersStmt->execute();
@@ -290,10 +302,27 @@ require __DIR__ . '/partials/header.php';
                     </div>
                     <div class="col-md-4"><label class="form-label">Password</label><input class="form-control" type="password" name="password" placeholder="Password" required></div>
 
-                    <div class="col-md-6"><label class="form-label">Profissão</label><input class="form-control" name="profession" placeholder="Profissão"></div>
-                    <div class="col-md-6"><label class="form-label">Categoria</label><input class="form-control" name="category" placeholder="Categoria"></div>
-                    <div class="col-md-6"><label class="form-label">Responsável</label><input class="form-control" list="managerOptions" name="manager_name" placeholder="Responsável"></div>
-                    <div class="col-md-6"><label class="form-label">Departamento</label><input class="form-control" list="departmentOptions" name="department" placeholder="Departamento"></div>
+                    <div class="col-md-6"><input class="form-control" name="profession" placeholder="Profissão"></div>
+                    <div class="col-md-6"><input class="form-control" name="category" placeholder="Categoria"></div>
+                    <div class="col-md-6"><input class="form-control" name="manager_name" placeholder="Responsável"></div>
+                    <div class="col-md-3">
+                        <label class="form-label">Departamento</label>
+                        <select class="form-select" name="department_id">
+                            <option value="">Sem departamento</option>
+                            <?php foreach ($departmentOptions as $departmentOption): ?>
+                                <option value="<?= (int) $departmentOption['id'] ?>"><?= h($departmentOption['name']) ?><?= !empty($departmentOption['group_name']) ? ' · ' . h($departmentOption['group_name']) : '' ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Horário</label>
+                        <select class="form-select" name="schedule_id">
+                            <option value="">Sem horário</option>
+                            <?php foreach ($scheduleOptions as $scheduleOption): ?>
+                                <option value="<?= (int) $scheduleOption['id'] ?>"><?= h($scheduleOption['name']) ?> (<?= h((string) $scheduleOption['start_time']) ?>-<?= h((string) $scheduleOption['end_time']) ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                     <div class="col-md-4"><label class="form-label">Data de admissão</label><input class="form-control" type="date" name="hire_date"></div>
                     <div class="col-md-4"><label class="form-label">Data saída</label><input class="form-control" type="date" name="termination_date"></div>
                     <div class="col-md-4">
@@ -358,10 +387,27 @@ require __DIR__ . '/partials/header.php';
                     </div>
                     <div class="col-md-4"><label class="form-label">Nova password (opcional)</label><input class="form-control" type="password" name="password" placeholder="Nova password (opcional)"></div>
 
-                    <div class="col-md-6"><label class="form-label">Profissão</label><input class="form-control" name="profession" value="<?= h((string) ($user['profession'] ?? '')) ?>" placeholder="Profissão"></div>
-                    <div class="col-md-6"><label class="form-label">Categoria</label><input class="form-control" name="category" value="<?= h((string) ($user['category'] ?? '')) ?>" placeholder="Categoria"></div>
-                    <div class="col-md-6"><label class="form-label">Responsável</label><input class="form-control" list="managerOptions" name="manager_name" value="<?= h((string) ($user['manager_name'] ?? '')) ?>" placeholder="Responsável"></div>
-                    <div class="col-md-6"><label class="form-label">Departamento</label><input class="form-control" list="departmentOptions" name="department" value="<?= h((string) ($user['department'] ?? '')) ?>" placeholder="Departamento"></div>
+                    <div class="col-md-6"><input class="form-control" name="profession" value="<?= h((string) ($user['profession'] ?? '')) ?>" placeholder="Profissão"></div>
+                    <div class="col-md-6"><input class="form-control" name="category" value="<?= h((string) ($user['category'] ?? '')) ?>" placeholder="Categoria"></div>
+                    <div class="col-md-6"><input class="form-control" name="manager_name" value="<?= h((string) ($user['manager_name'] ?? '')) ?>" placeholder="Responsável"></div>
+                    <div class="col-md-3">
+                        <label class="form-label">Departamento</label>
+                        <select class="form-select" name="department_id">
+                            <option value="">Sem departamento</option>
+                            <?php foreach ($departmentOptions as $departmentOption): ?>
+                                <option value="<?= (int) $departmentOption['id'] ?>" <?= (int) ($user['department_id'] ?? 0) === (int) $departmentOption['id'] ? 'selected' : '' ?>><?= h($departmentOption['name']) ?><?= !empty($departmentOption['group_name']) ? ' · ' . h($departmentOption['group_name']) : '' ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Horário</label>
+                        <select class="form-select" name="schedule_id">
+                            <option value="">Sem horário</option>
+                            <?php foreach ($scheduleOptions as $scheduleOption): ?>
+                                <option value="<?= (int) $scheduleOption['id'] ?>" <?= (int) ($user['schedule_id'] ?? 0) === (int) $scheduleOption['id'] ? 'selected' : '' ?>><?= h($scheduleOption['name']) ?> (<?= h((string) $scheduleOption['start_time']) ?>-<?= h((string) $scheduleOption['end_time']) ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                     <div class="col-md-4"><label class="form-label">Data de admissão</label><input class="form-control" type="date" name="hire_date" value="<?= h((string) ($user['hire_date'] ?? '')) ?>"></div>
                     <div class="col-md-4"><label class="form-label">Data saída</label><input class="form-control" type="date" name="termination_date" value="<?= h((string) ($user['termination_date'] ?? '')) ?>"></div>
                     <div class="col-md-4">

@@ -69,6 +69,11 @@ header('Content-Type: text/html; charset=UTF-8');
                             <ul class="dropdown-menu dropdown-menu-end dropdown-menu-lg-start">
                                 <li><a class="dropdown-item" href="company_profile.php">Empresa &amp; Branding</a></li>
                                 <li><a class="dropdown-item" href="users.php">Utilizadores</a></li>
+                                <li><a class="dropdown-item" href="hr.php">Módulo RH</a></li>
+                                <li><a class="dropdown-item" href="hr_departments.php">Departamentos</a></li>
+                                <li><a class="dropdown-item" href="hr_schedules.php">Horários</a></li>
+                                <li><a class="dropdown-item" href="hr_vacations.php">Calendário Férias</a></li>
+                                <li><a class="dropdown-item" href="hr_alerts.php">Alertas RH</a></li>
                                 <li><a class="dropdown-item" href="app_logs.php">Logs da aplica&ccedil;&atilde;o</a></li>
                             </ul>
                         </div>
