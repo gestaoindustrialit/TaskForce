@@ -41,7 +41,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $userNumber = trim((string) ($_POST['user_number'] ?? ''));
         $title = trim((string) ($_POST['title'] ?? ''));
         $shortName = trim((string) ($_POST['short_name'] ?? ''));
-        $initials = trim((string) ($_POST['initials'] ?? ''));
+        $initials = strtoupper(trim((string) ($_POST['initials'] ?? '')));
+        if ($initials === '') {
+            $initials = build_initials($name);
+        }
         $emailNotificationsActive = (int) ($_POST['email_notifications_active'] ?? 0);
         $smsNotificationsActive = (int) ($_POST['sms_notifications_active'] ?? 0);
         $profession = trim((string) ($_POST['profession'] ?? ''));
@@ -129,7 +132,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $userNumber = trim((string) ($_POST['user_number'] ?? ''));
         $title = trim((string) ($_POST['title'] ?? ''));
         $shortName = trim((string) ($_POST['short_name'] ?? ''));
-        $initials = trim((string) ($_POST['initials'] ?? ''));
+        $initials = strtoupper(trim((string) ($_POST['initials'] ?? '')));
+        if ($initials === '') {
+            $initials = build_initials($name);
+        }
         $emailNotificationsActive = (int) ($_POST['email_notifications_active'] ?? 0);
         $smsNotificationsActive = (int) ($_POST['sms_notifications_active'] ?? 0);
         $profession = trim((string) ($_POST['profession'] ?? ''));
@@ -195,6 +201,9 @@ $usersStmt->bindValue(2, $offset, PDO::PARAM_INT);
 $usersStmt->execute();
 $users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$managerOptions = $pdo->query('SELECT name FROM users WHERE name IS NOT NULL AND TRIM(name) <> "" ORDER BY name ASC')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$departmentOptions = $pdo->query('SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND TRIM(department) <> "" ORDER BY department ASC')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+
 $pageTitle = 'Utilizadores';
 require __DIR__ . '/partials/header.php';
 ?>
@@ -244,20 +253,37 @@ require __DIR__ . '/partials/header.php';
     </div>
 </div>
 
+<style>
+    .user-form-compact .form-label { margin-bottom: .25rem; font-size: .85rem; }
+    .user-form-compact .form-control,
+    .user-form-compact .form-select { font-size: .9rem; padding: .35rem .6rem; min-height: calc(1.5em + .7rem + 2px); }
+    .user-form-compact .form-check-label { font-size: .9rem; }
+</style>
+
+<datalist id="managerOptions">
+    <?php foreach ($managerOptions as $managerOption): ?>
+        <option value="<?= h((string) $managerOption) ?>"></option>
+    <?php endforeach; ?>
+</datalist>
+
+<datalist id="departmentOptions">
+    <?php foreach ($departmentOptions as $departmentOption): ?>
+        <option value="<?= h((string) $departmentOption) ?>"></option>
+    <?php endforeach; ?>
+</datalist>
+
 <div class="modal fade" id="userModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
-        <form class="modal-content" method="post">
+        <form class="modal-content user-form-compact" method="post">
             <input type="hidden" name="action" value="create_user">
             <div class="modal-header"><h5 class="modal-title">Novo utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
-                <div class="row g-3">
-                    <div class="col-md-6"><input class="form-control" name="name" placeholder="Nome" required></div>
-                    <div class="col-md-3"><input class="form-control" name="user_number" placeholder="Número"></div>
-                    <div class="col-md-3"><input class="form-control" name="initials" placeholder="Sigla"></div>
-                    <div class="col-md-6"><input class="form-control" name="short_name" placeholder="Nome resumido"></div>
-                    <div class="col-md-6"><input class="form-control" name="title" placeholder="Título"></div>
-                    <div class="col-md-6"><input class="form-control" name="username" placeholder="Utilizador" required></div>
-                    <div class="col-md-6"><input class="form-control" type="email" name="email" placeholder="Email" required></div>
+                <div class="row g-2">
+                    <div class="col-md-6"><label class="form-label">Nome</label><input class="form-control js-initials-source" name="name" placeholder="Nome" required></div>
+                    <div class="col-md-3"><label class="form-label">Número</label><input class="form-control" name="user_number" placeholder="Número"></div>
+                    <div class="col-md-3"><label class="form-label">Sigla (automático)</label><input class="form-control js-initials-target" name="initials" placeholder="Sigla" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Utilizador</label><input class="form-control" name="username" placeholder="Utilizador" required></div>
+                    <div class="col-md-6"><label class="form-label">Email</label><input class="form-control" type="email" name="email" placeholder="Email" required></div>
                     <div class="col-md-4">
                         <label class="form-label">Tipo</label>
                         <select class="form-select" name="user_type" required>
@@ -274,7 +300,7 @@ require __DIR__ . '/partials/header.php';
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-4"><input class="form-control" type="password" name="password" placeholder="Password" required></div>
+                    <div class="col-md-4"><label class="form-label">Password</label><input class="form-control" type="password" name="password" placeholder="Password" required></div>
 
                     <div class="col-md-6"><input class="form-control" name="profession" placeholder="Profissão"></div>
                     <div class="col-md-6"><input class="form-control" name="category" placeholder="Categoria"></div>
@@ -307,10 +333,10 @@ require __DIR__ . '/partials/header.php';
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-4"><input class="form-control" name="phone" placeholder="Telefone"></div>
-                    <div class="col-md-4"><input class="form-control" name="mobile" placeholder="Telemóvel"></div>
+                    <div class="col-md-4"><label class="form-label">Telefone</label><input class="form-control" name="phone" placeholder="Telefone"></div>
+                    <div class="col-md-4"><label class="form-label">Telemóvel</label><input class="form-control" name="mobile" placeholder="Telemóvel"></div>
                     <div class="col-md-4"></div>
-                    <div class="col-12"><textarea class="form-control" name="notes" rows="3" placeholder="Observações"></textarea></div>
+                    <div class="col-12"><label class="form-label">Observações</label><textarea class="form-control" name="notes" rows="3" placeholder="Observações"></textarea></div>
                 </div>
 
                 <hr>
@@ -332,19 +358,17 @@ require __DIR__ . '/partials/header.php';
 <?php foreach ($users as $user): ?>
 <div class="modal fade" id="editUserModal<?= (int) $user['id'] ?>" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
-        <form class="modal-content" method="post">
+        <form class="modal-content user-form-compact" method="post">
             <input type="hidden" name="action" value="update_user">
             <input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
             <div class="modal-header"><h5 class="modal-title">Editar utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
-                <div class="row g-3">
-                    <div class="col-md-6"><input class="form-control" name="name" value="<?= h($user['name']) ?>" required></div>
-                    <div class="col-md-3"><input class="form-control" name="user_number" value="<?= h((string) ($user['user_number'] ?? '')) ?>" placeholder="Número"></div>
-                    <div class="col-md-3"><input class="form-control" name="initials" value="<?= h((string) ($user['initials'] ?? '')) ?>" placeholder="Sigla"></div>
-                    <div class="col-md-6"><input class="form-control" name="short_name" value="<?= h((string) ($user['short_name'] ?? '')) ?>" placeholder="Nome resumido"></div>
-                    <div class="col-md-6"><input class="form-control" name="title" value="<?= h((string) ($user['title'] ?? '')) ?>" placeholder="Título"></div>
-                    <div class="col-md-6"><input class="form-control" name="username" value="<?= h((string) ($user['username'] ?? '')) ?>" required></div>
-                    <div class="col-md-6"><input class="form-control" type="email" name="email" value="<?= h($user['email']) ?>" required></div>
+                <div class="row g-2">
+                    <div class="col-md-6"><label class="form-label">Nome</label><input class="form-control js-initials-source" name="name" value="<?= h($user['name']) ?>" required></div>
+                    <div class="col-md-3"><label class="form-label">Número</label><input class="form-control" name="user_number" value="<?= h((string) ($user['user_number'] ?? '')) ?>" placeholder="Número"></div>
+                    <div class="col-md-3"><label class="form-label">Sigla (automático)</label><input class="form-control js-initials-target" name="initials" value="<?= h((string) ($user['initials'] ?? '')) ?>" placeholder="Sigla" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Utilizador</label><input class="form-control" name="username" value="<?= h((string) ($user['username'] ?? '')) ?>" required></div>
+                    <div class="col-md-6"><label class="form-label">Email</label><input class="form-control" type="email" name="email" value="<?= h($user['email']) ?>" required></div>
                     <div class="col-md-4">
                         <label class="form-label">Tipo</label>
                         <select class="form-select" name="user_type" required>
@@ -361,7 +385,7 @@ require __DIR__ . '/partials/header.php';
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-4"><input class="form-control" type="password" name="password" placeholder="Nova password (opcional)"></div>
+                    <div class="col-md-4"><label class="form-label">Nova password (opcional)</label><input class="form-control" type="password" name="password" placeholder="Nova password (opcional)"></div>
 
                     <div class="col-md-6"><input class="form-control" name="profession" value="<?= h((string) ($user['profession'] ?? '')) ?>" placeholder="Profissão"></div>
                     <div class="col-md-6"><input class="form-control" name="category" value="<?= h((string) ($user['category'] ?? '')) ?>" placeholder="Categoria"></div>
@@ -394,10 +418,10 @@ require __DIR__ . '/partials/header.php';
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-4"><input class="form-control" name="phone" value="<?= h((string) ($user['phone'] ?? '')) ?>" placeholder="Telefone"></div>
-                    <div class="col-md-4"><input class="form-control" name="mobile" value="<?= h((string) ($user['mobile'] ?? '')) ?>" placeholder="Telemóvel"></div>
+                    <div class="col-md-4"><label class="form-label">Telefone</label><input class="form-control" name="phone" value="<?= h((string) ($user['phone'] ?? '')) ?>" placeholder="Telefone"></div>
+                    <div class="col-md-4"><label class="form-label">Telemóvel</label><input class="form-control" name="mobile" value="<?= h((string) ($user['mobile'] ?? '')) ?>" placeholder="Telemóvel"></div>
                     <div class="col-md-4"></div>
-                    <div class="col-12"><textarea class="form-control" name="notes" rows="3" placeholder="Observações"><?= h((string) ($user['notes'] ?? '')) ?></textarea></div>
+                    <div class="col-12"><label class="form-label">Observações</label><textarea class="form-control" name="notes" rows="3" placeholder="Observações"><?= h((string) ($user['notes'] ?? '')) ?></textarea></div>
                 </div>
 
                 <hr>
@@ -416,5 +440,28 @@ require __DIR__ . '/partials/header.php';
     </div>
 </div>
 <?php endforeach; ?>
+
+<script>
+    function buildInitialsFromName(name) {
+        return name.trim().split(/\s+/).filter(Boolean).slice(0, 3).map((part) => part.charAt(0).toUpperCase()).join('');
+    }
+
+    document.querySelectorAll('.modal-content.user-form-compact').forEach((form) => {
+        const source = form.querySelector('.js-initials-source');
+        const target = form.querySelector('.js-initials-target');
+        if (!source || !target) {
+            return;
+        }
+
+        const syncInitials = () => {
+            target.value = buildInitialsFromName(source.value);
+        };
+
+        source.addEventListener('input', syncInitials);
+        if (!target.value) {
+            syncInitials();
+        }
+    });
+</script>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>
