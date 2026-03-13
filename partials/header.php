@@ -54,6 +54,7 @@ header('Content-Type: text/html; charset=UTF-8');
                                 <li><a class="dropdown-item" href="hr_schedules.php">Hor&aacute;rios</a></li>
                                 <li><a class="dropdown-item" href="hr_vacations.php">Calend&aacute;rio F&eacute;rias</a></li>
                                 <li><a class="dropdown-item" href="hr_alerts.php">Alertas RH</a></li>
+                                <li><a class="dropdown-item" href="shopfloor_absence_reasons.php">Motivos de ausência</a></li>
                             </ul>
                         </div>
                     <?php endif; ?>
@@ -88,6 +89,7 @@ header('Content-Type: text/html; charset=UTF-8');
                                 <li><a class="dropdown-item" href="hr_schedules.php">Horários</a></li>
                                 <li><a class="dropdown-item" href="hr_vacations.php">Calendário Férias</a></li>
                                 <li><a class="dropdown-item" href="hr_alerts.php">Alertas RH</a></li>
+                                <li><a class="dropdown-item" href="shopfloor_absence_reasons.php">Motivos de ausência</a></li>
                                 <li><a class="dropdown-item" href="app_logs.php">Logs da aplica&ccedil;&atilde;o</a></li>
                             </ul>
                         </div>

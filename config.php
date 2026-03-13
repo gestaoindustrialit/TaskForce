@@ -308,6 +308,30 @@ $pdo->exec(
     )'
 );
 
+
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_absence_reasons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        label TEXT NOT NULL UNIQUE,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
+$defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(label, is_active, created_by) VALUES (?, 1, NULL)');
+foreach ([
+    'Falta sem perda de remuneração',
+    'Consulta médica',
+    'Acompanhamento familiar',
+    'Formação externa',
+    'Outro motivo justificado'
+] as $defaultAbsenceReason) {
+    $defaultAbsenceReasonStmt->execute([$defaultAbsenceReason]);
+}
+
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS shopfloor_absence_requests (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

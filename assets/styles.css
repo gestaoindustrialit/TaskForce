@@ -506,16 +506,16 @@ body {
 }
 
 .shopfloor-body {
-    background: radial-gradient(circle at 20% 10%, #141a2f 0%, #080b15 45%, #05070d 100%);
-    color: #f8fafc;
+    background: linear-gradient(180deg, #f2f5fb 0%, #eef2ff 100%);
+    color: #0f172a;
 }
 
 .shopfloor-shell {
-    background: linear-gradient(90deg, rgba(6, 10, 20, 0.9) 0%, rgba(12, 16, 28, 0.9) 50%, rgba(6, 10, 20, 0.9) 100%);
-    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: #eef2f7;
+    border: 1px solid rgba(148, 163, 184, 0.35);
     border-radius: 14px;
     padding: 1rem;
-    box-shadow: 0 15px 40px rgba(2, 6, 23, 0.45);
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
 }
 
 .shopfloor-topbar {
@@ -527,28 +527,29 @@ body {
 }
 
 .shopfloor-kpi-card {
-    background: #e5e7eb;
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.32);
     border-radius: 8px;
-    color: #111827;
+    color: #0f172a;
     padding: 1rem;
     min-height: 112px;
 }
 
 .shopfloor-kpi-card h2 {
-    font-size: 1.45rem;
-    color: #8ea1c5;
+    font-size: 1.2rem;
+    color: #64748b;
     margin: 0;
 }
 
 .shopfloor-kpi-card strong {
     font-size: 2rem;
     line-height: 1.15;
-    font-weight: 500;
+    font-weight: 600;
 }
 
 .shopfloor-panel {
-    background: rgba(5, 8, 16, 0.58);
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.35);
     border-radius: 10px;
     padding: 0.9rem;
 }
@@ -571,21 +572,21 @@ body {
 }
 
 .shopfloor-table {
-    --bs-table-bg: #e5e7eb;
-    --bs-table-color: #111827;
+    --bs-table-bg: #ffffff;
+    --bs-table-color: #0f172a;
     --bs-table-border-color: #cbd5e1;
     border-radius: 8px;
     overflow: hidden;
 }
 
 .shopfloor-table th {
-    font-size: 1.12rem;
+    font-size: 1.02rem;
 }
 
 .shopfloor-status-pill {
-    border: 1px solid #fcd34d;
-    background: #f3f4f6;
-    color: #111827;
+    border: 1px solid rgba(37, 99, 235, 0.25);
+    background: rgba(59, 130, 246, 0.09);
+    color: #1e3a8a;
     font-weight: 600;
 }
 
@@ -593,14 +594,14 @@ body {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: #10b981;
+    background: #2563eb;
     display: inline-block;
 }
 
 .shopfloor-list-item {
-    background: rgba(0, 0, 0, 0.05);
-    color: #e2e8f0;
-    border-color: rgba(148, 163, 184, 0.2);
+    background: #ffffff;
+    color: #0f172a;
+    border-color: rgba(148, 163, 184, 0.35);
 }
 
 @media (max-width: 992px) {

@@ -36,17 +36,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'submit_absence') {
         $startDate = trim((string) ($_POST['start_date'] ?? ''));
         $endDate = trim((string) ($_POST['end_date'] ?? ''));
-        $reason = trim((string) ($_POST['reason'] ?? ''));
+        $reasonId = (int) ($_POST['reason_id'] ?? 0);
         $details = trim((string) ($_POST['details'] ?? ''));
 
-        if ($startDate === '' || $endDate === '' || $reason === '') {
-            $flashError = 'Preencha datas e motivo para comunicar ausência.';
+        $reasonStmt = $pdo->prepare('SELECT label FROM shopfloor_absence_reasons WHERE id = ? AND is_active = 1 LIMIT 1');
+        $reasonStmt->execute([$reasonId]);
+        $reasonLabel = $reasonStmt->fetchColumn();
+
+        if ($startDate === '' || $endDate === '' || !$reasonLabel) {
+            $flashError = 'Preencha datas e selecione um motivo para comunicar ausência.';
         } elseif ($endDate < $startDate) {
             $flashError = 'A data final da ausência não pode ser anterior à inicial.';
         } else {
+            $reason = (string) $reasonLabel;
             $stmt = $pdo->prepare('INSERT INTO shopfloor_absence_requests(user_id, start_date, end_date, reason, details) VALUES (?, ?, ?, ?, ?)');
             $stmt->execute([$userId, $startDate, $endDate, $reason, $details !== '' ? $details : null]);
-            log_app_event($pdo, $userId, 'shopfloor.absence.create', 'Comunicação de ausência submetida.', ['start_date' => $startDate, 'end_date' => $endDate]);
+            log_app_event($pdo, $userId, 'shopfloor.absence.create', 'Comunicação de ausência submetida.', ['start_date' => $startDate, 'end_date' => $endDate, 'reason_id' => $reasonId]);
             $flashSuccess = 'Comunicação de ausência submetida com sucesso.';
         }
     }
@@ -123,6 +128,8 @@ $todayEntriesStmt = $pdo->prepare('SELECT entry_type, note, occurred_at FROM sho
 $todayEntriesStmt->execute([$userId]);
 $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$absenceReasons = $pdo->query('SELECT id, label FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY label COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
+
 $absenceRequestsStmt = $pdo->prepare('SELECT id, start_date, end_date, reason, details, status, created_at FROM shopfloor_absence_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 10');
 $absenceRequestsStmt->execute([$userId]);
 $absenceRequests = $absenceRequestsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -149,7 +156,7 @@ $pendingVacationDays = (float) $pendingVacationDaysStmt->fetchColumn();
 $formattedHourBank = sprintf('%02dh%02dm', (int) floor((float) $hourBank['balance_hours']), (int) round((((float) $hourBank['balance_hours']) - floor((float) $hourBank['balance_hours'])) * 60));
 
 $pageTitle = 'Shopfloor';
-$bodyClass = 'shopfloor-body';
+$bodyClass = 'bg-light';
 require __DIR__ . '/partials/header.php';
 ?>
 
@@ -160,16 +167,15 @@ require __DIR__ . '/partials/header.php';
             <p class="text-secondary mb-0">Pedidos ligados ao módulo de RH e respetivas justificações.</p>
         </div>
         <div class="d-flex flex-wrap gap-2 align-items-center justify-content-end">
-            <a href="dashboard.php" class="btn btn-outline-light btn-sm">&larr; Voltar ao modo de produção</a>
-            <form method="post" class="d-inline">
+                        <form method="post" class="d-inline">
                 <input type="hidden" name="action" value="clock_entry">
                 <input type="hidden" name="entry_type" value="entrada">
-                <button type="submit" class="btn btn-warning btn-sm fw-semibold">Ponto de entrada</button>
+                <button type="submit" class="btn btn-primary btn-sm fw-semibold">Ponto de entrada</button>
             </form>
             <form method="post" class="d-inline">
                 <input type="hidden" name="action" value="clock_entry">
                 <input type="hidden" name="entry_type" value="saida">
-                <button type="submit" class="btn btn-outline-warning btn-sm fw-semibold">Ponto de saída</button>
+                <button type="submit" class="btn btn-outline-primary btn-sm fw-semibold">Ponto de saída</button>
             </form>
         </div>
     </div>
@@ -205,15 +211,25 @@ require __DIR__ . '/partials/header.php';
     <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
             <h2 class="h4 mb-0">Pedidos de ausência</h2>
-            <button class="btn btn-warning btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#absenceFormPanel" aria-expanded="false" aria-controls="absenceFormPanel">Novo pedido</button>
+            <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#absenceFormPanel" aria-expanded="false" aria-controls="absenceFormPanel">Novo pedido</button>
         </div>
 
         <div class="collapse mb-3" id="absenceFormPanel">
             <form method="post" class="shopfloor-form-grid">
                 <input type="hidden" name="action" value="submit_absence">
                 <div>
-                    <label class="form-label">Motivo (RH)</label>
-                    <input type="text" name="reason" class="form-control" placeholder="Ex.: Falta sem perda de remuneração" required>
+                    <label class="form-label d-flex justify-content-between align-items-center gap-2">
+                        <span>Motivo (RH)</span>
+                        <?php if ($isAdmin || $isRh): ?>
+                            <a href="shopfloor_absence_reasons.php" class="small link-primary">Gerir motivos</a>
+                        <?php endif; ?>
+                    </label>
+                    <select name="reason_id" class="form-select" required>
+                        <option value="">Selecionar motivo</option>
+                        <?php foreach ($absenceReasons as $reasonOption): ?>
+                            <option value="<?= (int) $reasonOption['id'] ?>"><?= h((string) $reasonOption['label']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div>
                     <label class="form-label">Data início</label>
@@ -228,7 +244,7 @@ require __DIR__ . '/partials/header.php';
                     <textarea name="details" class="form-control" rows="3" placeholder="Opcional"></textarea>
                 </div>
                 <div class="full">
-                    <button type="submit" class="btn btn-warning w-100 fw-semibold">Submeter pedido</button>
+                    <button type="submit" class="btn btn-primary w-100 fw-semibold">Submeter pedido</button>
                 </div>
             </form>
         </div>
@@ -246,7 +262,7 @@ require __DIR__ . '/partials/header.php';
                         <td><?= h((string) $absence['start_date']) ?><?= $absence['end_date'] !== $absence['start_date'] ? ' → ' . h((string) $absence['end_date']) : '' ?></td>
                         <td><span class="badge shopfloor-status-pill"><?= h((string) $absence['status']) ?></span></td>
                         <td class="text-end">
-                            <button class="btn btn-warning btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#justification-form-<?= (int) $absence['id'] ?>">Anexar</button>
+                            <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#justification-form-<?= (int) $absence['id'] ?>">Anexar</button>
                         </td>
                     </tr>
                     <tr class="collapse" id="justification-form-<?= (int) $absence['id'] ?>">
@@ -263,7 +279,7 @@ require __DIR__ . '/partials/header.php';
                                     <input type="text" name="description" class="form-control form-control-sm" placeholder="Justificação" required>
                                 </div>
                                 <div class="col-md-2">
-                                    <button type="submit" class="btn btn-outline-warning btn-sm w-100">Submeter</button>
+                                    <button type="submit" class="btn btn-outline-primary btn-sm w-100">Submeter</button>
                                 </div>
                             </form>
                         </td>
@@ -279,7 +295,7 @@ require __DIR__ . '/partials/header.php';
     <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
             <h2 class="h4 mb-0">Pedidos de férias</h2>
-            <button class="btn btn-warning btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#vacationFormPanel" aria-expanded="false" aria-controls="vacationFormPanel">Novo pedido</button>
+            <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#vacationFormPanel" aria-expanded="false" aria-controls="vacationFormPanel">Novo pedido</button>
         </div>
 
         <div class="collapse mb-3" id="vacationFormPanel">
@@ -298,7 +314,7 @@ require __DIR__ . '/partials/header.php';
                     <textarea name="notes" class="form-control" rows="2" placeholder="Observações opcionais"></textarea>
                 </div>
                 <div class="full">
-                    <button type="submit" class="btn btn-warning w-100 fw-semibold">Submeter pedido</button>
+                    <button type="submit" class="btn btn-primary w-100 fw-semibold">Submeter pedido</button>
                 </div>
             </form>
         </div>
@@ -362,7 +378,7 @@ require __DIR__ . '/partials/header.php';
                         <input type="hidden" name="action" value="publish_announcement">
                         <input type="text" name="title" class="form-control" placeholder="Título" required>
                         <textarea name="body" class="form-control" rows="3" placeholder="Mensagem" required></textarea>
-                        <button type="submit" class="btn btn-outline-warning">Publicar</button>
+                        <button type="submit" class="btn btn-outline-primary">Publicar</button>
                     </form>
                 <?php endif; ?>
             </div>
