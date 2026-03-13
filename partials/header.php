@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../helpers.php';
 $user = current_user($pdo);
 $navbarLogo = app_setting($pdo, 'logo_navbar_light');
+$showHrMenu = $user && ((int) ($user['is_admin'] ?? 0) === 1 || (string) ($user['access_profile'] ?? '') === 'RH');
 header('Content-Type: text/html; charset=UTF-8');
 ?>
 <!doctype html>
@@ -43,6 +44,18 @@ header('Content-Type: text/html; charset=UTF-8');
             <div class="collapse navbar-collapse" id="mainNavbar">
                 <div class="navbar-nav me-auto ms-lg-4">
                     <a class="nav-link" href="dashboard.php">Vis&atilde;o geral</a>
+                    <?php if ($showHrMenu): ?>
+                        <div class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">RH</a>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="hr.php">M&oacute;dulo RH</a></li>
+                                <li><a class="dropdown-item" href="hr_departments.php">Departamentos</a></li>
+                                <li><a class="dropdown-item" href="hr_schedules.php">Hor&aacute;rios</a></li>
+                                <li><a class="dropdown-item" href="hr_vacations.php">Calend&aacute;rio F&eacute;rias</a></li>
+                                <li><a class="dropdown-item" href="hr_alerts.php">Alertas RH</a></li>
+                            </ul>
+                        </div>
+                    <?php endif; ?>
                     <div class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Opera&ccedil;&otilde;es</a>
                         <ul class="dropdown-menu">
