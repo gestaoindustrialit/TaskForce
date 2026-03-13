@@ -504,3 +504,112 @@ body {
         flex: 1 1 auto;
     }
 }
+
+.shopfloor-body {
+    background: linear-gradient(180deg, #f2f5fb 0%, #eef2ff 100%);
+    color: #0f172a;
+}
+
+.shopfloor-shell {
+    background: #eef2f7;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 14px;
+    padding: 1rem;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+}
+
+.shopfloor-topbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.shopfloor-kpi-card {
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    border-radius: 8px;
+    color: #0f172a;
+    padding: 1rem;
+    min-height: 112px;
+}
+
+.shopfloor-kpi-card h2 {
+    font-size: 1.2rem;
+    color: #64748b;
+    margin: 0;
+}
+
+.shopfloor-kpi-card strong {
+    font-size: 2rem;
+    line-height: 1.15;
+    font-weight: 600;
+}
+
+.shopfloor-panel {
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 10px;
+    padding: 0.9rem;
+}
+
+.shopfloor-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.7rem;
+}
+
+.shopfloor-form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.shopfloor-form-grid .full {
+    grid-column: 1 / -1;
+}
+
+.shopfloor-table {
+    --bs-table-bg: #ffffff;
+    --bs-table-color: #0f172a;
+    --bs-table-border-color: #cbd5e1;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.shopfloor-table th {
+    font-size: 1.02rem;
+}
+
+.shopfloor-status-pill {
+    border: 1px solid rgba(37, 99, 235, 0.25);
+    background: rgba(59, 130, 246, 0.09);
+    color: #1e3a8a;
+    font-weight: 600;
+}
+
+.shopfloor-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #2563eb;
+    display: inline-block;
+}
+
+.shopfloor-list-item {
+    background: #ffffff;
+    color: #0f172a;
+    border-color: rgba(148, 163, 184, 0.35);
+}
+
+@media (max-width: 992px) {
+    .shopfloor-topbar {
+        flex-direction: column;
+    }
+
+    .shopfloor-form-grid {
+        grid-template-columns: 1fr;
+    }
+}
