@@ -223,7 +223,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($title === '') {
             $flashError = 'A tarefa recorrente deve ter um título.';
         } else {
-            $startDateObj = DateTimeImmutable::createFromFormat('Y-m-d', $startDate);
+            $startDateObj = DateTimeImmutable::createFromFormat('!Y-m-d', $startDate);
             if (!$startDateObj || $startDateObj->format('Y-m-d') !== $startDate) {
                 $flashError = 'Data de início inválida para a tarefa recorrente.';
             } else {
@@ -290,7 +290,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($title === '') {
             $flashError = 'A tarefa recorrente deve ter um título.';
         } else {
-            $startDateObj = DateTimeImmutable::createFromFormat('Y-m-d', $startDate);
+            $startDateObj = DateTimeImmutable::createFromFormat('!Y-m-d', $startDate);
             if (!$startDateObj || $startDateObj->format('Y-m-d') !== $startDate) {
                 $flashError = 'Data de início inválida para a tarefa recorrente.';
             } else {
@@ -326,7 +326,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if ($updateScope === 'single') {
-                    $occurrenceDate = DateTimeImmutable::createFromFormat('Y-m-d', $occurrenceDateInput);
+                    $occurrenceDate = DateTimeImmutable::createFromFormat('!Y-m-d', $occurrenceDateInput);
 
                     if (!$occurrenceDate || $occurrenceDate->format('Y-m-d') !== $occurrenceDateInput) {
                         $flashError = 'Data inválida para atualizar apenas esta ocorrência.';
@@ -386,7 +386,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'complete_recurring_task') {
         $recurringTaskId = (int) ($_POST['recurring_task_id'] ?? 0);
         $occurrenceDateInput = trim($_POST['occurrence_date'] ?? '');
-        $occurrenceDate = DateTimeImmutable::createFromFormat('Y-m-d', $occurrenceDateInput);
+        $occurrenceDate = DateTimeImmutable::createFromFormat('!Y-m-d', $occurrenceDateInput);
 
         if (!$occurrenceDate || $occurrenceDate->format('Y-m-d') !== $occurrenceDateInput) {
             $flashError = 'Data inválida para concluir tarefa recorrente.';
@@ -420,7 +420,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'reopen_recurring_task') {
         $recurringTaskId = (int) ($_POST['recurring_task_id'] ?? 0);
         $occurrenceDateInput = trim($_POST['occurrence_date'] ?? '');
-        $occurrenceDate = DateTimeImmutable::createFromFormat('Y-m-d', $occurrenceDateInput);
+        $occurrenceDate = DateTimeImmutable::createFromFormat('!Y-m-d', $occurrenceDateInput);
 
         if (!$occurrenceDate || $occurrenceDate->format('Y-m-d') !== $occurrenceDateInput) {
             $flashError = 'Data inválida para reabrir tarefa recorrente.';
@@ -460,7 +460,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $checkedItems = [];
         }
 
-        $occurrenceDate = DateTimeImmutable::createFromFormat('Y-m-d', $occurrenceDateInput);
+        $occurrenceDate = DateTimeImmutable::createFromFormat('!Y-m-d', $occurrenceDateInput);
         if (!$occurrenceDate || $occurrenceDate->format('Y-m-d') !== $occurrenceDateInput) {
             $flashError = 'Data inválida para guardar checklist da recorrência.';
         } else {
@@ -688,7 +688,7 @@ if (!isset($calendarViewLabels[$calendarView])) {
 }
 
 $referenceDateInput = (string) ($_GET['reference_date'] ?? date('Y-m-d'));
-$referenceDate = DateTimeImmutable::createFromFormat('Y-m-d', $referenceDateInput);
+$referenceDate = DateTimeImmutable::createFromFormat('!Y-m-d', $referenceDateInput);
 if (!$referenceDate || $referenceDate->format('Y-m-d') !== $referenceDateInput) {
     $referenceDate = new DateTimeImmutable('today');
 }
