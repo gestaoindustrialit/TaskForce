@@ -103,20 +103,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'create_user' && $isAdmin) {
         $name = trim($_POST['name'] ?? '');
+        $username = trim((string) ($_POST['username'] ?? ''));
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
+        $accessProfile = trim((string) ($_POST['access_profile'] ?? 'Utilizador'));
+        $isActive = (int) ($_POST['is_active'] ?? 0);
+        $mustChangePassword = (int) ($_POST['must_change_password'] ?? 0);
 
-        if ($name === '' || $email === '' || $password === '') {
-            $flashError = 'Preencha nome, email e password para criar utilizador.';
+        if ($username === '') {
+            $username = $email;
+        }
+
+        if ($name === '' || $username === '' || $email === '' || $password === '') {
+            $flashError = 'Preencha nome, utilizador, email e password para criar utilizador.';
         } else {
             try {
-                $stmt = $pdo->prepare('INSERT INTO users(name, email, password, is_admin) VALUES (?, ?, ?, ?)');
-                $stmt->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), (int) ($_POST['is_admin'] ?? 0)]);
+                $stmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+                $stmt->execute([$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), (int) ($_POST['is_admin'] ?? 0), $accessProfile, $isActive, $mustChangePassword]);
                 $createdUserId = (int) $pdo->lastInsertId();
                 log_app_event($pdo, $userId, 'user.create', 'Utilizador criado por administrador.', ['target_user_id' => $createdUserId, 'email' => $email]);
                 $flashSuccess = 'Novo utilizador criado com sucesso.';
             } catch (PDOException $e) {
-                $flashError = 'Não foi possível criar utilizador (email duplicado).';
+                $flashError = 'Não foi possível criar utilizador (email/utilizador duplicado).';
             }
         }
     }
@@ -125,25 +133,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'update_user' && $isAdmin) {
         $targetUserId = (int) ($_POST['user_id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
+        $username = trim((string) ($_POST['username'] ?? ''));
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
         $isTargetAdmin = (int) ($_POST['is_admin'] ?? 0);
+        $accessProfile = trim((string) ($_POST['access_profile'] ?? 'Utilizador'));
+        $isActive = (int) ($_POST['is_active'] ?? 0);
+        $mustChangePassword = (int) ($_POST['must_change_password'] ?? 0);
 
-        if ($targetUserId <= 0 || $name === '' || $email === '') {
-            $flashError = 'Preencha nome e email para editar utilizador.';
+        if ($username === '') {
+            $username = $email;
+        }
+
+        if ($targetUserId <= 0 || $name === '' || $username === '' || $email === '') {
+            $flashError = 'Preencha nome, utilizador e email para editar utilizador.';
         } else {
             try {
                 if ($password !== '') {
-                    $stmt = $pdo->prepare('UPDATE users SET name = ?, email = ?, password = ?, is_admin = ? WHERE id = ?');
-                    $stmt->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $isTargetAdmin, $targetUserId]);
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ? WHERE id = ?');
+                    $stmt->execute([$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $targetUserId]);
                 } else {
-                    $stmt = $pdo->prepare('UPDATE users SET name = ?, email = ?, is_admin = ? WHERE id = ?');
-                    $stmt->execute([$name, $email, $isTargetAdmin, $targetUserId]);
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ? WHERE id = ?');
+                    $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $targetUserId]);
                 }
                 log_app_event($pdo, $userId, 'user.update', 'Utilizador atualizado por administrador.', ['target_user_id' => $targetUserId, 'email' => $email, 'is_admin' => $isTargetAdmin]);
                 $flashSuccess = 'Utilizador atualizado com sucesso.';
             } catch (PDOException $e) {
-                $flashError = 'Não foi possível atualizar utilizador (email duplicado).';
+                $flashError = 'Não foi possível atualizar utilizador (email/utilizador duplicado).';
             }
         }
     }

@@ -139,6 +139,25 @@ $userColumns = $pdo->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_COLU
 if (!in_array('is_admin', $userColumns, true)) {
     $pdo->exec('ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0');
 }
+if (!in_array('username', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN username TEXT');
+}
+if (!in_array('access_profile', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN access_profile TEXT DEFAULT "Utilizador"');
+}
+if (!in_array('is_active', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1');
+}
+if (!in_array('must_change_password', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0');
+}
+
+$pdo->exec('UPDATE users SET username = email WHERE username IS NULL OR TRIM(username) = ""');
+$pdo->exec('UPDATE users SET access_profile = "Utilizador" WHERE access_profile IS NULL OR TRIM(access_profile) = ""');
+$pdo->exec('UPDATE users SET is_active = 1 WHERE is_active IS NULL');
+$pdo->exec('UPDATE users SET must_change_password = 0 WHERE must_change_password IS NULL');
+
+$pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(username)');
 
 $hasAdmin = (int) $pdo->query('SELECT COUNT(*) FROM users WHERE is_admin = 1')->fetchColumn();
 if ($hasAdmin === 0) {
