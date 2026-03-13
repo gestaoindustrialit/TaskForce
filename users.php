@@ -8,6 +8,10 @@ if (!is_admin($pdo, $userId)) {
     exit('Acesso reservado a administradores.');
 }
 
+$accessProfileOptions = ['Utilizador', 'Chefias', 'RH', 'Administração'];
+$userTypeOptions = ['Funcionário', 'Administrador', 'Trabalhador Externo', 'Prestador'];
+$timezoneOptions = ['Europe/Lisbon', 'Europe/Madrid', 'UTC'];
+
 $flashSuccess = null;
 $flashError = null;
 
@@ -19,16 +23,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $username = trim((string) ($_POST['username'] ?? ''));
         $email = trim((string) ($_POST['email'] ?? ''));
         $password = (string) ($_POST['password'] ?? '');
+        $isAdmin = (int) ($_POST['is_admin'] ?? 0);
         $accessProfile = trim((string) ($_POST['access_profile'] ?? 'Utilizador'));
         $isActive = (int) ($_POST['is_active'] ?? 0);
         $mustChangePassword = (int) ($_POST['must_change_password'] ?? 0);
 
+        $userType = trim((string) ($_POST['user_type'] ?? 'Funcionário'));
+        $userNumber = trim((string) ($_POST['user_number'] ?? ''));
+        $title = trim((string) ($_POST['title'] ?? ''));
+        $shortName = trim((string) ($_POST['short_name'] ?? ''));
+        $initials = trim((string) ($_POST['initials'] ?? ''));
+        $emailNotificationsActive = (int) ($_POST['email_notifications_active'] ?? 0);
+        $smsNotificationsActive = (int) ($_POST['sms_notifications_active'] ?? 0);
+        $profession = trim((string) ($_POST['profession'] ?? ''));
+        $category = trim((string) ($_POST['category'] ?? ''));
+        $managerName = trim((string) ($_POST['manager_name'] ?? ''));
+        $department = trim((string) ($_POST['department'] ?? ''));
+        $hireDate = trim((string) ($_POST['hire_date'] ?? ''));
+        $terminationDate = trim((string) ($_POST['termination_date'] ?? ''));
+        $timezone = trim((string) ($_POST['timezone'] ?? 'Europe/Lisbon'));
+        $phone = trim((string) ($_POST['phone'] ?? ''));
+        $mobile = trim((string) ($_POST['mobile'] ?? ''));
+        $notes = trim((string) ($_POST['notes'] ?? ''));
+        $sendAccessEmail = (int) ($_POST['send_access_email'] ?? 0);
+
         if ($name === '' || $username === '' || $email === '' || $password === '') {
             $flashError = 'Preencha nome, utilizador, email e password para criar utilizador.';
         } else {
+            if (!in_array($accessProfile, $accessProfileOptions, true)) {
+                $accessProfile = 'Utilizador';
+            }
+            if (!in_array($userType, $userTypeOptions, true)) {
+                $userType = 'Funcionário';
+            }
+            if (!in_array($timezone, $timezoneOptions, true)) {
+                $timezone = 'Europe/Lisbon';
+            }
+
             try {
-                $stmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-                $stmt->execute([$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), (int) ($_POST['is_admin'] ?? 0), $accessProfile, $isActive, $mustChangePassword]);
+                $stmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                $stmt->execute([
+                    $name,
+                    $username,
+                    $email,
+                    password_hash($password, PASSWORD_DEFAULT),
+                    $isAdmin,
+                    $accessProfile,
+                    $isActive,
+                    $mustChangePassword,
+                    $userType,
+                    $userNumber,
+                    $title,
+                    $shortName,
+                    $initials,
+                    $emailNotificationsActive,
+                    $smsNotificationsActive,
+                    $profession,
+                    $category,
+                    $managerName,
+                    $department,
+                    $hireDate,
+                    $terminationDate,
+                    $timezone,
+                    $phone,
+                    $mobile,
+                    $notes,
+                    $sendAccessEmail,
+                ]);
                 $flashSuccess = 'Utilizador criado com sucesso.';
             } catch (PDOException $e) {
                 $flashError = 'Não foi possível criar utilizador (email/utilizador já em uso).';
@@ -47,16 +108,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $isActive = (int) ($_POST['is_active'] ?? 0);
         $mustChangePassword = (int) ($_POST['must_change_password'] ?? 0);
 
+        $userType = trim((string) ($_POST['user_type'] ?? 'Funcionário'));
+        $userNumber = trim((string) ($_POST['user_number'] ?? ''));
+        $title = trim((string) ($_POST['title'] ?? ''));
+        $shortName = trim((string) ($_POST['short_name'] ?? ''));
+        $initials = trim((string) ($_POST['initials'] ?? ''));
+        $emailNotificationsActive = (int) ($_POST['email_notifications_active'] ?? 0);
+        $smsNotificationsActive = (int) ($_POST['sms_notifications_active'] ?? 0);
+        $profession = trim((string) ($_POST['profession'] ?? ''));
+        $category = trim((string) ($_POST['category'] ?? ''));
+        $managerName = trim((string) ($_POST['manager_name'] ?? ''));
+        $department = trim((string) ($_POST['department'] ?? ''));
+        $hireDate = trim((string) ($_POST['hire_date'] ?? ''));
+        $terminationDate = trim((string) ($_POST['termination_date'] ?? ''));
+        $timezone = trim((string) ($_POST['timezone'] ?? 'Europe/Lisbon'));
+        $phone = trim((string) ($_POST['phone'] ?? ''));
+        $mobile = trim((string) ($_POST['mobile'] ?? ''));
+        $notes = trim((string) ($_POST['notes'] ?? ''));
+        $sendAccessEmail = (int) ($_POST['send_access_email'] ?? 0);
+
         if ($targetUserId <= 0 || $name === '' || $username === '' || $email === '') {
             $flashError = 'Dados inválidos para atualizar utilizador.';
         } else {
+            if (!in_array($accessProfile, $accessProfileOptions, true)) {
+                $accessProfile = 'Utilizador';
+            }
+            if (!in_array($userType, $userTypeOptions, true)) {
+                $userType = 'Funcionário';
+            }
+            if (!in_array($timezone, $timezoneOptions, true)) {
+                $timezone = 'Europe/Lisbon';
+            }
+
             try {
                 if ($password !== '') {
-                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ? WHERE id = ?');
-                    $stmt->execute([$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $targetUserId]);
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
+                    $stmt->execute([$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
                 } else {
-                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ? WHERE id = ?');
-                    $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $targetUserId]);
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
+                    $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
                 }
                 $flashSuccess = 'Utilizador atualizado com sucesso.';
             } catch (PDOException $e) {
@@ -76,7 +166,7 @@ if ($page > $totalPages) {
     $offset = ($page - 1) * $perPage;
 }
 
-$usersStmt = $pdo->prepare('SELECT id, name, username, email, is_admin, access_profile, is_active, must_change_password, created_at FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?');
+$usersStmt = $pdo->prepare('SELECT id, name, username, email, is_admin, access_profile, is_active, must_change_password, created_at, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?');
 $usersStmt->bindValue(1, $perPage, PDO::PARAM_INT);
 $usersStmt->bindValue(2, $offset, PDO::PARAM_INT);
 $usersStmt->execute();
@@ -98,7 +188,7 @@ require __DIR__ . '/partials/header.php';
 
         <div class="table-responsive">
             <table class="table table-sm align-middle">
-                <thead><tr><th>#</th><th>Nome</th><th>Utilizador</th><th>Email</th><th>Perfil</th><th>Estado</th><th>Segurança</th><th>Criado</th><th></th></tr></thead>
+                <thead><tr><th>#</th><th>Nome</th><th>Utilizador</th><th>Email</th><th>Perfil</th><th>Tipo</th><th>Estado</th><th>Segurança</th><th>Criado</th><th></th></tr></thead>
                 <tbody>
                 <?php foreach ($users as $user): ?>
                     <tr>
@@ -110,6 +200,7 @@ require __DIR__ . '/partials/header.php';
                             <?= h((string) ($user['access_profile'] ?? 'Utilizador')) ?>
                             <?= (int) $user['is_admin'] === 1 ? '<span class="badge text-bg-dark ms-1">Admin</span>' : '' ?>
                         </td>
+                        <td><?= h((string) ($user['user_type'] ?? 'Funcionário')) ?></td>
                         <td><?= (int) ($user['is_active'] ?? 1) === 1 ? '<span class="badge text-bg-success">Ativo</span>' : '<span class="badge text-bg-warning">Inativo</span>' ?></td>
                         <td><?= (int) ($user['must_change_password'] ?? 0) === 1 ? '<span class="badge text-bg-info">Troca de senha pendente</span>' : '<span class="text-muted">—</span>' ?></td>
                         <td><?= h(date('d/m/Y', strtotime((string) $user['created_at']))) ?></td>
@@ -130,10 +221,143 @@ require __DIR__ . '/partials/header.php';
     </div>
 </div>
 
-<div class="modal fade" id="userModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post"><input type="hidden" name="action" value="create_user"><div class="modal-header"><h5 class="modal-title">Novo utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body vstack gap-3"><input class="form-control" name="name" placeholder="Nome" required><input class="form-control" name="username" placeholder="Utilizador" required><input class="form-control" type="email" name="email" placeholder="Email" required><input class="form-control" name="access_profile" placeholder="Perfil de acesso" value="Utilizador" required><input class="form-control" type="password" name="password" placeholder="Password" required><div class="form-check"><input class="form-check-input" type="checkbox" name="is_admin" value="1" id="isAdmin"><label class="form-check-label" for="isAdmin">Administrador</label></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="isActive" checked><label class="form-check-label" for="isActive">Ativo</label></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="must_change_password" value="1" id="mustChangePassword"><label class="form-check-label" for="mustChangePassword">Obrigar alteração da senha no próximo login</label></div></div><div class="modal-footer"><button class="btn btn-primary">Criar utilizador</button></div></form></div></div>
+<div class="modal fade" id="userModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <form class="modal-content" method="post">
+            <input type="hidden" name="action" value="create_user">
+            <div class="modal-header"><h5 class="modal-title">Novo utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6"><input class="form-control" name="name" placeholder="Nome" required></div>
+                    <div class="col-md-3"><input class="form-control" name="user_number" placeholder="Número"></div>
+                    <div class="col-md-3"><input class="form-control" name="initials" placeholder="Sigla"></div>
+                    <div class="col-md-6"><input class="form-control" name="short_name" placeholder="Nome resumido"></div>
+                    <div class="col-md-6"><input class="form-control" name="title" placeholder="Título"></div>
+                    <div class="col-md-6"><input class="form-control" name="username" placeholder="Utilizador" required></div>
+                    <div class="col-md-6"><input class="form-control" type="email" name="email" placeholder="Email" required></div>
+                    <div class="col-md-4">
+                        <label class="form-label">Tipo</label>
+                        <select class="form-select" name="user_type" required>
+                            <?php foreach ($userTypeOptions as $option): ?>
+                                <option value="<?= h($option) ?>" <?= $option === 'Funcionário' ? 'selected' : '' ?>><?= h($option) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Perfil de acesso</label>
+                        <select class="form-select" name="access_profile" required>
+                            <?php foreach ($accessProfileOptions as $option): ?>
+                                <option value="<?= h($option) ?>" <?= $option === 'Utilizador' ? 'selected' : '' ?>><?= h($option) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-4"><input class="form-control" type="password" name="password" placeholder="Password" required></div>
+
+                    <div class="col-md-6"><input class="form-control" name="profession" placeholder="Profissão"></div>
+                    <div class="col-md-6"><input class="form-control" name="category" placeholder="Categoria"></div>
+                    <div class="col-md-6"><input class="form-control" name="manager_name" placeholder="Responsável"></div>
+                    <div class="col-md-6"><input class="form-control" name="department" placeholder="Departamento"></div>
+                    <div class="col-md-4"><label class="form-label">Data de admissão</label><input class="form-control" type="date" name="hire_date"></div>
+                    <div class="col-md-4"><label class="form-label">Data saída</label><input class="form-control" type="date" name="termination_date"></div>
+                    <div class="col-md-4">
+                        <label class="form-label">Fuso horário</label>
+                        <select class="form-select" name="timezone">
+                            <?php foreach ($timezoneOptions as $option): ?>
+                                <option value="<?= h($option) ?>" <?= $option === 'Europe/Lisbon' ? 'selected' : '' ?>><?= h($option) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-4"><input class="form-control" name="phone" placeholder="Telefone"></div>
+                    <div class="col-md-4"><input class="form-control" name="mobile" placeholder="Telemóvel"></div>
+                    <div class="col-md-4"></div>
+                    <div class="col-12"><textarea class="form-control" name="notes" rows="3" placeholder="Observações"></textarea></div>
+                </div>
+
+                <hr>
+
+                <div class="row g-2">
+                    <div class="col-md-6 form-check"><input class="form-check-input" type="checkbox" name="is_admin" value="1" id="isAdmin"><label class="form-check-label" for="isAdmin">Administrador</label></div>
+                    <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="isActive" checked><label class="form-check-label" for="isActive">Ativo</label></div>
+                    <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="email_notifications_active" value="1" id="emailNotificationsActive" checked><label class="form-check-label" for="emailNotificationsActive">Ativo para email</label></div>
+                    <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="sms_notifications_active" value="1" id="smsNotificationsActive"><label class="form-check-label" for="smsNotificationsActive">Ativo para SMS</label></div>
+                    <div class="col-md-6 form-check"><input class="form-check-input" type="checkbox" name="send_access_email" value="1" id="sendAccessEmail"><label class="form-check-label" for="sendAccessEmail">Enviar dados de acesso</label></div>
+                    <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="must_change_password" value="1" id="mustChangePassword"><label class="form-check-label" for="mustChangePassword">Obrigar alteração da senha no próximo login</label></div>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-primary">Criar utilizador</button></div>
+        </form>
+    </div>
+</div>
 
 <?php foreach ($users as $user): ?>
-<div class="modal fade" id="editUserModal<?= (int) $user['id'] ?>" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post"><input type="hidden" name="action" value="update_user"><input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>"><div class="modal-header"><h5 class="modal-title">Editar utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body vstack gap-3"><input class="form-control" name="name" value="<?= h($user['name']) ?>" required><input class="form-control" name="username" value="<?= h((string) ($user['username'] ?? '')) ?>" required><input class="form-control" type="email" name="email" value="<?= h($user['email']) ?>" required><input class="form-control" name="access_profile" value="<?= h((string) ($user['access_profile'] ?? 'Utilizador')) ?>" required><input class="form-control" type="password" name="password" placeholder="Nova password (opcional)"><div class="form-check"><input class="form-check-input" type="checkbox" name="is_admin" value="1" id="isAdminEdit<?= (int) $user['id'] ?>" <?= (int) $user['is_admin'] === 1 ? 'checked' : '' ?>><label class="form-check-label" for="isAdminEdit<?= (int) $user['id'] ?>">Administrador</label></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="isActiveEdit<?= (int) $user['id'] ?>" <?= (int) ($user['is_active'] ?? 1) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="isActiveEdit<?= (int) $user['id'] ?>">Ativo</label></div><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="must_change_password" value="1" id="mustChangePasswordEdit<?= (int) $user['id'] ?>" <?= (int) ($user['must_change_password'] ?? 0) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="mustChangePasswordEdit<?= (int) $user['id'] ?>">Obrigar alteração da senha no próximo login</label></div></div><div class="modal-footer"><button class="btn btn-primary">Guardar utilizador</button></div></form></div></div>
+<div class="modal fade" id="editUserModal<?= (int) $user['id'] ?>" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <form class="modal-content" method="post">
+            <input type="hidden" name="action" value="update_user">
+            <input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
+            <div class="modal-header"><h5 class="modal-title">Editar utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6"><input class="form-control" name="name" value="<?= h($user['name']) ?>" required></div>
+                    <div class="col-md-3"><input class="form-control" name="user_number" value="<?= h((string) ($user['user_number'] ?? '')) ?>" placeholder="Número"></div>
+                    <div class="col-md-3"><input class="form-control" name="initials" value="<?= h((string) ($user['initials'] ?? '')) ?>" placeholder="Sigla"></div>
+                    <div class="col-md-6"><input class="form-control" name="short_name" value="<?= h((string) ($user['short_name'] ?? '')) ?>" placeholder="Nome resumido"></div>
+                    <div class="col-md-6"><input class="form-control" name="title" value="<?= h((string) ($user['title'] ?? '')) ?>" placeholder="Título"></div>
+                    <div class="col-md-6"><input class="form-control" name="username" value="<?= h((string) ($user['username'] ?? '')) ?>" required></div>
+                    <div class="col-md-6"><input class="form-control" type="email" name="email" value="<?= h($user['email']) ?>" required></div>
+                    <div class="col-md-4">
+                        <label class="form-label">Tipo</label>
+                        <select class="form-select" name="user_type" required>
+                            <?php foreach ($userTypeOptions as $option): ?>
+                                <option value="<?= h($option) ?>" <?= ((string) ($user['user_type'] ?? 'Funcionário')) === $option ? 'selected' : '' ?>><?= h($option) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Perfil de acesso</label>
+                        <select class="form-select" name="access_profile" required>
+                            <?php foreach ($accessProfileOptions as $option): ?>
+                                <option value="<?= h($option) ?>" <?= ((string) ($user['access_profile'] ?? 'Utilizador')) === $option ? 'selected' : '' ?>><?= h($option) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-4"><input class="form-control" type="password" name="password" placeholder="Nova password (opcional)"></div>
+
+                    <div class="col-md-6"><input class="form-control" name="profession" value="<?= h((string) ($user['profession'] ?? '')) ?>" placeholder="Profissão"></div>
+                    <div class="col-md-6"><input class="form-control" name="category" value="<?= h((string) ($user['category'] ?? '')) ?>" placeholder="Categoria"></div>
+                    <div class="col-md-6"><input class="form-control" name="manager_name" value="<?= h((string) ($user['manager_name'] ?? '')) ?>" placeholder="Responsável"></div>
+                    <div class="col-md-6"><input class="form-control" name="department" value="<?= h((string) ($user['department'] ?? '')) ?>" placeholder="Departamento"></div>
+                    <div class="col-md-4"><label class="form-label">Data de admissão</label><input class="form-control" type="date" name="hire_date" value="<?= h((string) ($user['hire_date'] ?? '')) ?>"></div>
+                    <div class="col-md-4"><label class="form-label">Data saída</label><input class="form-control" type="date" name="termination_date" value="<?= h((string) ($user['termination_date'] ?? '')) ?>"></div>
+                    <div class="col-md-4">
+                        <label class="form-label">Fuso horário</label>
+                        <select class="form-select" name="timezone">
+                            <?php foreach ($timezoneOptions as $option): ?>
+                                <option value="<?= h($option) ?>" <?= ((string) ($user['timezone'] ?? 'Europe/Lisbon')) === $option ? 'selected' : '' ?>><?= h($option) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-4"><input class="form-control" name="phone" value="<?= h((string) ($user['phone'] ?? '')) ?>" placeholder="Telefone"></div>
+                    <div class="col-md-4"><input class="form-control" name="mobile" value="<?= h((string) ($user['mobile'] ?? '')) ?>" placeholder="Telemóvel"></div>
+                    <div class="col-md-4"></div>
+                    <div class="col-12"><textarea class="form-control" name="notes" rows="3" placeholder="Observações"><?= h((string) ($user['notes'] ?? '')) ?></textarea></div>
+                </div>
+
+                <hr>
+
+                <div class="row g-2">
+                    <div class="col-md-6 form-check"><input class="form-check-input" type="checkbox" name="is_admin" value="1" id="isAdminEdit<?= (int) $user['id'] ?>" <?= (int) $user['is_admin'] === 1 ? 'checked' : '' ?>><label class="form-check-label" for="isAdminEdit<?= (int) $user['id'] ?>">Administrador</label></div>
+                    <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="isActiveEdit<?= (int) $user['id'] ?>" <?= (int) ($user['is_active'] ?? 1) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="isActiveEdit<?= (int) $user['id'] ?>">Ativo</label></div>
+                    <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="email_notifications_active" value="1" id="emailNotificationsActiveEdit<?= (int) $user['id'] ?>" <?= (int) ($user['email_notifications_active'] ?? 1) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="emailNotificationsActiveEdit<?= (int) $user['id'] ?>">Ativo para email</label></div>
+                    <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="sms_notifications_active" value="1" id="smsNotificationsActiveEdit<?= (int) $user['id'] ?>" <?= (int) ($user['sms_notifications_active'] ?? 0) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="smsNotificationsActiveEdit<?= (int) $user['id'] ?>">Ativo para SMS</label></div>
+                    <div class="col-md-6 form-check"><input class="form-check-input" type="checkbox" name="send_access_email" value="1" id="sendAccessEmailEdit<?= (int) $user['id'] ?>" <?= (int) ($user['send_access_email'] ?? 0) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="sendAccessEmailEdit<?= (int) $user['id'] ?>">Enviar dados de acesso</label></div>
+                    <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="must_change_password" value="1" id="mustChangePasswordEdit<?= (int) $user['id'] ?>" <?= (int) ($user['must_change_password'] ?? 0) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="mustChangePasswordEdit<?= (int) $user['id'] ?>">Obrigar alteração da senha no próximo login</label></div>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-primary">Guardar utilizador</button></div>
+        </form>
+    </div>
+</div>
 <?php endforeach; ?>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>
