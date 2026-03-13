@@ -44,6 +44,7 @@ header('Content-Type: text/html; charset=UTF-8');
             <div class="collapse navbar-collapse" id="mainNavbar">
                 <div class="navbar-nav me-auto ms-lg-4">
                     <a class="nav-link" href="dashboard.php">Vis&atilde;o geral</a>
+                    <a class="nav-link" href="shopfloor.php">Shopfloor</a>
                     <?php if ($showHrMenu): ?>
                         <div class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">RH</a>
