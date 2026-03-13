@@ -6,6 +6,7 @@ $userId = (int) $_SESSION['user_id'];
 $user = current_user($pdo);
 $profile = (string) ($user['access_profile'] ?? 'Utilizador');
 $isAdmin = (int) ($user['is_admin'] ?? 0) === 1;
+$isRh = $profile === 'RH';
 
 if (!$isAdmin && $profile !== 'Utilizador') {
     http_response_code(403);
@@ -28,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare('INSERT INTO shopfloor_time_entries(user_id, entry_type, note) VALUES (?, ?, ?)');
             $stmt->execute([$userId, $entryType, $note !== '' ? $note : null]);
             log_app_event($pdo, $userId, 'shopfloor.clock.' . $entryType, 'Registo de ponto no Shopfloor.', ['entry_type' => $entryType]);
-            $flashSuccess = $entryType === 'entrada' ? 'Entrada registada com sucesso.' : 'Saída registada com sucesso.';
+            $flashSuccess = $entryType === 'entrada' ? 'Ponto de entrada registado com sucesso.' : 'Ponto de saída registado com sucesso.';
         }
     }
 
@@ -46,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare('INSERT INTO shopfloor_absence_requests(user_id, start_date, end_date, reason, details) VALUES (?, ?, ?, ?, ?)');
             $stmt->execute([$userId, $startDate, $endDate, $reason, $details !== '' ? $details : null]);
             log_app_event($pdo, $userId, 'shopfloor.absence.create', 'Comunicação de ausência submetida.', ['start_date' => $startDate, 'end_date' => $endDate]);
-            $flashSuccess = 'Comunicação de ausência submetida.';
+            $flashSuccess = 'Comunicação de ausência submetida com sucesso.';
         }
     }
 
@@ -96,7 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if ($action === 'publish_announcement' && ($isAdmin || $profile === 'RH')) {
+    if ($action === 'publish_announcement' && ($isAdmin || $isRh)) {
         $title = trim((string) ($_POST['title'] ?? ''));
         $body = trim((string) ($_POST['body'] ?? ''));
         if ($title === '' || $body === '') {
@@ -110,19 +111,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$hourBankStmt = $pdo->prepare('SELECT balance_hours, notes, updated_at FROM shopfloor_hour_banks WHERE user_id = ? LIMIT 1');
+$hourBankStmt = $pdo->prepare('SELECT balance_hours, updated_at FROM shopfloor_hour_banks WHERE user_id = ? LIMIT 1');
 $hourBankStmt->execute([$userId]);
 $hourBank = $hourBankStmt->fetch(PDO::FETCH_ASSOC);
 if (!$hourBank) {
     $pdo->prepare('INSERT INTO shopfloor_hour_banks(user_id, balance_hours, notes) VALUES (?, 0, NULL)')->execute([$userId]);
-    $hourBank = ['balance_hours' => 0, 'notes' => null, 'updated_at' => date('Y-m-d H:i:s')];
+    $hourBank = ['balance_hours' => 0, 'updated_at' => date('Y-m-d H:i:s')];
 }
 
 $todayEntriesStmt = $pdo->prepare('SELECT entry_type, note, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC');
 $todayEntriesStmt->execute([$userId]);
 $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$absenceRequestsStmt = $pdo->prepare('SELECT id, start_date, end_date, reason, status, created_at FROM shopfloor_absence_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 10');
+$absenceRequestsStmt = $pdo->prepare('SELECT id, start_date, end_date, reason, details, status, created_at FROM shopfloor_absence_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 10');
 $absenceRequestsStmt->execute([$userId]);
 $absenceRequests = $absenceRequestsStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -137,218 +138,256 @@ $vacationRequests = $vacationRequestsStmt->fetchAll(PDO::FETCH_ASSOC);
 $announcementsStmt = $pdo->query('SELECT a.title, a.body, a.created_at, COALESCE(u.name, "Sistema") AS created_by_name FROM shopfloor_announcements a LEFT JOIN users u ON u.id = a.created_by WHERE a.is_active = 1 AND a.audience IN ("all", "shopfloor") ORDER BY a.created_at DESC LIMIT 8');
 $announcements = $announcementsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$uploadsCountStmt = $pdo->prepare('SELECT COUNT(*) FROM shopfloor_justifications WHERE user_id = ?');
+$uploadsCountStmt->execute([$userId]);
+$uploadsCount = (int) $uploadsCountStmt->fetchColumn();
+
+$pendingVacationDaysStmt = $pdo->prepare('SELECT COALESCE(SUM(total_days), 0) FROM shopfloor_vacation_requests WHERE user_id = ? AND status IN ("Pendente", "Aprovado")');
+$pendingVacationDaysStmt->execute([$userId]);
+$pendingVacationDays = (float) $pendingVacationDaysStmt->fetchColumn();
+
+$formattedHourBank = sprintf('%02dh%02dm', (int) floor((float) $hourBank['balance_hours']), (int) round((((float) $hourBank['balance_hours']) - floor((float) $hourBank['balance_hours'])) * 60));
+
 $pageTitle = 'Shopfloor';
+$bodyClass = 'shopfloor-body';
 require __DIR__ . '/partials/header.php';
 ?>
-<a href="dashboard.php" class="btn btn-link px-0">&larr; Voltar à dashboard</a>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h3 mb-0">Shopfloor</h1>
-    <span class="badge text-bg-dark">Perfil <?= h($profile) ?></span>
-</div>
-
-<?php if ($flashSuccess): ?>
-    <div class="alert alert-success"><?= h($flashSuccess) ?></div>
-<?php endif; ?>
-<?php if ($flashError): ?>
-    <div class="alert alert-danger"><?= h($flashError) ?></div>
-<?php endif; ?>
-
-<div class="row g-3 mb-4">
-    <div class="col-lg-4">
-        <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <div class="text-muted small">Banco de horas</div>
-                <div class="display-6 mb-1"><?= number_format((float) ($hourBank['balance_hours'] ?? 0), 1, ',', '.') ?>h</div>
-                <div class="small text-muted">Atualizado em <?= h((string) ($hourBank['updated_at'] ?? '-')) ?></div>
-            </div>
+<section class="shopfloor-shell">
+    <div class="shopfloor-topbar">
+        <div>
+            <h1 class="h4 mb-1">Gestão pessoal</h1>
+            <p class="text-secondary mb-0">Pedidos ligados ao módulo de RH e respetivas justificações.</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center justify-content-end">
+            <a href="dashboard.php" class="btn btn-outline-light btn-sm">&larr; Voltar ao modo de produção</a>
+            <form method="post" class="d-inline">
+                <input type="hidden" name="action" value="clock_entry">
+                <input type="hidden" name="entry_type" value="entrada">
+                <button type="submit" class="btn btn-warning btn-sm fw-semibold">Ponto de entrada</button>
+            </form>
+            <form method="post" class="d-inline">
+                <input type="hidden" name="action" value="clock_entry">
+                <input type="hidden" name="entry_type" value="saida">
+                <button type="submit" class="btn btn-outline-warning btn-sm fw-semibold">Ponto de saída</button>
+            </form>
         </div>
     </div>
-    <div class="col-lg-8">
-        <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <h2 class="h6">Ponto (entrada / saída)</h2>
-                <div class="d-flex flex-wrap gap-2 mb-3">
-                    <form method="post" class="d-inline">
-                        <input type="hidden" name="action" value="clock_entry">
-                        <input type="hidden" name="entry_type" value="entrada">
-                        <button type="submit" class="btn btn-success">Marcar entrada</button>
-                    </form>
-                    <form method="post" class="d-inline">
-                        <input type="hidden" name="action" value="clock_entry">
-                        <input type="hidden" name="entry_type" value="saida">
-                        <button type="submit" class="btn btn-outline-danger">Marcar saída</button>
-                    </form>
-                </div>
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead><tr><th>Tipo</th><th>Hora</th><th>Nota</th></tr></thead>
-                        <tbody>
-                        <?php if ($todayEntries): ?>
-                            <?php foreach ($todayEntries as $entry): ?>
-                                <tr>
-                                    <td><?= $entry['entry_type'] === 'entrada' ? 'Entrada' : 'Saída' ?></td>
-                                    <td><?= h(date('H:i:s', strtotime((string) $entry['occurred_at']))) ?></td>
-                                    <td><?= h((string) ($entry['note'] ?? '')) ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <tr><td colspan="3" class="text-muted">Sem registos de ponto hoje.</td></tr>
-                        <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+
+    <?php if ($flashSuccess): ?>
+        <div class="alert alert-success mt-3 mb-3"><?= h($flashSuccess) ?></div>
+    <?php endif; ?>
+    <?php if ($flashError): ?>
+        <div class="alert alert-danger mt-3 mb-3"><?= h($flashError) ?></div>
+    <?php endif; ?>
+
+    <div class="row g-3 mb-4">
+        <div class="col-lg-4">
+            <article class="shopfloor-kpi-card">
+                <h2>Balanço de BH</h2>
+                <strong><?= h($formattedHourBank) ?></strong>
+            </article>
+        </div>
+        <div class="col-lg-4">
+            <article class="shopfloor-kpi-card">
+                <h2>Dias de férias a gozar</h2>
+                <strong><?= h(number_format($pendingVacationDays, 1, ',', '.')) ?> dias</strong>
+            </article>
+        </div>
+        <div class="col-lg-4">
+            <article class="shopfloor-kpi-card">
+                <h2>Uploads efetuados</h2>
+                <strong><?= (int) $uploadsCount ?></strong>
+            </article>
         </div>
     </div>
-</div>
 
-<div class="row g-3 mb-4">
-    <div class="col-lg-4">
-        <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <h2 class="h6">Comunicar ausência</h2>
-                <form method="post" class="vstack gap-2">
-                    <input type="hidden" name="action" value="submit_absence">
+    <div class="shopfloor-panel mb-4">
+        <div class="shopfloor-panel-header">
+            <h2 class="h4 mb-0">Pedidos de ausência</h2>
+            <button class="btn btn-warning btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#absenceFormPanel" aria-expanded="false" aria-controls="absenceFormPanel">Novo pedido</button>
+        </div>
+
+        <div class="collapse mb-3" id="absenceFormPanel">
+            <form method="post" class="shopfloor-form-grid">
+                <input type="hidden" name="action" value="submit_absence">
+                <div>
+                    <label class="form-label">Motivo (RH)</label>
+                    <input type="text" name="reason" class="form-control" placeholder="Ex.: Falta sem perda de remuneração" required>
+                </div>
+                <div>
+                    <label class="form-label">Data início</label>
                     <input type="date" name="start_date" class="form-control" required>
+                </div>
+                <div>
+                    <label class="form-label">Data fim</label>
                     <input type="date" name="end_date" class="form-control" required>
-                    <input type="text" name="reason" class="form-control" placeholder="Motivo" required>
-                    <textarea name="details" class="form-control" rows="2" placeholder="Detalhes"></textarea>
-                    <button type="submit" class="btn btn-primary">Submeter ausência</button>
-                </form>
-            </div>
+                </div>
+                <div class="full">
+                    <label class="form-label">Justificação</label>
+                    <textarea name="details" class="form-control" rows="3" placeholder="Opcional"></textarea>
+                </div>
+                <div class="full">
+                    <button type="submit" class="btn btn-warning w-100 fw-semibold">Submeter pedido</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-sm shopfloor-table mb-0">
+                <thead><tr><th>Motivo</th><th>Data</th><th>Estado</th><th class="text-end">Justificação</th></tr></thead>
+                <tbody>
+                <?php if ($absenceRequests): foreach ($absenceRequests as $absence): ?>
+                    <tr>
+                        <td>
+                            <div class="d-flex align-items-center gap-2"><span class="shopfloor-dot"></span><span><?= h((string) $absence['reason']) ?></span></div>
+                            <div class="small text-secondary">Código: <?= (int) $absence['id'] ?></div>
+                        </td>
+                        <td><?= h((string) $absence['start_date']) ?><?= $absence['end_date'] !== $absence['start_date'] ? ' → ' . h((string) $absence['end_date']) : '' ?></td>
+                        <td><span class="badge shopfloor-status-pill"><?= h((string) $absence['status']) ?></span></td>
+                        <td class="text-end">
+                            <button class="btn btn-warning btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#justification-form-<?= (int) $absence['id'] ?>">Anexar</button>
+                        </td>
+                    </tr>
+                    <tr class="collapse" id="justification-form-<?= (int) $absence['id'] ?>">
+                        <td colspan="4" class="bg-transparent">
+                            <form method="post" class="row g-2 align-items-end">
+                                <input type="hidden" name="action" value="submit_justification">
+                                <input type="hidden" name="absence_request_id" value="<?= (int) $absence['id'] ?>">
+                                <div class="col-md-3">
+                                    <label class="form-label mb-1">Data</label>
+                                    <input type="date" name="event_date" class="form-control form-control-sm" required>
+                                </div>
+                                <div class="col-md-7">
+                                    <label class="form-label mb-1">Descrição</label>
+                                    <input type="text" name="description" class="form-control form-control-sm" placeholder="Justificação" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <button type="submit" class="btn btn-outline-warning btn-sm w-100">Submeter</button>
+                                </div>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endforeach; else: ?>
+                    <tr><td colspan="4" class="text-secondary">Sem comunicações de ausência.</td></tr>
+                <?php endif; ?>
+                </tbody>
+            </table>
         </div>
     </div>
-    <div class="col-lg-4">
-        <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <h2 class="h6">Submeter justificação</h2>
-                <form method="post" class="vstack gap-2">
-                    <input type="hidden" name="action" value="submit_justification">
-                    <select name="absence_request_id" class="form-select">
-                        <option value="0">Sem ligação a ausência específica</option>
-                        <?php foreach ($absenceRequests as $absence): ?>
-                            <option value="<?= (int) $absence['id'] ?>">#<?= (int) $absence['id'] ?> · <?= h((string) $absence['start_date']) ?> a <?= h((string) $absence['end_date']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <input type="date" name="event_date" class="form-control" required>
-                    <textarea name="description" class="form-control" rows="3" placeholder="Descrição/justificação" required></textarea>
-                    <button type="submit" class="btn btn-primary">Submeter justificação</button>
-                </form>
-            </div>
+
+    <div class="shopfloor-panel mb-4">
+        <div class="shopfloor-panel-header">
+            <h2 class="h4 mb-0">Pedidos de férias</h2>
+            <button class="btn btn-warning btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#vacationFormPanel" aria-expanded="false" aria-controls="vacationFormPanel">Novo pedido</button>
         </div>
-    </div>
-    <div class="col-lg-4">
-        <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <h2 class="h6">Pedido de férias</h2>
-                <form method="post" class="vstack gap-2">
-                    <input type="hidden" name="action" value="submit_vacation">
+
+        <div class="collapse mb-3" id="vacationFormPanel">
+            <form method="post" class="shopfloor-form-grid">
+                <input type="hidden" name="action" value="submit_vacation">
+                <div>
+                    <label class="form-label">Início</label>
                     <input type="date" name="start_date" class="form-control" required>
+                </div>
+                <div>
+                    <label class="form-label">Fim</label>
                     <input type="date" name="end_date" class="form-control" required>
-                    <textarea name="notes" class="form-control" rows="2" placeholder="Notas"></textarea>
-                    <button type="submit" class="btn btn-primary">Pedir férias</button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="row g-3 mb-4">
-    <div class="col-lg-6">
-        <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <h2 class="h6">Estado das comunicações de ausência</h2>
-                <div class="table-responsive">
-                    <table class="table table-sm mb-0">
-                        <thead><tr><th>Período</th><th>Motivo</th><th>Estado</th></tr></thead>
-                        <tbody>
-                        <?php if ($absenceRequests): foreach ($absenceRequests as $absence): ?>
-                            <tr>
-                                <td><?= h((string) $absence['start_date']) ?> → <?= h((string) $absence['end_date']) ?></td>
-                                <td><?= h((string) $absence['reason']) ?></td>
-                                <td><span class="badge text-bg-secondary"><?= h((string) $absence['status']) ?></span></td>
-                            </tr>
-                        <?php endforeach; else: ?>
-                            <tr><td colspan="3" class="text-muted">Sem ausências comunicadas.</td></tr>
-                        <?php endif; ?>
-                        </tbody>
-                    </table>
                 </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-lg-6">
-        <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <h2 class="h6">Estado de pedidos de férias</h2>
-                <div class="table-responsive">
-                    <table class="table table-sm mb-0">
-                        <thead><tr><th>Período</th><th>Dias</th><th>Estado</th></tr></thead>
-                        <tbody>
-                        <?php if ($vacationRequests): foreach ($vacationRequests as $vacation): ?>
-                            <tr>
-                                <td><?= h((string) $vacation['start_date']) ?> → <?= h((string) $vacation['end_date']) ?></td>
-                                <td><?= h(number_format((float) ($vacation['total_days'] ?? 0), 1, ',', '.')) ?></td>
-                                <td><span class="badge text-bg-secondary"><?= h((string) $vacation['status']) ?></span></td>
-                            </tr>
-                        <?php endforeach; else: ?>
-                            <tr><td colspan="3" class="text-muted">Sem pedidos de férias.</td></tr>
-                        <?php endif; ?>
-                        </tbody>
-                    </table>
+                <div class="full">
+                    <label class="form-label">Notas</label>
+                    <textarea name="notes" class="form-control" rows="2" placeholder="Observações opcionais"></textarea>
                 </div>
-            </div>
+                <div class="full">
+                    <button type="submit" class="btn btn-warning w-100 fw-semibold">Submeter pedido</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-sm shopfloor-table mb-0">
+                <thead><tr><th>Início</th><th>Fim</th><th>Dias</th><th>Estado</th></tr></thead>
+                <tbody>
+                <?php if ($vacationRequests): foreach ($vacationRequests as $vacation): ?>
+                    <tr>
+                        <td><?= h((string) $vacation['start_date']) ?></td>
+                        <td><?= h((string) $vacation['end_date']) ?></td>
+                        <td><?= h(number_format((float) ($vacation['total_days'] ?? 0), 1, ',', '.')) ?></td>
+                        <td><span class="badge shopfloor-status-pill"><?= h((string) $vacation['status']) ?></span></td>
+                    </tr>
+                <?php endforeach; else: ?>
+                    <tr><td colspan="4" class="text-secondary">Sem pedidos de férias.</td></tr>
+                <?php endif; ?>
+                </tbody>
+            </table>
         </div>
     </div>
-</div>
 
-<div class="row g-3">
-    <div class="col-lg-6">
-        <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <h2 class="h6">Histórico de justificações</h2>
+    <div class="row g-3">
+        <div class="col-xl-6">
+            <div class="shopfloor-panel h-100">
+                <h2 class="h5 mb-3">Histórico do dia (ponto)</h2>
                 <ul class="list-group list-group-flush">
-                    <?php if ($justifications): foreach ($justifications as $justification): ?>
-                        <li class="list-group-item px-0">
-                            <div class="fw-semibold"><?= h((string) $justification['event_date']) ?> <span class="badge text-bg-light"><?= h((string) $justification['status']) ?></span></div>
-                            <div class="small text-muted"><?= h((string) $justification['description']) ?></div>
+                    <?php if ($todayEntries): foreach ($todayEntries as $entry): ?>
+                        <li class="list-group-item shopfloor-list-item">
+                            <span class="fw-semibold"><?= $entry['entry_type'] === 'entrada' ? 'Entrada' : 'Saída' ?></span>
+                            <span class="text-secondary small ms-2"><?= h(date('H:i:s', strtotime((string) $entry['occurred_at']))) ?></span>
+                            <?php if (!empty($entry['note'])): ?>
+                                <div class="small text-secondary mt-1"><?= h((string) $entry['note']) ?></div>
+                            <?php endif; ?>
                         </li>
                     <?php endforeach; else: ?>
-                        <li class="list-group-item px-0 text-muted">Sem justificações submetidas.</li>
+                        <li class="list-group-item shopfloor-list-item text-secondary">Sem registos de ponto hoje.</li>
                     <?php endif; ?>
                 </ul>
             </div>
         </div>
-    </div>
-    <div class="col-lg-6">
-        <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <h2 class="h6">Comunicados da chefia / RH</h2>
+        <div class="col-xl-6">
+            <div class="shopfloor-panel h-100">
+                <h2 class="h5 mb-3">Comunicados da chefia / RH</h2>
                 <ul class="list-group list-group-flush mb-3">
                     <?php if ($announcements): foreach ($announcements as $announcement): ?>
-                        <li class="list-group-item px-0">
+                        <li class="list-group-item shopfloor-list-item">
                             <div class="fw-semibold"><?= h((string) $announcement['title']) ?></div>
-                            <div class="small text-muted mb-1">Por <?= h((string) $announcement['created_by_name']) ?> em <?= h((string) $announcement['created_at']) ?></div>
+                            <div class="small text-secondary mb-1">Por <?= h((string) $announcement['created_by_name']) ?> em <?= h((string) $announcement['created_at']) ?></div>
                             <div><?= nl2br(h((string) $announcement['body'])) ?></div>
                         </li>
                     <?php endforeach; else: ?>
-                        <li class="list-group-item px-0 text-muted">Sem comunicados ativos.</li>
+                        <li class="list-group-item shopfloor-list-item text-secondary">Sem comunicados ativos.</li>
                     <?php endif; ?>
                 </ul>
 
-                <?php if ($isAdmin || $profile === 'RH'): ?>
+                <?php if ($isAdmin || $isRh): ?>
                     <h3 class="h6">Publicar comunicado</h3>
                     <form method="post" class="vstack gap-2">
                         <input type="hidden" name="action" value="publish_announcement">
                         <input type="text" name="title" class="form-control" placeholder="Título" required>
                         <textarea name="body" class="form-control" rows="3" placeholder="Mensagem" required></textarea>
-                        <button type="submit" class="btn btn-outline-primary">Publicar</button>
+                        <button type="submit" class="btn btn-outline-warning">Publicar</button>
                     </form>
                 <?php endif; ?>
             </div>
         </div>
     </div>
-</div>
+
+    <?php if ($justifications): ?>
+        <div class="shopfloor-panel mt-4">
+            <h2 class="h5 mb-3">Últimas justificações submetidas</h2>
+            <div class="table-responsive">
+                <table class="table table-sm shopfloor-table mb-0">
+                    <thead><tr><th>Data</th><th>Descrição</th><th>Estado</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($justifications as $justification): ?>
+                        <tr>
+                            <td><?= h((string) $justification['event_date']) ?></td>
+                            <td><?= h((string) $justification['description']) ?></td>
+                            <td><span class="badge shopfloor-status-pill"><?= h((string) $justification['status']) ?></span></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    <?php endif; ?>
+</section>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>
