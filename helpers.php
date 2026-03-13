@@ -32,11 +32,23 @@ function current_user(PDO $pdo): ?array
         return null;
     }
 
-    $stmt = $pdo->prepare('SELECT id, name, email, is_admin FROM users WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, name, email, is_admin, access_profile FROM users WHERE id = ?');
     $stmt->execute([$_SESSION['user_id']]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
     return $user ?: null;
+}
+
+function can_access_hr_module(PDO $pdo, int $userId): bool
+{
+    $stmt = $pdo->prepare('SELECT is_admin, access_profile FROM users WHERE id = ?');
+    $stmt->execute([$userId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        return false;
+    }
+
+    return (int) ($row['is_admin'] ?? 0) === 1 || (string) ($row['access_profile'] ?? '') === 'RH';
 }
 
 function is_admin(PDO $pdo, int $userId): bool

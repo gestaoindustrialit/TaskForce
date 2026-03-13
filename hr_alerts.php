@@ -3,9 +3,9 @@ require_once __DIR__ . '/helpers.php';
 require_login();
 
 $userId = (int) $_SESSION['user_id'];
-if (!is_admin($pdo, $userId)) {
+if (!can_access_hr_module($pdo, $userId)) {
     http_response_code(403);
-    exit('Acesso reservado a administradores.');
+    exit('Acesso reservado a administradores e equipa RH.');
 }
 
 $flashSuccess = null;
