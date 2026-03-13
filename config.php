@@ -282,6 +282,97 @@ $pdo->exec(
     )'
 );
 
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_hour_banks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL UNIQUE,
+        balance_hours REAL NOT NULL DEFAULT 0,
+        notes TEXT,
+        updated_by INTEGER,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_time_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        entry_type TEXT NOT NULL,
+        note TEXT,
+        occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_absence_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        details TEXT,
+        status TEXT NOT NULL DEFAULT "Pendente",
+        reviewed_by INTEGER,
+        reviewed_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_justifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        absence_request_id INTEGER,
+        event_date TEXT NOT NULL,
+        description TEXT NOT NULL,
+        attachment_path TEXT,
+        status TEXT NOT NULL DEFAULT "Submetida",
+        reviewed_by INTEGER,
+        reviewed_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(absence_request_id) REFERENCES shopfloor_absence_requests(id) ON DELETE SET NULL,
+        FOREIGN KEY(reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_vacation_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        total_days REAL,
+        notes TEXT,
+        status TEXT NOT NULL DEFAULT "Pendente",
+        reviewed_by INTEGER,
+        reviewed_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_announcements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        audience TEXT NOT NULL DEFAULT "shopfloor",
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
 $defaultGroupStmt = $pdo->prepare('INSERT OR IGNORE INTO hr_department_groups(name) VALUES (?)');
 foreach (['Produção', 'Controlo', 'Administrativos'] as $defaultGroupName) {
     $defaultGroupStmt->execute([$defaultGroupName]);
