@@ -313,7 +313,9 @@ $pdo->exec(
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS shopfloor_absence_reasons (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT,
         label TEXT NOT NULL UNIQUE,
+        color TEXT NOT NULL DEFAULT "#2563eb",
         is_active INTEGER NOT NULL DEFAULT 1,
         created_by INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -321,15 +323,27 @@ $pdo->exec(
     )'
 );
 
-$defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(label, is_active, created_by) VALUES (?, 1, NULL)');
+$absenceReasonColumns = $pdo->query('PRAGMA table_info(shopfloor_absence_reasons)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('code', $absenceReasonColumns, true)) {
+    $pdo->exec('ALTER TABLE shopfloor_absence_reasons ADD COLUMN code TEXT');
+}
+if (!in_array('color', $absenceReasonColumns, true)) {
+    $pdo->exec('ALTER TABLE shopfloor_absence_reasons ADD COLUMN color TEXT NOT NULL DEFAULT "#2563eb"');
+}
+
+$pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_reasons_code ON shopfloor_absence_reasons(code) WHERE code IS NOT NULL AND TRIM(code) <> ""');
+$pdo->exec('UPDATE shopfloor_absence_reasons SET color = "#2563eb" WHERE color IS NULL OR TRIM(color) = ""');
+$pdo->exec('UPDATE shopfloor_absence_reasons SET code = printf("MOT-%03d", id) WHERE code IS NULL OR TRIM(code) = ""');
+
+$defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(code, label, color, is_active, created_by) VALUES (?, ?, ?, 1, NULL)');
 foreach ([
-    'Falta sem perda de remuneração',
-    'Consulta médica',
-    'Acompanhamento familiar',
-    'Formação externa',
-    'Outro motivo justificado'
+    ['MOT-001', 'Falta sem perda de remuneração', '#0d6efd'],
+    ['MOT-002', 'Consulta médica', '#198754'],
+    ['MOT-003', 'Acompanhamento familiar', '#fd7e14'],
+    ['MOT-004', 'Formação externa', '#6f42c1'],
+    ['MOT-005', 'Outro motivo justificado', '#6c757d']
 ] as $defaultAbsenceReason) {
-    $defaultAbsenceReasonStmt->execute([$defaultAbsenceReason]);
+    $defaultAbsenceReasonStmt->execute($defaultAbsenceReason);
 }
 
 $pdo->exec(
