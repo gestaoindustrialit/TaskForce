@@ -39,16 +39,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $reasonId = (int) ($_POST['reason_id'] ?? 0);
         $details = trim((string) ($_POST['details'] ?? ''));
 
-        $reasonStmt = $pdo->prepare('SELECT label FROM shopfloor_absence_reasons WHERE id = ? AND is_active = 1 LIMIT 1');
+        $reasonStmt = $pdo->prepare('SELECT code, label FROM shopfloor_absence_reasons WHERE id = ? AND is_active = 1 LIMIT 1');
         $reasonStmt->execute([$reasonId]);
-        $reasonLabel = $reasonStmt->fetchColumn();
+        $reasonData = $reasonStmt->fetch(PDO::FETCH_ASSOC);
 
-        if ($startDate === '' || $endDate === '' || !$reasonLabel) {
+        if ($startDate === '' || $endDate === '' || !$reasonData) {
             $flashError = 'Preencha datas e selecione um motivo para comunicar ausência.';
         } elseif ($endDate < $startDate) {
             $flashError = 'A data final da ausência não pode ser anterior à inicial.';
         } else {
-            $reason = (string) $reasonLabel;
+            $reason = trim((string) ($reasonData['code'] ?? '')) . ' - ' . trim((string) ($reasonData['label'] ?? ''));
             $stmt = $pdo->prepare('INSERT INTO shopfloor_absence_requests(user_id, start_date, end_date, reason, details) VALUES (?, ?, ?, ?, ?)');
             $stmt->execute([$userId, $startDate, $endDate, $reason, $details !== '' ? $details : null]);
             log_app_event($pdo, $userId, 'shopfloor.absence.create', 'Comunicação de ausência submetida.', ['start_date' => $startDate, 'end_date' => $endDate, 'reason_id' => $reasonId]);
@@ -128,7 +128,7 @@ $todayEntriesStmt = $pdo->prepare('SELECT entry_type, note, occurred_at FROM sho
 $todayEntriesStmt->execute([$userId]);
 $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$absenceReasons = $pdo->query('SELECT id, label FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY label COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
+$absenceReasons = $pdo->query('SELECT id, code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY label COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
 
 $absenceRequestsStmt = $pdo->prepare('SELECT id, start_date, end_date, reason, details, status, created_at FROM shopfloor_absence_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 10');
 $absenceRequestsStmt->execute([$userId]);
@@ -227,7 +227,7 @@ require __DIR__ . '/partials/header.php';
                     <select name="reason_id" class="form-select" required>
                         <option value="">Selecionar motivo</option>
                         <?php foreach ($absenceReasons as $reasonOption): ?>
-                            <option value="<?= (int) $reasonOption['id'] ?>"><?= h((string) $reasonOption['label']) ?></option>
+                            <option value="<?= (int) $reasonOption['id'] ?>"><?= h((string) $reasonOption['code']) ?> — <?= h((string) $reasonOption['label']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
