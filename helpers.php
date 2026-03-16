@@ -66,11 +66,22 @@ function verify_pin_code(array $user, string $pin): bool
     }
 
     $hash = (string) ($user['pin_code_hash'] ?? '');
-    if ($hash === '') {
+    if ($hash !== '') {
+        return password_verify($pin, $hash);
+    }
+
+    // Compatibilidade com instalações antigas onde o PIN podia ser guardado
+    // em texto simples na coluna legacy pin_code.
+    $legacyPin = (string) ($user['pin_code'] ?? '');
+    if ($legacyPin === '') {
         return false;
     }
 
-    return password_verify($pin, $hash);
+    if (preg_match('/^\d{6}$/', $legacyPin)) {
+        return hash_equals($legacyPin, $pin);
+    }
+
+    return password_verify($pin, $legacyPin);
 }
 
 function is_pin_only_user(array $user): bool

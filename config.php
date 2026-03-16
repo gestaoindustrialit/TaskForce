@@ -214,6 +214,9 @@ if (!in_array('schedule_id', $userColumns, true)) {
 if (!in_array('pin_code_hash', $userColumns, true)) {
     $pdo->exec('ALTER TABLE users ADD COLUMN pin_code_hash TEXT');
 }
+if (!in_array('pin_code', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN pin_code TEXT');
+}
 if (!in_array('pin_only_login', $userColumns, true)) {
     $pdo->exec('ALTER TABLE users ADD COLUMN pin_only_login INTEGER DEFAULT 0');
 }
