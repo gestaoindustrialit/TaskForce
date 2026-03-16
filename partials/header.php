@@ -54,6 +54,7 @@ header('Content-Type: text/html; charset=UTF-8');
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">RH</a>
                             <ul class="dropdown-menu">
                                 <li><a class="dropdown-item" href="hr.php">M&oacute;dulo RH</a></li>
+                                <li><a class="dropdown-item" href="users.php">Utilizadores</a></li>
                                 <li><a class="dropdown-item" href="hr_departments.php">Departamentos</a></li>
                                 <li><a class="dropdown-item" href="hr_schedules.php">Hor&aacute;rios</a></li>
                                 <li><a class="dropdown-item" href="hr_vacations.php">Calend&aacute;rio F&eacute;rias</a></li>
@@ -87,13 +88,6 @@ header('Content-Type: text/html; charset=UTF-8');
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Administra&ccedil;&atilde;o</a>
                             <ul class="dropdown-menu dropdown-menu-end dropdown-menu-lg-start">
                                 <li><a class="dropdown-item" href="company_profile.php">Empresa &amp; Branding</a></li>
-                                <li><a class="dropdown-item" href="users.php">Utilizadores</a></li>
-                                <li><a class="dropdown-item" href="hr.php">Módulo RH</a></li>
-                                <li><a class="dropdown-item" href="hr_departments.php">Departamentos</a></li>
-                                <li><a class="dropdown-item" href="hr_schedules.php">Horários</a></li>
-                                <li><a class="dropdown-item" href="hr_vacations.php">Calendário Férias</a></li>
-                                <li><a class="dropdown-item" href="hr_alerts.php">Alertas RH</a></li>
-                                <li><a class="dropdown-item" href="shopfloor_absence_reasons.php">Motivos de ausência</a></li>
                                 <li><a class="dropdown-item" href="app_logs.php">Logs da aplica&ccedil;&atilde;o</a></li>
                             </ul>
                         </div>
