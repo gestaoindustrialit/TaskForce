@@ -3,6 +3,7 @@ require_once __DIR__ . '/../helpers.php';
 $user = current_user($pdo);
 $navbarLogo = app_setting($pdo, 'logo_navbar_light');
 $showHrMenu = $user && ((int) ($user['is_admin'] ?? 0) === 1 || (string) ($user['access_profile'] ?? '') === 'RH');
+$isPinOnlyUser = $user && (int) ($user['pin_only_login'] ?? 0) === 1;
 header('Content-Type: text/html; charset=UTF-8');
 ?>
 <!doctype html>
@@ -43,6 +44,9 @@ header('Content-Type: text/html; charset=UTF-8');
             ?>
             <div class="collapse navbar-collapse" id="mainNavbar">
                 <div class="navbar-nav me-auto ms-lg-4">
+                    <?php if ($isPinOnlyUser): ?>
+                        <a class="nav-link" href="shopfloor.php">Shopfloor</a>
+                    <?php else: ?>
                     <a class="nav-link" href="dashboard.php">Vis&atilde;o geral</a>
                     <a class="nav-link" href="shopfloor.php">Shopfloor</a>
                     <?php if ($showHrMenu): ?>
@@ -93,6 +97,8 @@ header('Content-Type: text/html; charset=UTF-8');
                                 <li><a class="dropdown-item" href="app_logs.php">Logs da aplica&ccedil;&atilde;o</a></li>
                             </ul>
                         </div>
+                    <?php endif; ?>
+                </div>
                     <?php endif; ?>
                 </div>
                 <div class="navbar-user mt-3 mt-lg-0 ms-lg-auto d-flex flex-column flex-lg-row align-items-start align-items-lg-center gap-2 gap-lg-3 text-white">

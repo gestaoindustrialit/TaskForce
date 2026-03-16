@@ -32,7 +32,7 @@ function current_user(PDO $pdo): ?array
         return null;
     }
 
-    $stmt = $pdo->prepare('SELECT id, name, email, is_admin, access_profile FROM users WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, name, email, is_admin, access_profile, pin_only_login FROM users WHERE id = ?');
     $stmt->execute([$_SESSION['user_id']]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -58,6 +58,26 @@ function is_admin(PDO $pdo, int $userId): bool
     return (int) $stmt->fetchColumn() === 1;
 }
 
+
+function verify_pin_code(array $user, string $pin): bool
+{
+    if (!preg_match('/^\d{6}$/', $pin)) {
+        return false;
+    }
+
+    $hash = (string) ($user['pin_code_hash'] ?? '');
+    if ($hash === '') {
+        return false;
+    }
+
+    return password_verify($pin, $hash);
+}
+
+function is_pin_only_user(array $user): bool
+{
+    return (int) ($user['pin_only_login'] ?? 0) === 1;
+}
+
 function redirect(string $url): void
 {
     header('Location: ' . $url);
@@ -68,6 +88,22 @@ function require_login(): void
 {
     if (!is_logged_in()) {
         redirect('login.php');
+    }
+
+    global $pdo;
+    $user = current_user($pdo);
+    if (!$user) {
+        session_unset();
+        session_destroy();
+        redirect('login.php');
+    }
+
+    if (is_pin_only_user($user)) {
+        $allowedPages = ['shopfloor.php', 'logout.php'];
+        $currentPage = basename((string) ($_SERVER['SCRIPT_NAME'] ?? ''));
+        if (!in_array($currentPage, $allowedPages, true)) {
+            redirect('shopfloor.php');
+        }
     }
 }
 
