@@ -65,14 +65,20 @@ function verify_pin_code(array $user, string $pin): bool
         return false;
     }
 
-    $hash = (string) ($user['pin_code_hash'] ?? '');
+    $hash = trim((string) ($user['pin_code_hash'] ?? ''));
     if ($hash !== '') {
+        // Compatibilidade com dados legados: alguns ambientes guardaram
+        // o PIN em texto simples na própria coluna pin_code_hash.
+        if (preg_match('/^\d{6}$/', $hash)) {
+            return hash_equals($hash, $pin);
+        }
+
         return password_verify($pin, $hash);
     }
 
     // Compatibilidade com instalações antigas onde o PIN podia ser guardado
-    // em texto simples na coluna legacy pin_code.
-    $legacyPin = (string) ($user['pin_code'] ?? '');
+    // na coluna legacy pin_code.
+    $legacyPin = trim((string) ($user['pin_code'] ?? ''));
     if ($legacyPin === '') {
         return false;
     }
