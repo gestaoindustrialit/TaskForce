@@ -54,9 +54,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($action === 'login_pin' && $loginMode === 'pin') {
                 $pin = preg_replace('/\D+/', '', (string) ($_POST['pin'] ?? ''));
-                if (verify_pin_code($pendingUser, $pin)) {
-                    $_SESSION['user_id'] = (int) $pendingUser['id'];
-                    safe_log_app_event($pdo, (int) $pendingUser['id'], 'auth.login_success', 'Login com PIN efetuado com sucesso.');
+
+                $pinUsersStmt = $pdo->query('SELECT * FROM users WHERE is_active = 1 AND pin_only_login = 1');
+                $pinUsers = $pinUsersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                $matchedPinUser = null;
+                foreach ($pinUsers as $pinUser) {
+                    if (verify_pin_code($pinUser, $pin)) {
+                        $matchedPinUser = $pinUser;
+                        break;
+                    }
+                }
+
+                if ($matchedPinUser) {
+                    $_SESSION['user_id'] = (int) $matchedPinUser['id'];
+                    safe_log_app_event(
+                        $pdo,
+                        (int) $matchedPinUser['id'],
+                        'auth.login_success',
+                        'Login com PIN efetuado com sucesso.',
+                        ['login_email' => $email]
+                    );
                     redirect('shopfloor.php');
                 }
 
