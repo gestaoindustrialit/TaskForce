@@ -328,12 +328,12 @@ if (!in_array('code', $absenceReasonColumns, true)) {
     $pdo->exec('ALTER TABLE shopfloor_absence_reasons ADD COLUMN code TEXT');
 }
 if (!in_array('color', $absenceReasonColumns, true)) {
-    $pdo->exec('ALTER TABLE shopfloor_absence_reasons ADD COLUMN color TEXT NOT NULL DEFAULT "#2563eb"');
+    $pdo->exec("ALTER TABLE shopfloor_absence_reasons ADD COLUMN color TEXT NOT NULL DEFAULT '#2563eb'");
 }
 
-$pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_reasons_code ON shopfloor_absence_reasons(code) WHERE code IS NOT NULL AND TRIM(code) <> ""');
-$pdo->exec('UPDATE shopfloor_absence_reasons SET color = "#2563eb" WHERE color IS NULL OR TRIM(color) = ""');
-$pdo->exec('UPDATE shopfloor_absence_reasons SET code = printf("MOT-%03d", id) WHERE code IS NULL OR TRIM(code) = ""');
+$pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_reasons_code ON shopfloor_absence_reasons(code)');
+$pdo->exec("UPDATE shopfloor_absence_reasons SET color = '#2563eb' WHERE color IS NULL OR TRIM(color) = ''");
+$pdo->exec("UPDATE shopfloor_absence_reasons SET code = printf('MOT-%03d', id) WHERE code IS NULL OR TRIM(code) = ''");
 
 $defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(code, label, color, is_active, created_by) VALUES (?, ?, ?, 1, NULL)');
 foreach ([
