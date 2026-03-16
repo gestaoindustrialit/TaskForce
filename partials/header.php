@@ -103,6 +103,16 @@ header('Content-Type: text/html; charset=UTF-8');
                 </div>
                 <div class="navbar-user mt-3 mt-lg-0 ms-lg-auto d-flex flex-column flex-lg-row align-items-start align-items-lg-center gap-2 gap-lg-3 text-white">
                     <span class="small">Ol&aacute;, <?= h($user['name']) ?><?= (int) $user['is_admin'] === 1 ? ' &middot; Admin' : '' ?></span>
+                    <?php if (isset($navbarClockControl) && is_array($navbarClockControl)): ?>
+                        <form method="post" action="shopfloor.php" class="d-flex align-items-center gap-2 mb-0">
+                            <input type="hidden" name="action" value="clock_entry">
+                            <input type="hidden" name="entry_type" value="<?= h((string) ($navbarClockControl['entry_type'] ?? 'entrada')) ?>">
+                            <button type="submit" class="btn btn-sm fw-semibold <?= h((string) ($navbarClockControl['button_class'] ?? 'btn-primary')) ?>"><?= h((string) ($navbarClockControl['button_label'] ?? 'Ponto de entrada')) ?></button>
+                            <?php if (!empty($navbarClockControl['latest_time_label'])): ?>
+                                <span class="small text-white-50"><?= h((string) $navbarClockControl['latest_time_label']) ?></span>
+                            <?php endif; ?>
+                        </form>
+                    <?php endif; ?>
                     <a href="logout.php" class="btn btn-outline-light btn-sm">Sair</a>
                 </div>
             </div>

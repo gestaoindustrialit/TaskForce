@@ -128,6 +128,22 @@ $todayEntriesStmt = $pdo->prepare('SELECT entry_type, note, occurred_at FROM sho
 $todayEntriesStmt->execute([$userId]);
 $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$latestTodayEntry = $todayEntries[0] ?? null;
+$nextEntryType = $latestTodayEntry && (($latestTodayEntry['entry_type'] ?? '') === 'entrada') ? 'saida' : 'entrada';
+$clockButtonLabel = $nextEntryType === 'entrada' ? 'Ponto de entrada' : 'Ponto de saída';
+$clockButtonClass = $nextEntryType === 'entrada' ? 'btn-primary' : 'btn-outline-light';
+$latestEntryTimeLabel = null;
+if ($latestTodayEntry && !empty($latestTodayEntry['occurred_at'])) {
+    $latestTimestamp = strtotime((string) $latestTodayEntry['occurred_at']);
+    if ($latestTimestamp !== false) {
+        $latestEntryTimeLabel = sprintf(
+            '%s às %s',
+            (($latestTodayEntry['entry_type'] ?? '') === 'entrada') ? 'Entrada' : 'Saída',
+            date('H:i', $latestTimestamp)
+        );
+    }
+}
+
 $absenceReasons = $pdo->query('SELECT id, code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY label COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
 
 $absenceRequestsStmt = $pdo->prepare('SELECT id, start_date, end_date, reason, details, status, created_at FROM shopfloor_absence_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 10');
@@ -157,6 +173,12 @@ $formattedHourBank = sprintf('%02dh%02dm', (int) floor((float) $hourBank['balanc
 
 $pageTitle = 'Shopfloor';
 $bodyClass = 'bg-light';
+$navbarClockControl = [
+    'entry_type' => $nextEntryType,
+    'button_label' => $clockButtonLabel,
+    'button_class' => $clockButtonClass,
+    'latest_time_label' => $latestEntryTimeLabel,
+];
 require __DIR__ . '/partials/header.php';
 ?>
 
@@ -165,18 +187,6 @@ require __DIR__ . '/partials/header.php';
         <div>
             <h1 class="h4 mb-1">Gestão pessoal</h1>
             <p class="text-secondary mb-0">Pedidos ligados ao módulo de RH e respetivas justificações.</p>
-        </div>
-        <div class="d-flex flex-wrap gap-2 align-items-center justify-content-end">
-                        <form method="post" class="d-inline">
-                <input type="hidden" name="action" value="clock_entry">
-                <input type="hidden" name="entry_type" value="entrada">
-                <button type="submit" class="btn btn-primary btn-sm fw-semibold">Ponto de entrada</button>
-            </form>
-            <form method="post" class="d-inline">
-                <input type="hidden" name="action" value="clock_entry">
-                <input type="hidden" name="entry_type" value="saida">
-                <button type="submit" class="btn btn-outline-primary btn-sm fw-semibold">Ponto de saída</button>
-            </form>
         </div>
     </div>
 
