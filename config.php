@@ -392,8 +392,11 @@ $pdo->exec(
     'CREATE TABLE IF NOT EXISTS shopfloor_absence_requests (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
+        request_type TEXT NOT NULL DEFAULT "Dias inteiros",
         start_date TEXT NOT NULL,
         end_date TEXT NOT NULL,
+        start_time TEXT,
+        end_time TEXT,
         reason TEXT NOT NULL,
         details TEXT,
         status TEXT NOT NULL DEFAULT "Pendente",
@@ -404,6 +407,17 @@ $pdo->exec(
         FOREIGN KEY(reviewed_by) REFERENCES users(id) ON DELETE SET NULL
     )'
 );
+
+$absenceRequestColumns = $pdo->query('PRAGMA table_info(shopfloor_absence_requests)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('request_type', $absenceRequestColumns, true)) {
+    $pdo->exec("ALTER TABLE shopfloor_absence_requests ADD COLUMN request_type TEXT NOT NULL DEFAULT 'Dias inteiros'");
+}
+if (!in_array('start_time', $absenceRequestColumns, true)) {
+    $pdo->exec('ALTER TABLE shopfloor_absence_requests ADD COLUMN start_time TEXT');
+}
+if (!in_array('end_time', $absenceRequestColumns, true)) {
+    $pdo->exec('ALTER TABLE shopfloor_absence_requests ADD COLUMN end_time TEXT');
+}
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS shopfloor_justifications (
