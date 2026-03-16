@@ -211,6 +211,12 @@ if (!in_array('department_id', $userColumns, true)) {
 if (!in_array('schedule_id', $userColumns, true)) {
     $pdo->exec('ALTER TABLE users ADD COLUMN schedule_id INTEGER');
 }
+if (!in_array('pin_code_hash', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN pin_code_hash TEXT');
+}
+if (!in_array('pin_only_login', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN pin_only_login INTEGER DEFAULT 0');
+}
 
 $pdo->exec('UPDATE users SET username = email WHERE username IS NULL OR TRIM(username) = ""');
 $pdo->exec('UPDATE users SET access_profile = "Utilizador" WHERE access_profile IS NULL OR TRIM(access_profile) = ""');
@@ -221,6 +227,28 @@ $pdo->exec('UPDATE users SET email_notifications_active = 1 WHERE email_notifica
 $pdo->exec('UPDATE users SET sms_notifications_active = 0 WHERE sms_notifications_active IS NULL');
 $pdo->exec('UPDATE users SET timezone = "Europe/Lisbon" WHERE timezone IS NULL OR TRIM(timezone) = ""');
 $pdo->exec('UPDATE users SET send_access_email = 0 WHERE send_access_email IS NULL');
+$pdo->exec('UPDATE users SET pin_only_login = 0 WHERE pin_only_login IS NULL');
+
+$shopfloorEmail = 'shopfloor@calcadacorp.ch';
+$shopfloorStmt = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+$shopfloorStmt->execute([$shopfloorEmail]);
+$shopfloorUserId = (int) $shopfloorStmt->fetchColumn();
+if ($shopfloorUserId <= 0) {
+    $shopfloorInsert = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, pin_code_hash, pin_only_login) VALUES (?, ?, ?, ?, 0, "Utilizador", 1, ?, 1)');
+    $shopfloorInsert->execute([
+        'Shopfloor',
+        $shopfloorEmail,
+        $shopfloorEmail,
+        password_hash(bin2hex(random_bytes(12)), PASSWORD_DEFAULT),
+        password_hash('123456', PASSWORD_DEFAULT),
+    ]);
+} else {
+    $shopfloorUpdate = $pdo->prepare('UPDATE users SET access_profile = "Utilizador", is_active = 1, pin_only_login = 1, pin_code_hash = COALESCE(pin_code_hash, ?) WHERE id = ?');
+    $shopfloorUpdate->execute([
+        password_hash('123456', PASSWORD_DEFAULT),
+        $shopfloorUserId,
+    ]);
+}
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS hr_department_groups (
@@ -333,7 +361,13 @@ if (!in_array('color', $absenceReasonColumns, true)) {
 
 $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_reasons_code ON shopfloor_absence_reasons(code)');
 $pdo->exec("UPDATE shopfloor_absence_reasons SET color = '#2563eb' WHERE color IS NULL OR TRIM(color) = ''");
-$pdo->exec("UPDATE shopfloor_absence_reasons SET code = printf('MOT-%03d', id) WHERE code IS NULL OR TRIM(code) = ''");
+$missingAbsenceReasonCodes = $pdo->query("SELECT id FROM shopfloor_absence_reasons WHERE code IS NULL OR TRIM(code) = '' ORDER BY id ASC")->fetchAll(PDO::FETCH_COLUMN);
+if ($missingAbsenceReasonCodes) {
+    $absenceReasonCodeUpdateStmt = $pdo->prepare('UPDATE shopfloor_absence_reasons SET code = ? WHERE id = ?');
+    foreach ($missingAbsenceReasonCodes as $absenceReasonId) {
+        $absenceReasonCodeUpdateStmt->execute([sprintf('MOT-%03d', (int) $absenceReasonId), (int) $absenceReasonId]);
+    }
+}
 
 $defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(code, label, color, is_active, created_by) VALUES (?, ?, ?, 1, NULL)');
 foreach ([

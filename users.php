@@ -36,6 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $accessProfile = trim((string) ($_POST['access_profile'] ?? 'Utilizador'));
         $isActive = (int) ($_POST['is_active'] ?? 0);
         $mustChangePassword = (int) ($_POST['must_change_password'] ?? 0);
+        $pinCode = preg_replace('/\D+/', '', (string) ($_POST['pin_code'] ?? ''));
+        $pinOnlyLogin = (int) ($_POST['pin_only_login'] ?? 0);
 
         $userType = trim((string) ($_POST['user_type'] ?? 'Funcionário'));
         $userNumber = trim((string) ($_POST['user_number'] ?? ''));
@@ -63,6 +65,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($name === '' || $username === '' || $email === '' || $password === '') {
             $flashError = 'Preencha nome, utilizador, email e password para criar utilizador.';
+        } elseif ($pinCode !== '' && !preg_match('/^\d{6}$/', $pinCode)) {
+            $flashError = 'O PIN deve ter exatamente 6 dígitos.';
+        } elseif ($pinOnlyLogin === 1 && $pinCode === '') {
+            $flashError = 'Defina um PIN de 6 dígitos para login apenas com PIN.';
         } else {
             if (!in_array($accessProfile, $accessProfileOptions, true)) {
                 $accessProfile = 'Utilizador';
@@ -79,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             try {
-                $stmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                $stmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, pin_code_hash, pin_only_login, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
                 $stmt->execute([
                     $name,
                     $username,
@@ -89,6 +95,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $accessProfile,
                     $isActive,
                     $mustChangePassword,
+                    $pinCode !== '' ? password_hash($pinCode, PASSWORD_DEFAULT) : null,
+                    $pinOnlyLogin,
                     $userType,
                     $userNumber,
                     $title,
@@ -127,6 +135,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $accessProfile = trim((string) ($_POST['access_profile'] ?? 'Utilizador'));
         $isActive = (int) ($_POST['is_active'] ?? 0);
         $mustChangePassword = (int) ($_POST['must_change_password'] ?? 0);
+        $pinCode = preg_replace('/\D+/', '', (string) ($_POST['pin_code'] ?? ''));
+        $pinOnlyLogin = (int) ($_POST['pin_only_login'] ?? 0);
 
         $userType = trim((string) ($_POST['user_type'] ?? 'Funcionário'));
         $userNumber = trim((string) ($_POST['user_number'] ?? ''));
@@ -171,11 +181,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             try {
                 if ($password !== '') {
-                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
-                    $stmt->execute([$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, pin_code_hash = COALESCE(?, pin_code_hash), pin_only_login = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
+                    $stmt->execute([$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $pinCode !== '' ? password_hash($pinCode, PASSWORD_DEFAULT) : null, $pinOnlyLogin, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
                 } else {
-                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
-                    $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, pin_code_hash = COALESCE(?, pin_code_hash), pin_only_login = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
+                    $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $pinCode !== '' ? password_hash($pinCode, PASSWORD_DEFAULT) : null, $pinOnlyLogin, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
                 }
                 $flashSuccess = 'Utilizador atualizado com sucesso.';
             } catch (PDOException $e) {
@@ -195,7 +205,7 @@ if ($page > $totalPages) {
     $offset = ($page - 1) * $perPage;
 }
 
-$usersStmt = $pdo->prepare('SELECT id, name, username, email, is_admin, access_profile, is_active, must_change_password, created_at, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?');
+$usersStmt = $pdo->prepare('SELECT id, name, username, email, is_admin, access_profile, is_active, must_change_password, pin_only_login, created_at, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?');
 $usersStmt->bindValue(1, $perPage, PDO::PARAM_INT);
 $usersStmt->bindValue(2, $offset, PDO::PARAM_INT);
 $usersStmt->execute();
@@ -301,6 +311,7 @@ require __DIR__ . '/partials/header.php';
                         </select>
                     </div>
                     <div class="col-md-4"><label class="form-label">Password</label><input class="form-control" type="password" name="password" placeholder="Password" required></div>
+                    <div class="col-md-4"><label class="form-label">PIN (6 dígitos)</label><input class="form-control" type="text" name="pin_code" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="Opcional"></div>
 
                     <div class="col-md-6"><input class="form-control" name="profession" placeholder="Profissão"></div>
                     <div class="col-md-6"><input class="form-control" name="category" placeholder="Categoria"></div>
@@ -348,6 +359,7 @@ require __DIR__ . '/partials/header.php';
                     <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="sms_notifications_active" value="1" id="smsNotificationsActive"><label class="form-check-label" for="smsNotificationsActive">Ativo para SMS</label></div>
                     <div class="col-md-6 form-check"><input class="form-check-input" type="checkbox" name="send_access_email" value="1" id="sendAccessEmail"><label class="form-check-label" for="sendAccessEmail">Enviar dados de acesso</label></div>
                     <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="must_change_password" value="1" id="mustChangePassword"><label class="form-check-label" for="mustChangePassword">Obrigar alteração da senha no próximo login</label></div>
+                    <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="pin_only_login" value="1" id="pinOnlyLogin"><label class="form-check-label" for="pinOnlyLogin">Login apenas com PIN (Shopfloor)</label></div>
                 </div>
             </div>
             <div class="modal-footer"><button class="btn btn-primary">Criar utilizador</button></div>
@@ -386,6 +398,7 @@ require __DIR__ . '/partials/header.php';
                         </select>
                     </div>
                     <div class="col-md-4"><label class="form-label">Nova password (opcional)</label><input class="form-control" type="password" name="password" placeholder="Nova password (opcional)"></div>
+                    <div class="col-md-4"><label class="form-label">Novo PIN (6 dígitos)</label><input class="form-control" type="text" name="pin_code" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="Opcional"></div>
 
                     <div class="col-md-6"><input class="form-control" name="profession" value="<?= h((string) ($user['profession'] ?? '')) ?>" placeholder="Profissão"></div>
                     <div class="col-md-6"><input class="form-control" name="category" value="<?= h((string) ($user['category'] ?? '')) ?>" placeholder="Categoria"></div>
@@ -433,6 +446,7 @@ require __DIR__ . '/partials/header.php';
                     <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="sms_notifications_active" value="1" id="smsNotificationsActiveEdit<?= (int) $user['id'] ?>" <?= (int) ($user['sms_notifications_active'] ?? 0) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="smsNotificationsActiveEdit<?= (int) $user['id'] ?>">Ativo para SMS</label></div>
                     <div class="col-md-6 form-check"><input class="form-check-input" type="checkbox" name="send_access_email" value="1" id="sendAccessEmailEdit<?= (int) $user['id'] ?>" <?= (int) ($user['send_access_email'] ?? 0) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="sendAccessEmailEdit<?= (int) $user['id'] ?>">Enviar dados de acesso</label></div>
                     <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="must_change_password" value="1" id="mustChangePasswordEdit<?= (int) $user['id'] ?>" <?= (int) ($user['must_change_password'] ?? 0) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="mustChangePasswordEdit<?= (int) $user['id'] ?>">Obrigar alteração da senha no próximo login</label></div>
+                    <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="pin_only_login" value="1" id="pinOnlyLoginEdit<?= (int) $user['id'] ?>" <?= (int) ($user['pin_only_login'] ?? 0) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="pinOnlyLoginEdit<?= (int) $user['id'] ?>">Login apenas com PIN (Shopfloor)</label></div>
                 </div>
             </div>
             <div class="modal-footer"><button class="btn btn-primary">Guardar utilizador</button></div>
