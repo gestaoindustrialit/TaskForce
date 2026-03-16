@@ -292,9 +292,33 @@ $pdo->exec(
         status TEXT NOT NULL DEFAULT "Aprovado",
         notes TEXT,
         created_by INTEGER,
+        total_days REAL NOT NULL DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
+$vacationEventColumns = $pdo->query('PRAGMA table_info(hr_vacation_events)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('total_days', $vacationEventColumns, true)) {
+    $pdo->exec('ALTER TABLE hr_vacation_events ADD COLUMN total_days REAL NOT NULL DEFAULT 0');
+}
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hr_vacation_balances (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        year INTEGER NOT NULL,
+        assigned_days REAL NOT NULL DEFAULT 0,
+        employee_number TEXT,
+        shift_time TEXT NOT NULL DEFAULT "08:00",
+        is_active INTEGER NOT NULL DEFAULT 1,
+        updated_by INTEGER,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, year),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE SET NULL
     )'
 );
 
