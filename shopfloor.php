@@ -754,6 +754,19 @@ require __DIR__ . '/partials/header.php';
     </div>
 </div>
 
+<div class="modal fade" id="justificationLightbox" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content bg-dark border-0">
+            <div class="modal-header border-0">
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body text-center pt-0">
+                <img src="" alt="Anexo da justificação" id="justificationLightboxImage" class="img-fluid rounded">
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 (() => {
     const typeSelect = document.getElementById('absenceRequestType');
