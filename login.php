@@ -137,7 +137,6 @@ require __DIR__ . '/partials/header.php';
                     </script>
                 <?php endif; ?>
 
-                <p class="small mt-4 mb-0 text-center">Ainda não tens conta? <a href="register.php">Registar</a></p>
             </div>
         </div>
     </div>
