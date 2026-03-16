@@ -361,7 +361,13 @@ if (!in_array('color', $absenceReasonColumns, true)) {
 
 $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_reasons_code ON shopfloor_absence_reasons(code)');
 $pdo->exec("UPDATE shopfloor_absence_reasons SET color = '#2563eb' WHERE color IS NULL OR TRIM(color) = ''");
-$pdo->exec("UPDATE shopfloor_absence_reasons SET code = printf('MOT-%03d', id) WHERE code IS NULL OR TRIM(code) = ''");
+$missingAbsenceReasonCodes = $pdo->query("SELECT id FROM shopfloor_absence_reasons WHERE code IS NULL OR TRIM(code) = '' ORDER BY id ASC")->fetchAll(PDO::FETCH_COLUMN);
+if ($missingAbsenceReasonCodes) {
+    $absenceReasonCodeUpdateStmt = $pdo->prepare('UPDATE shopfloor_absence_reasons SET code = ? WHERE id = ?');
+    foreach ($missingAbsenceReasonCodes as $absenceReasonId) {
+        $absenceReasonCodeUpdateStmt->execute([sprintf('MOT-%03d', (int) $absenceReasonId), (int) $absenceReasonId]);
+    }
+}
 
 $defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(code, label, color, is_active, created_by) VALUES (?, ?, ?, 1, NULL)');
 foreach ([
