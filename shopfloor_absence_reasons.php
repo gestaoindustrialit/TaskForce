@@ -19,22 +19,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = trim((string) ($_POST['action'] ?? ''));
 
     if ($action === 'create_reason') {
-        $code = strtoupper(trim((string) ($_POST['code'] ?? '')));
         $label = trim((string) ($_POST['label'] ?? ''));
-        $color = strtolower(trim((string) ($_POST['color'] ?? '#2563eb')));
+        $defaultColor = '#2563eb';
 
-        if ($code === '' || $label === '') {
-            $flashError = 'Indique o código e a descrição do motivo.';
-        } elseif (!preg_match('/^#[0-9a-f]{6}$/i', $color)) {
-            $flashError = 'Cor inválida. Utilize o formato hexadecimal, ex.: #2563eb.';
+        if ($label === '') {
+            $flashError = 'Indique a descrição do motivo.';
         } else {
             try {
-                $stmt = $pdo->prepare('INSERT INTO shopfloor_absence_reasons(code, label, color, is_active, created_by) VALUES (?, ?, ?, 1, ?)');
-                $stmt->execute([$code, $label, $color, $userId]);
-                log_app_event($pdo, $userId, 'shopfloor.absence_reason.create', 'Motivo de ausência criado.', ['code' => $code, 'label' => $label, 'color' => $color]);
+                $pdo->beginTransaction();
+
+                $stmt = $pdo->prepare('INSERT INTO shopfloor_absence_reasons(code, label, color, is_active, created_by) VALUES (NULL, ?, ?, 1, ?)');
+                $stmt->execute([$label, $defaultColor, $userId]);
+
+                $reasonId = (int) $pdo->lastInsertId();
+                $generatedCode = sprintf('MOT-%03d', $reasonId);
+                $updateStmt = $pdo->prepare('UPDATE shopfloor_absence_reasons SET code = ? WHERE id = ?');
+                $updateStmt->execute([$generatedCode, $reasonId]);
+
+                $pdo->commit();
+
+                log_app_event($pdo, $userId, 'shopfloor.absence_reason.create', 'Motivo de ausência criado.', ['code' => $generatedCode, 'label' => $label, 'color' => $defaultColor]);
                 $flashSuccess = 'Motivo criado com sucesso.';
             } catch (PDOException $exception) {
-                $flashError = 'Não foi possível criar o motivo (código ou descrição já existe).';
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                $flashError = 'Não foi possível criar o motivo (descrição já existe).';
             }
         }
     }
@@ -69,22 +79,14 @@ require __DIR__ . '/partials/header.php';
 
 <div class="card shadow-sm mb-4">
     <div class="card-body">
-        <h2 class="h6">Novo motivo</h2>
+        <h2 class="h4 mb-3">Novo motivo</h2>
         <form method="post" class="row g-2 align-items-end">
             <input type="hidden" name="action" value="create_reason">
-            <div class="col-md-2">
-                <label class="form-label">Código</label>
-                <input type="text" name="code" class="form-control" placeholder="Ex.: MOT-006" maxlength="20" required>
-            </div>
-            <div class="col-md-7">
+            <div class="col-md-9">
                 <label class="form-label">Descrição do motivo</label>
                 <input type="text" name="label" class="form-control" placeholder="Ex.: Falta sem perda de remuneração" required>
             </div>
-            <div class="col-md-1">
-                <label class="form-label">Cor</label>
-                <input type="color" name="color" class="form-control form-control-color w-100" value="#2563eb" title="Escolher cor" required>
-            </div>
-            <div class="col-md-2 d-grid">
+            <div class="col-md-3 d-grid">
                 <button type="submit" class="btn btn-primary">Adicionar motivo</button>
             </div>
         </form>
@@ -93,21 +95,21 @@ require __DIR__ . '/partials/header.php';
 
 <div class="card shadow-sm">
     <div class="card-body">
-        <h2 class="h6">Lista de motivos</h2>
+        <h2 class="h4 mb-3">Lista de motivos</h2>
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-0">
-                <thead><tr><th>Código</th><th>Descrição</th><th>Cor</th><th>Criado em</th><th>Estado</th><th class="text-end">Ação</th></tr></thead>
+                <thead>
+                <tr>
+                    <th>Motivo</th>
+                    <th>Criado em</th>
+                    <th>Estado</th>
+                    <th class="text-end">Ação</th>
+                </tr>
+                </thead>
                 <tbody>
                 <?php if ($reasons): foreach ($reasons as $reason): ?>
                     <tr>
-                        <td class="fw-semibold"><?= h((string) $reason['code']) ?></td>
-                        <td><?= h((string) $reason['label']) ?></td>
-                        <td>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="shopfloor-dot" style="background: <?= h((string) $reason['color']) ?>;"></span>
-                                <span class="small text-secondary"><?= h((string) $reason['color']) ?></span>
-                            </div>
-                        </td>
+                        <td class="fw-semibold"><?= h((string) $reason['label']) ?></td>
                         <td><?= h((string) $reason['created_at']) ?></td>
                         <td>
                             <?php if ((int) $reason['is_active'] === 1): ?>
@@ -128,7 +130,7 @@ require __DIR__ . '/partials/header.php';
                         </td>
                     </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="6" class="text-muted">Sem motivos registados.</td></tr>
+                    <tr><td colspan="4" class="text-muted">Sem motivos registados.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
