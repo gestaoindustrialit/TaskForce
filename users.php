@@ -37,6 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $isActive = (int) ($_POST['is_active'] ?? 0);
         $mustChangePassword = (int) ($_POST['must_change_password'] ?? 0);
         $pinCode = preg_replace('/\D+/', '', (string) ($_POST['pin_code'] ?? ''));
+        $pinCodeHash = $pinCode !== '' ? password_hash($pinCode, PASSWORD_DEFAULT) : null;
         $pinOnlyLogin = (int) ($_POST['pin_only_login'] ?? 0);
 
         $userType = trim((string) ($_POST['user_type'] ?? 'Funcionário'));
@@ -85,7 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             try {
-                $stmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, pin_code_hash, pin_only_login, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                $stmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, pin_code_hash, pin_code, pin_only_login, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
                 $stmt->execute([
                     $name,
                     $username,
@@ -95,7 +96,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $accessProfile,
                     $isActive,
                     $mustChangePassword,
-                    $pinCode !== '' ? password_hash($pinCode, PASSWORD_DEFAULT) : null,
+                    $pinCodeHash,
+                    $pinCodeHash,
                     $pinOnlyLogin,
                     $userType,
                     $userNumber,
@@ -136,6 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $isActive = (int) ($_POST['is_active'] ?? 0);
         $mustChangePassword = (int) ($_POST['must_change_password'] ?? 0);
         $pinCode = preg_replace('/\D+/', '', (string) ($_POST['pin_code'] ?? ''));
+        $pinCodeHash = $pinCode !== '' ? password_hash($pinCode, PASSWORD_DEFAULT) : null;
         $pinOnlyLogin = (int) ($_POST['pin_only_login'] ?? 0);
 
         $userType = trim((string) ($_POST['user_type'] ?? 'Funcionário'));
@@ -181,11 +184,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             try {
                 if ($password !== '') {
-                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, pin_code_hash = COALESCE(?, pin_code_hash), pin_only_login = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
-                    $stmt->execute([$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $pinCode !== '' ? password_hash($pinCode, PASSWORD_DEFAULT) : null, $pinOnlyLogin, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, pin_code_hash = COALESCE(?, pin_code_hash), pin_code = COALESCE(?, pin_code), pin_only_login = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
+                    $stmt->execute([$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $pinCodeHash, $pinCodeHash, $pinOnlyLogin, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
                 } else {
-                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, pin_code_hash = COALESCE(?, pin_code_hash), pin_only_login = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
-                    $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $pinCode !== '' ? password_hash($pinCode, PASSWORD_DEFAULT) : null, $pinOnlyLogin, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, pin_code_hash = COALESCE(?, pin_code_hash), pin_code = COALESCE(?, pin_code), pin_only_login = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
+                    $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $pinCodeHash, $pinCodeHash, $pinOnlyLogin, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
                 }
                 $flashSuccess = 'Utilizador atualizado com sucesso.';
             } catch (PDOException $e) {
@@ -312,11 +315,10 @@ require __DIR__ . '/partials/header.php';
                     </div>
                     <div class="col-md-4"><label class="form-label">Password</label><input class="form-control" type="password" name="password" placeholder="Password" required></div>
                     <div class="col-md-4"><label class="form-label">PIN (6 dígitos)</label><input class="form-control" type="text" name="pin_code" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="Opcional"></div>
-
-                    <div class="col-md-6"><input class="form-control" name="profession" placeholder="Profissão"></div>
-                    <div class="col-md-6"><input class="form-control" name="category" placeholder="Categoria"></div>
-                    <div class="col-md-6"><input class="form-control" name="manager_name" placeholder="Responsável"></div>
-                    <div class="col-md-3">
+                    <div class="col-md-4"><label class="form-label">Profissão</label><input class="form-control" name="profession" placeholder="Profissão"></div>
+                    <div class="col-md-4"><label class="form-label">Categoria</label><input class="form-control" name="category" placeholder="Categoria"></div>
+                    <div class="col-md-4"><label class="form-label">Responsável</label><input class="form-control" name="manager_name" placeholder="Responsável"></div>
+                    <div class="col-md-4">
                         <label class="form-label">Departamento</label>
                         <select class="form-select" name="department_id">
                             <option value="">Sem departamento</option>
@@ -325,7 +327,7 @@ require __DIR__ . '/partials/header.php';
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <label class="form-label">Horário</label>
                         <select class="form-select" name="schedule_id">
                             <option value="">Sem horário</option>
@@ -399,11 +401,10 @@ require __DIR__ . '/partials/header.php';
                     </div>
                     <div class="col-md-4"><label class="form-label">Nova password (opcional)</label><input class="form-control" type="password" name="password" placeholder="Nova password (opcional)"></div>
                     <div class="col-md-4"><label class="form-label">Novo PIN (6 dígitos)</label><input class="form-control" type="text" name="pin_code" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="Opcional"></div>
-
-                    <div class="col-md-6"><input class="form-control" name="profession" value="<?= h((string) ($user['profession'] ?? '')) ?>" placeholder="Profissão"></div>
-                    <div class="col-md-6"><input class="form-control" name="category" value="<?= h((string) ($user['category'] ?? '')) ?>" placeholder="Categoria"></div>
-                    <div class="col-md-6"><input class="form-control" name="manager_name" value="<?= h((string) ($user['manager_name'] ?? '')) ?>" placeholder="Responsável"></div>
-                    <div class="col-md-3">
+                    <div class="col-md-4"><label class="form-label">Profissão</label><input class="form-control" name="profession" value="<?= h((string) ($user['profession'] ?? '')) ?>" placeholder="Profissão"></div>
+                    <div class="col-md-4"><label class="form-label">Categoria</label><input class="form-control" name="category" value="<?= h((string) ($user['category'] ?? '')) ?>" placeholder="Categoria"></div>
+                    <div class="col-md-4"><label class="form-label">Responsável</label><input class="form-control" name="manager_name" value="<?= h((string) ($user['manager_name'] ?? '')) ?>" placeholder="Responsável"></div>
+                    <div class="col-md-4">
                         <label class="form-label">Departamento</label>
                         <select class="form-select" name="department_id">
                             <option value="">Sem departamento</option>
@@ -412,7 +413,7 @@ require __DIR__ . '/partials/header.php';
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <label class="form-label">Horário</label>
                         <select class="form-select" name="schedule_id">
                             <option value="">Sem horário</option>
