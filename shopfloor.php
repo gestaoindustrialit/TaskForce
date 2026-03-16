@@ -7,10 +7,11 @@ $user = current_user($pdo);
 $profile = (string) ($user['access_profile'] ?? 'Utilizador');
 $isAdmin = (int) ($user['is_admin'] ?? 0) === 1;
 $isRh = $profile === 'RH';
+$isChief = $profile === 'Chefias';
 
-if (!$isAdmin && $profile !== 'Utilizador') {
+if (!$isAdmin && !in_array($profile, ['Utilizador', 'Chefias', 'RH'], true)) {
     http_response_code(403);
-    exit('Acesso reservado ao perfil Utilizador.');
+    exit('Acesso reservado aos perfis Utilizador, Chefias e RH.');
 }
 
 $flashSuccess = null;
@@ -76,8 +77,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $reason,
                 $details !== '' ? $details : null,
             ]);
+            $absenceId = (int) $pdo->lastInsertId();
+            if ($absenceId > 0) {
+                $pdo->prepare('UPDATE shopfloor_absence_requests SET status = ? WHERE id = ?')->execute(['Pendente Nível 1', $absenceId]);
+            }
             log_app_event($pdo, $userId, 'shopfloor.absence.create', 'Comunicação de ausência submetida.', ['request_type' => $requestType, 'start_date' => $startDate, 'end_date' => $endDate, 'reason_id' => $reasonId]);
             $flashSuccess = 'Comunicação de ausência submetida com sucesso.';
+        }
+    }
+
+    if ($action === 'review_absence' && ($isAdmin || $isChief || $isRh)) {
+        $absenceId = (int) ($_POST['absence_id'] ?? 0);
+        $decision = trim((string) ($_POST['decision'] ?? ''));
+
+        $absenceStmt = $pdo->prepare('SELECT id, status FROM shopfloor_absence_requests WHERE id = ? LIMIT 1');
+        $absenceStmt->execute([$absenceId]);
+        $absence = $absenceStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$absence || $absenceId <= 0 || !in_array($decision, ['approve', 'reject'], true)) {
+            $flashError = 'Pedido inválido para validação.';
+        } else {
+            $currentStatus = (string) ($absence['status'] ?? '');
+            $newStatus = null;
+
+            if ($isAdmin && $decision === 'approve') {
+                $newStatus = 'Aprovado';
+            } elseif ($isAdmin && $decision === 'reject') {
+                $newStatus = 'Rejeitado';
+            } elseif ($isChief) {
+                if ($currentStatus !== 'Pendente Nível 1') {
+                    $flashError = 'Este pedido já não está pendente do Nível 1.';
+                } elseif ($decision === 'approve') {
+                    $newStatus = 'Pendente Nível 2';
+                } else {
+                    $newStatus = 'Rejeitado';
+                }
+            } elseif ($isRh) {
+                if (!in_array($currentStatus, ['Pendente Nível 2', 'Pendente'], true)) {
+                    $flashError = 'Este pedido já não está pendente do Nível 2.';
+                } elseif ($decision === 'approve') {
+                    $newStatus = 'Aprovado';
+                } else {
+                    $newStatus = 'Rejeitado';
+                }
+            }
+
+            if ($newStatus !== null) {
+                $updateStmt = $pdo->prepare('UPDATE shopfloor_absence_requests SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?');
+                $updateStmt->execute([$newStatus, $userId, $absenceId]);
+                log_app_event($pdo, $userId, 'shopfloor.absence.review', 'Validação de ausência efetuada.', ['absence_id' => $absenceId, 'status' => $newStatus]);
+                $flashSuccess = 'Estado do pedido atualizado para ' . $newStatus . '.';
+            }
         }
     }
 
@@ -241,13 +291,46 @@ if ($latestTodayEntry && !empty($latestTodayEntry['occurred_at'])) {
 
 $absenceReasons = $pdo->query('SELECT id, code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY label COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
 
-$absenceRequestsStmt = $pdo->prepare('SELECT a.id, a.request_type, a.start_date, a.end_date, a.start_time, a.end_time, a.reason, a.details, a.status, a.created_at, r.color AS reason_color FROM shopfloor_absence_requests a LEFT JOIN shopfloor_absence_reasons r ON a.reason LIKE (r.code || " - %") WHERE a.user_id = ? ORDER BY a.created_at DESC LIMIT 10');
+$absenceRequestsStmt = $pdo->prepare('SELECT a.id, a.request_type, a.start_date, a.end_date, a.start_time, a.end_time, a.reason, a.details, a.status, a.created_at, r.color AS reason_color, j.attachment_path AS latest_attachment_path FROM shopfloor_absence_requests a LEFT JOIN shopfloor_absence_reasons r ON a.reason LIKE (r.code || " - %") LEFT JOIN shopfloor_justifications j ON j.id = (SELECT j2.id FROM shopfloor_justifications j2 WHERE j2.absence_request_id = a.id AND j2.attachment_path IS NOT NULL AND TRIM(j2.attachment_path) <> "" ORDER BY j2.created_at DESC LIMIT 1) WHERE a.user_id = ? ORDER BY a.created_at DESC LIMIT 10');
 $absenceRequestsStmt->execute([$userId]);
 $absenceRequests = $absenceRequestsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$justificationsStmt = $pdo->prepare('SELECT j.id, j.event_date, j.description, j.attachment_path, j.status, j.created_at, a.id AS absence_id FROM shopfloor_justifications j LEFT JOIN shopfloor_absence_requests a ON a.id = j.absence_request_id WHERE j.user_id = ? ORDER BY j.created_at DESC LIMIT 10');
-$justificationsStmt->execute([$userId]);
-$justifications = $justificationsStmt->fetchAll(PDO::FETCH_ASSOC);
+$pendingChiefValidations = [];
+if ($isAdmin || $isChief) {
+    $pendingChiefStmt = $pdo->query('SELECT a.id, a.start_date, a.end_date, a.request_type, a.start_time, a.end_time, a.reason, a.status, u.name AS user_name FROM shopfloor_absence_requests a INNER JOIN users u ON u.id = a.user_id WHERE a.status = "Pendente Nível 1" ORDER BY a.created_at ASC LIMIT 20');
+    $pendingChiefValidations = $pendingChiefStmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+$rhFilter = trim((string) ($_GET['rh_filter'] ?? 'todos'));
+if (!in_array($rhFilter, ['todos', 'pendentes', 'aprovados'], true)) {
+    $rhFilter = 'todos';
+}
+$rhAbsenceRows = [];
+if ($isAdmin || $isRh) {
+    $rhWhere = 'WHERE a.status LIKE "Pendente%" OR a.status = "Aprovado"';
+    if ($rhFilter === 'pendentes') {
+        $rhWhere = 'WHERE a.status LIKE "Pendente%"';
+    } elseif ($rhFilter === 'aprovados') {
+        $rhWhere = 'WHERE a.status = "Aprovado"';
+    }
+    $rhAbsenceStmt = $pdo->query('SELECT a.id, a.request_type, a.start_date, a.end_date, a.start_time, a.end_time, a.reason, a.status, a.created_at, u.name AS user_name FROM shopfloor_absence_requests a INNER JOIN users u ON u.id = a.user_id ' . $rhWhere . ' ORDER BY a.created_at DESC LIMIT 100');
+    $rhAbsenceRows = $rhAbsenceStmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+$absenceJustificationsStmt = $pdo->prepare('SELECT id, absence_request_id, event_date, description, attachment_path, status, created_at FROM shopfloor_justifications WHERE user_id = ? AND absence_request_id IS NOT NULL ORDER BY created_at DESC LIMIT 100');
+$absenceJustificationsStmt->execute([$userId]);
+$absenceJustificationsRows = $absenceJustificationsStmt->fetchAll(PDO::FETCH_ASSOC);
+$absenceJustificationsByRequestId = [];
+foreach ($absenceJustificationsRows as $absenceJustificationRow) {
+    $requestId = (int) ($absenceJustificationRow['absence_request_id'] ?? 0);
+    if ($requestId <= 0) {
+        continue;
+    }
+    if (!array_key_exists($requestId, $absenceJustificationsByRequestId)) {
+        $absenceJustificationsByRequestId[$requestId] = [];
+    }
+    $absenceJustificationsByRequestId[$requestId][] = $absenceJustificationRow;
+}
 
 $vacationRequestsStmt = $pdo->prepare('SELECT id, start_date, end_date, total_days, status, created_at FROM shopfloor_vacation_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 10');
 $vacationRequestsStmt->execute([$userId]);
@@ -320,7 +403,7 @@ require __DIR__ . '/partials/header.php';
         </div>
 
         <div class="collapse mb-3" id="absenceFormPanel">
-            <form method="post" class="shopfloor-form-grid" id="absenceRequestForm">
+            <form method="post" class="shopfloor-form-grid shopfloor-form-grid-request" id="absenceRequestForm">
                 <input type="hidden" name="action" value="submit_absence">
                 <div>
                     <label class="form-label">Tipo</label>
@@ -343,23 +426,23 @@ require __DIR__ . '/partials/header.php';
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="absence-full-days-field">
+                <div class="absence-full-days-field request-second-row">
                     <label class="form-label">Data início</label>
                     <input type="date" name="start_date" class="form-control" required>
                 </div>
-                <div class="absence-full-days-field">
+                <div class="absence-full-days-field request-second-row">
                     <label class="form-label">Data fim</label>
                     <input type="date" name="end_date" class="form-control" required>
                 </div>
-                <div class="absence-time-range-field d-none">
+                <div class="absence-time-range-field d-none request-second-row">
                     <label class="form-label">Data</label>
                     <input type="date" name="single_date" class="form-control">
                 </div>
-                <div class="absence-time-range-field d-none">
+                <div class="absence-time-range-field d-none request-second-row">
                     <label class="form-label">Hora início</label>
                     <input type="time" name="start_time" class="form-control">
                 </div>
-                <div class="absence-time-range-field d-none">
+                <div class="absence-time-range-field d-none request-second-row">
                     <label class="form-label">Hora fim</label>
                     <input type="time" name="end_time" class="form-control">
                 </div>
@@ -395,7 +478,16 @@ require __DIR__ . '/partials/header.php';
                         </td>
                         <td><span class="badge shopfloor-status-pill"><?= h((string) $absence['status']) ?></span></td>
                         <td class="text-end">
-                            <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#justification-form-<?= (int) $absence['id'] ?>">Anexar</button>
+                            <div class="d-inline-flex align-items-center gap-2">
+                                <?php if (!empty($absence['latest_attachment_path'])): ?>
+                                    <a
+                                        href="<?= h((string) $absence['latest_attachment_path']) ?>"
+                                        class="btn btn-outline-secondary btn-sm"
+                                        data-lightbox-image="<?= h((string) $absence['latest_attachment_path']) ?>"
+                                    >Ver ficheiro</a>
+                                <?php endif; ?>
+                                <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#justification-form-<?= (int) $absence['id'] ?>">Anexar</button>
+                            </div>
                         </td>
                     </tr>
                     <tr class="collapse" id="justification-form-<?= (int) $absence['id'] ?>">
@@ -415,6 +507,31 @@ require __DIR__ . '/partials/header.php';
                                     <button type="submit" class="btn btn-outline-primary btn-sm w-100">Submeter</button>
                                 </div>
                             </form>
+
+                            <?php $absenceJustifications = $absenceJustificationsByRequestId[(int) $absence['id']] ?? []; ?>
+                            <?php if ($absenceJustifications): ?>
+                                <div class="mt-3 border-top pt-2">
+                                    <div class="small text-secondary mb-2">Justificações ligadas a esta ausência</div>
+                                    <div class="d-flex flex-column gap-2">
+                                        <?php foreach ($absenceJustifications as $absenceJustification): ?>
+                                            <div class="d-flex flex-wrap align-items-center gap-2 small">
+                                                <span class="text-secondary"><?= h((string) $absenceJustification['event_date']) ?></span>
+                                                <span>— <?= h((string) $absenceJustification['description']) ?></span>
+                                                <?php if (!empty($absenceJustification['attachment_path'])): ?>
+                                                    <a
+                                                        href="<?= h((string) $absenceJustification['attachment_path']) ?>"
+                                                        class="btn btn-outline-secondary btn-sm py-0 px-2"
+                                                        data-lightbox-image="<?= h((string) $absenceJustification['attachment_path']) ?>"
+                                                    >Ver ficheiro</a>
+                                                <?php else: ?>
+                                                    <span class="text-secondary">Sem anexo</span>
+                                                <?php endif; ?>
+                                                <span class="badge shopfloor-status-pill"><?= h((string) $absenceJustification['status']) ?></span>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; else: ?>
@@ -424,6 +541,110 @@ require __DIR__ . '/partials/header.php';
             </table>
         </div>
     </div>
+
+    <?php if ($isAdmin || $isChief): ?>
+        <div class="shopfloor-panel mb-4">
+            <div class="shopfloor-panel-header">
+                <h2 class="h5 mb-0">Validação Nível 1 (Chefe do departamento)</h2>
+                <span class="badge text-bg-light border"><?= (int) count($pendingChiefValidations) ?> pendente(s)</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm shopfloor-table mb-0">
+                    <thead><tr><th>Colaborador</th><th>Motivo</th><th>Data</th><th>Estado</th><th class="text-end">Ações</th></tr></thead>
+                    <tbody>
+                    <?php if ($pendingChiefValidations): foreach ($pendingChiefValidations as $pendingAbsence): ?>
+                        <tr>
+                            <td><?= h((string) $pendingAbsence['user_name']) ?></td>
+                            <td><?= h((string) $pendingAbsence['reason']) ?></td>
+                            <td>
+                                <?php if (($pendingAbsence['request_type'] ?? 'Dias inteiros') === 'Intervalo de tempo'): ?>
+                                    <?= h((string) $pendingAbsence['start_date']) ?> · <?= h((string) ($pendingAbsence['start_time'] ?? '')) ?> → <?= h((string) ($pendingAbsence['end_time'] ?? '')) ?>
+                                <?php else: ?>
+                                    <?= h((string) $pendingAbsence['start_date']) ?><?= $pendingAbsence['end_date'] !== $pendingAbsence['start_date'] ? ' → ' . h((string) $pendingAbsence['end_date']) : '' ?>
+                                <?php endif; ?>
+                            </td>
+                            <td><span class="badge shopfloor-status-pill"><?= h((string) $pendingAbsence['status']) ?></span></td>
+                            <td class="text-end">
+                                <div class="d-inline-flex gap-2">
+                                    <form method="post">
+                                        <input type="hidden" name="action" value="review_absence">
+                                        <input type="hidden" name="absence_id" value="<?= (int) $pendingAbsence['id'] ?>">
+                                        <input type="hidden" name="decision" value="approve">
+                                        <button class="btn btn-sm btn-outline-success">Aprovar</button>
+                                    </form>
+                                    <form method="post">
+                                        <input type="hidden" name="action" value="review_absence">
+                                        <input type="hidden" name="absence_id" value="<?= (int) $pendingAbsence['id'] ?>">
+                                        <input type="hidden" name="decision" value="reject">
+                                        <button class="btn btn-sm btn-outline-danger">Rejeitar</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; else: ?>
+                        <tr><td colspan="5" class="text-secondary">Sem pedidos pendentes para validação de Nível 1.</td></tr>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($isAdmin || $isRh): ?>
+        <div class="shopfloor-panel mb-4">
+            <div class="shopfloor-panel-header flex-wrap gap-2">
+                <h2 class="h5 mb-0">Acompanhamento RH (pendentes e aprovados)</h2>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Filtro RH">
+                    <a class="btn <?= $rhFilter === 'todos' ? 'btn-primary' : 'btn-outline-primary' ?>" href="shopfloor.php?rh_filter=todos">Todos</a>
+                    <a class="btn <?= $rhFilter === 'pendentes' ? 'btn-primary' : 'btn-outline-primary' ?>" href="shopfloor.php?rh_filter=pendentes">Pendentes</a>
+                    <a class="btn <?= $rhFilter === 'aprovados' ? 'btn-primary' : 'btn-outline-primary' ?>" href="shopfloor.php?rh_filter=aprovados">Aprovados</a>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm shopfloor-table mb-0">
+                    <thead><tr><th>Colaborador</th><th>Motivo</th><th>Data</th><th>Estado</th><th class="text-end">Validação RH</th></tr></thead>
+                    <tbody>
+                    <?php if ($rhAbsenceRows): foreach ($rhAbsenceRows as $rhAbsence): ?>
+                        <tr>
+                            <td><?= h((string) $rhAbsence['user_name']) ?></td>
+                            <td><?= h((string) $rhAbsence['reason']) ?></td>
+                            <td>
+                                <?php if (($rhAbsence['request_type'] ?? 'Dias inteiros') === 'Intervalo de tempo'): ?>
+                                    <?= h((string) $rhAbsence['start_date']) ?> · <?= h((string) ($rhAbsence['start_time'] ?? '')) ?> → <?= h((string) ($rhAbsence['end_time'] ?? '')) ?>
+                                <?php else: ?>
+                                    <?= h((string) $rhAbsence['start_date']) ?><?= $rhAbsence['end_date'] !== $rhAbsence['start_date'] ? ' → ' . h((string) $rhAbsence['end_date']) : '' ?>
+                                <?php endif; ?>
+                            </td>
+                            <td><span class="badge shopfloor-status-pill"><?= h((string) $rhAbsence['status']) ?></span></td>
+                            <td class="text-end">
+                                <?php if (($rhAbsence['status'] ?? '') === 'Pendente Nível 2' || ($rhAbsence['status'] ?? '') === 'Pendente'): ?>
+                                    <div class="d-inline-flex gap-2">
+                                        <form method="post">
+                                            <input type="hidden" name="action" value="review_absence">
+                                            <input type="hidden" name="absence_id" value="<?= (int) $rhAbsence['id'] ?>">
+                                            <input type="hidden" name="decision" value="approve">
+                                            <button class="btn btn-sm btn-outline-success">Aprovar</button>
+                                        </form>
+                                        <form method="post">
+                                            <input type="hidden" name="action" value="review_absence">
+                                            <input type="hidden" name="absence_id" value="<?= (int) $rhAbsence['id'] ?>">
+                                            <input type="hidden" name="decision" value="reject">
+                                            <button class="btn btn-sm btn-outline-danger">Rejeitar</button>
+                                        </form>
+                                    </div>
+                                <?php else: ?>
+                                    <span class="text-secondary small">Sem ação</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; else: ?>
+                        <tr><td colspan="5" class="text-secondary">Sem pedidos para o filtro selecionado.</td></tr>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
@@ -518,33 +739,20 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 
-    <?php if ($justifications): ?>
-        <div class="shopfloor-panel mt-4">
-            <h2 class="h5 mb-3">Últimas justificações submetidas</h2>
-            <div class="table-responsive">
-                <table class="table table-sm shopfloor-table mb-0">
-                    <thead><tr><th>Data</th><th>Descrição</th><th>Anexo</th><th>Estado</th></tr></thead>
-                    <tbody>
-                    <?php foreach ($justifications as $justification): ?>
-                        <tr>
-                            <td><?= h((string) $justification['event_date']) ?></td>
-                            <td><?= h((string) $justification['description']) ?></td>
-                            <td>
-                                <?php if (!empty($justification['attachment_path'])): ?>
-                                    <a href="<?= h((string) $justification['attachment_path']) ?>" target="_blank" rel="noopener noreferrer" class="small">Ver fotografia</a>
-                                <?php else: ?>
-                                    <span class="text-secondary small">Sem anexo</span>
-                                <?php endif; ?>
-                            </td>
-                            <td><span class="badge shopfloor-status-pill"><?= h((string) $justification['status']) ?></span></td>
-                        </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
+</section>
+
+<div class="modal fade" id="justificationLightbox" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content bg-dark border-0">
+            <div class="modal-header border-0">
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body text-center pt-0">
+                <img src="" alt="Anexo da justificação" id="justificationLightboxImage" class="img-fluid rounded">
             </div>
         </div>
-    <?php endif; ?>
-</section>
+    </div>
+</div>
 
 <script>
 (() => {
@@ -591,6 +799,31 @@ require __DIR__ . '/partials/header.php';
 
     typeSelect.addEventListener('change', refreshFields);
     refreshFields();
+})();
+
+(() => {
+    const modalElement = document.getElementById('justificationLightbox');
+    const imageElement = document.getElementById('justificationLightboxImage');
+    if (!modalElement || !imageElement || typeof bootstrap === 'undefined') {
+        return;
+    }
+
+    const lightboxModal = new bootstrap.Modal(modalElement);
+    document.querySelectorAll('[data-lightbox-image]').forEach((link) => {
+        link.addEventListener('click', (event) => {
+            event.preventDefault();
+            const imageUrl = link.getAttribute('data-lightbox-image');
+            if (!imageUrl) {
+                return;
+            }
+            imageElement.src = imageUrl;
+            lightboxModal.show();
+        });
+    });
+
+    modalElement.addEventListener('hidden.bs.modal', () => {
+        imageElement.src = '';
+    });
 })();
 </script>
 

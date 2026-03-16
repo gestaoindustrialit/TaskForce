@@ -580,6 +580,14 @@ body {
     grid-column: 1 / -1;
 }
 
+.shopfloor-form-grid-request {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.shopfloor-form-grid-request .request-second-row {
+    grid-column: auto;
+}
+
 .shopfloor-table {
     --bs-table-bg: #ffffff;
     --bs-table-color: #0f172a;
@@ -619,6 +627,10 @@ body {
     }
 
     .shopfloor-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .shopfloor-form-grid-request {
         grid-template-columns: 1fr;
     }
 }
