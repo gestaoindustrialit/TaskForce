@@ -317,9 +317,20 @@ if ($isAdmin || $isRh) {
     $rhAbsenceRows = $rhAbsenceStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-$justificationsStmt = $pdo->prepare('SELECT j.id, j.event_date, j.description, j.attachment_path, j.status, j.created_at, a.id AS absence_id FROM shopfloor_justifications j LEFT JOIN shopfloor_absence_requests a ON a.id = j.absence_request_id WHERE j.user_id = ? ORDER BY j.created_at DESC LIMIT 10');
-$justificationsStmt->execute([$userId]);
-$justifications = $justificationsStmt->fetchAll(PDO::FETCH_ASSOC);
+$absenceJustificationsStmt = $pdo->prepare('SELECT id, absence_request_id, event_date, description, attachment_path, status, created_at FROM shopfloor_justifications WHERE user_id = ? AND absence_request_id IS NOT NULL ORDER BY created_at DESC LIMIT 100');
+$absenceJustificationsStmt->execute([$userId]);
+$absenceJustificationsRows = $absenceJustificationsStmt->fetchAll(PDO::FETCH_ASSOC);
+$absenceJustificationsByRequestId = [];
+foreach ($absenceJustificationsRows as $absenceJustificationRow) {
+    $requestId = (int) ($absenceJustificationRow['absence_request_id'] ?? 0);
+    if ($requestId <= 0) {
+        continue;
+    }
+    if (!array_key_exists($requestId, $absenceJustificationsByRequestId)) {
+        $absenceJustificationsByRequestId[$requestId] = [];
+    }
+    $absenceJustificationsByRequestId[$requestId][] = $absenceJustificationRow;
+}
 
 $vacationRequestsStmt = $pdo->prepare('SELECT id, start_date, end_date, total_days, status, created_at FROM shopfloor_vacation_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 10');
 $vacationRequestsStmt->execute([$userId]);
@@ -473,8 +484,6 @@ require __DIR__ . '/partials/header.php';
                                         href="<?= h((string) $absence['latest_attachment_path']) ?>"
                                         class="btn btn-outline-secondary btn-sm"
                                         data-lightbox-image="<?= h((string) $absence['latest_attachment_path']) ?>"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
                                     >Ver ficheiro</a>
                                 <?php endif; ?>
                                 <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#justification-form-<?= (int) $absence['id'] ?>">Anexar</button>
@@ -498,6 +507,31 @@ require __DIR__ . '/partials/header.php';
                                     <button type="submit" class="btn btn-outline-primary btn-sm w-100">Submeter</button>
                                 </div>
                             </form>
+
+                            <?php $absenceJustifications = $absenceJustificationsByRequestId[(int) $absence['id']] ?? []; ?>
+                            <?php if ($absenceJustifications): ?>
+                                <div class="mt-3 border-top pt-2">
+                                    <div class="small text-secondary mb-2">Justificações ligadas a esta ausência</div>
+                                    <div class="d-flex flex-column gap-2">
+                                        <?php foreach ($absenceJustifications as $absenceJustification): ?>
+                                            <div class="d-flex flex-wrap align-items-center gap-2 small">
+                                                <span class="text-secondary"><?= h((string) $absenceJustification['event_date']) ?></span>
+                                                <span>— <?= h((string) $absenceJustification['description']) ?></span>
+                                                <?php if (!empty($absenceJustification['attachment_path'])): ?>
+                                                    <a
+                                                        href="<?= h((string) $absenceJustification['attachment_path']) ?>"
+                                                        class="btn btn-outline-secondary btn-sm py-0 px-2"
+                                                        data-lightbox-image="<?= h((string) $absenceJustification['attachment_path']) ?>"
+                                                    >Ver ficheiro</a>
+                                                <?php else: ?>
+                                                    <span class="text-secondary">Sem anexo</span>
+                                                <?php endif; ?>
+                                                <span class="badge shopfloor-status-pill"><?= h((string) $absenceJustification['status']) ?></span>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; else: ?>
@@ -705,33 +739,20 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 
-    <?php if ($justifications): ?>
-        <div class="shopfloor-panel mt-4">
-            <h2 class="h5 mb-3">Últimas justificações submetidas</h2>
-            <div class="table-responsive">
-                <table class="table table-sm shopfloor-table mb-0">
-                    <thead><tr><th>Data</th><th>Descrição</th><th>Anexo</th><th>Estado</th></tr></thead>
-                    <tbody>
-                    <?php foreach ($justifications as $justification): ?>
-                        <tr>
-                            <td><?= h((string) $justification['event_date']) ?></td>
-                            <td><?= h((string) $justification['description']) ?></td>
-                            <td>
-                                <?php if (!empty($justification['attachment_path'])): ?>
-                                    <a href="<?= h((string) $justification['attachment_path']) ?>" target="_blank" rel="noopener noreferrer" class="small">Ver fotografia</a>
-                                <?php else: ?>
-                                    <span class="text-secondary small">Sem anexo</span>
-                                <?php endif; ?>
-                            </td>
-                            <td><span class="badge shopfloor-status-pill"><?= h((string) $justification['status']) ?></span></td>
-                        </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
+</section>
+
+<div class="modal fade" id="justificationLightbox" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content bg-dark border-0">
+            <div class="modal-header border-0">
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body text-center pt-0">
+                <img src="" alt="Anexo da justificação" id="justificationLightboxImage" class="img-fluid rounded">
             </div>
         </div>
-    <?php endif; ?>
-</section>
+    </div>
+</div>
 
 <div class="modal fade" id="justificationLightbox" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-xl">
