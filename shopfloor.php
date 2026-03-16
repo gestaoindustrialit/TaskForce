@@ -60,10 +60,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $absenceRequestId = (int) ($_POST['absence_request_id'] ?? 0);
         $eventDate = trim((string) ($_POST['event_date'] ?? ''));
         $description = trim((string) ($_POST['description'] ?? ''));
+        $photoFile = $_FILES['photo'] ?? null;
+        $attachmentPath = null;
+        $hasPhotoUpload = is_array($photoFile) && (($photoFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE);
 
-        if ($eventDate === '' || $description === '') {
-            $flashError = 'Indique data e descrição da justificação.';
-        } else {
+        if ($hasPhotoUpload) {
+            $allowedImageMimeTypes = [
+                'image/jpeg' => 'jpg',
+                'image/png' => 'png',
+                'image/webp' => 'webp',
+            ];
+
+            $uploadError = (int) ($photoFile['error'] ?? UPLOAD_ERR_NO_FILE);
+            if ($uploadError !== UPLOAD_ERR_OK) {
+                $flashError = 'Não foi possível carregar a fotografia da justificação.';
+            } elseif (!isset($photoFile['tmp_name']) || !is_string($photoFile['tmp_name']) || !is_file($photoFile['tmp_name'])) {
+                $flashError = 'O ficheiro da fotografia submetida é inválido.';
+            } else {
+                $detectedMimeType = '';
+                if (function_exists('finfo_open')) {
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    if ($finfo !== false) {
+                        $finfoMimeType = finfo_file($finfo, (string) $photoFile['tmp_name']);
+                        if (is_string($finfoMimeType)) {
+                            $detectedMimeType = $finfoMimeType;
+                        }
+                        finfo_close($finfo);
+                    }
+                }
+
+                if ($detectedMimeType === '' && function_exists('mime_content_type')) {
+                    $mimeType = mime_content_type((string) $photoFile['tmp_name']);
+                    if (is_string($mimeType)) {
+                        $detectedMimeType = $mimeType;
+                    }
+                }
+
+                if (!isset($allowedImageMimeTypes[$detectedMimeType])) {
+                    $flashError = 'Formato de imagem inválido. Use JPG, PNG ou WEBP.';
+                } else {
+                    $uploadDir = __DIR__ . '/assets/uploads/justifications';
+                    if (!is_dir($uploadDir)) {
+                        mkdir($uploadDir, 0775, true);
+                    }
+
+                    $filename = sprintf(
+                        'justification_%d_%s.%s',
+                        $userId,
+                        bin2hex(random_bytes(6)),
+                        $allowedImageMimeTypes[$detectedMimeType]
+                    );
+                    $targetPath = $uploadDir . '/' . $filename;
+
+                    if (!move_uploaded_file((string) $photoFile['tmp_name'], $targetPath)) {
+                        $flashError = 'Falha ao guardar a fotografia da justificação.';
+                    } else {
+                        $attachmentPath = 'assets/uploads/justifications/' . $filename;
+                    }
+                }
+            }
+        }
+
+        if ($flashError === null && ($eventDate === '' || !$hasPhotoUpload)) {
+            $flashError = 'Indique a data e anexe uma fotografia para a justificação.';
+        }
+
+        if ($flashError === null) {
             $targetAbsenceId = null;
             if ($absenceRequestId > 0) {
                 $checkAbsenceStmt = $pdo->prepare('SELECT id FROM shopfloor_absence_requests WHERE id = ? AND user_id = ?');
@@ -75,7 +137,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $stmt = $pdo->prepare('INSERT INTO shopfloor_justifications(user_id, absence_request_id, event_date, description) VALUES (?, ?, ?, ?)');
-            $stmt->execute([$userId, $targetAbsenceId, $eventDate, $description]);
+            $justificationDescription = $description !== '' ? $description : 'Fotografia anexada';
+            $stmt->execute([$userId, $targetAbsenceId, $eventDate, $justificationDescription]);
+            if ($attachmentPath !== null) {
+                $justificationId = (int) $pdo->lastInsertId();
+                if ($justificationId > 0) {
+                    $attachmentStmt = $pdo->prepare('UPDATE shopfloor_justifications SET attachment_path = ? WHERE id = ? AND user_id = ?');
+                    $attachmentStmt->execute([$attachmentPath, $justificationId, $userId]);
+                }
+            }
             log_app_event($pdo, $userId, 'shopfloor.justification.create', 'Justificação submetida no Shopfloor.', ['event_date' => $eventDate]);
             $flashSuccess = 'Justificação submetida com sucesso.';
         }
@@ -146,11 +216,11 @@ if ($latestTodayEntry && !empty($latestTodayEntry['occurred_at'])) {
 
 $absenceReasons = $pdo->query('SELECT id, code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY label COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
 
-$absenceRequestsStmt = $pdo->prepare('SELECT id, start_date, end_date, reason, details, status, created_at FROM shopfloor_absence_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 10');
+$absenceRequestsStmt = $pdo->prepare('SELECT a.id, a.start_date, a.end_date, a.reason, a.details, a.status, a.created_at, r.color AS reason_color FROM shopfloor_absence_requests a LEFT JOIN shopfloor_absence_reasons r ON a.reason LIKE (r.code || " - %") WHERE a.user_id = ? ORDER BY a.created_at DESC LIMIT 10');
 $absenceRequestsStmt->execute([$userId]);
 $absenceRequests = $absenceRequestsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$justificationsStmt = $pdo->prepare('SELECT j.id, j.event_date, j.description, j.status, j.created_at, a.id AS absence_id FROM shopfloor_justifications j LEFT JOIN shopfloor_absence_requests a ON a.id = j.absence_request_id WHERE j.user_id = ? ORDER BY j.created_at DESC LIMIT 10');
+$justificationsStmt = $pdo->prepare('SELECT j.id, j.event_date, j.description, j.attachment_path, j.status, j.created_at, a.id AS absence_id FROM shopfloor_justifications j LEFT JOIN shopfloor_absence_requests a ON a.id = j.absence_request_id WHERE j.user_id = ? ORDER BY j.created_at DESC LIMIT 10');
 $justificationsStmt->execute([$userId]);
 $justifications = $justificationsStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -225,7 +295,7 @@ require __DIR__ . '/partials/header.php';
         </div>
 
         <div class="collapse mb-3" id="absenceFormPanel">
-            <form method="post" class="shopfloor-form-grid">
+            <form method="post" class="shopfloor-form-grid" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="submit_absence">
                 <div>
                     <label class="form-label d-flex justify-content-between align-items-center gap-2">
@@ -266,7 +336,10 @@ require __DIR__ . '/partials/header.php';
                 <?php if ($absenceRequests): foreach ($absenceRequests as $absence): ?>
                     <tr>
                         <td>
-                            <div class="d-flex align-items-center gap-2"><span class="shopfloor-dot"></span><span><?= h((string) $absence['reason']) ?></span></div>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="shopfloor-dot" style="background: <?= h((string) ($absence['reason_color'] ?? '#2563eb')) ?>"></span>
+                                <span><?= h((string) $absence['reason']) ?></span>
+                            </div>
                             <div class="small text-secondary">Código: <?= (int) $absence['id'] ?></div>
                         </td>
                         <td><?= h((string) $absence['start_date']) ?><?= $absence['end_date'] !== $absence['start_date'] ? ' → ' . h((string) $absence['end_date']) : '' ?></td>
@@ -277,7 +350,7 @@ require __DIR__ . '/partials/header.php';
                     </tr>
                     <tr class="collapse" id="justification-form-<?= (int) $absence['id'] ?>">
                         <td colspan="4" class="bg-transparent">
-                            <form method="post" class="row g-2 align-items-end">
+                            <form method="post" class="row g-2 align-items-end" enctype="multipart/form-data">
                                 <input type="hidden" name="action" value="submit_justification">
                                 <input type="hidden" name="absence_request_id" value="<?= (int) $absence['id'] ?>">
                                 <div class="col-md-3">
@@ -285,8 +358,8 @@ require __DIR__ . '/partials/header.php';
                                     <input type="date" name="event_date" class="form-control form-control-sm" required>
                                 </div>
                                 <div class="col-md-7">
-                                    <label class="form-label mb-1">Descrição</label>
-                                    <input type="text" name="description" class="form-control form-control-sm" placeholder="Justificação" required>
+                                    <label class="form-label mb-1">Fotografia</label>
+                                    <input type="file" name="photo" class="form-control form-control-sm" accept="image/jpeg,image/png,image/webp" required>
                                 </div>
                                 <div class="col-md-2">
                                     <button type="submit" class="btn btn-outline-primary btn-sm w-100">Submeter</button>
@@ -400,12 +473,19 @@ require __DIR__ . '/partials/header.php';
             <h2 class="h5 mb-3">Últimas justificações submetidas</h2>
             <div class="table-responsive">
                 <table class="table table-sm shopfloor-table mb-0">
-                    <thead><tr><th>Data</th><th>Descrição</th><th>Estado</th></tr></thead>
+                    <thead><tr><th>Data</th><th>Descrição</th><th>Anexo</th><th>Estado</th></tr></thead>
                     <tbody>
                     <?php foreach ($justifications as $justification): ?>
                         <tr>
                             <td><?= h((string) $justification['event_date']) ?></td>
                             <td><?= h((string) $justification['description']) ?></td>
+                            <td>
+                                <?php if (!empty($justification['attachment_path'])): ?>
+                                    <a href="<?= h((string) $justification['attachment_path']) ?>" target="_blank" rel="noopener noreferrer" class="small">Ver fotografia</a>
+                                <?php else: ?>
+                                    <span class="text-secondary small">Sem anexo</span>
+                                <?php endif; ?>
+                            </td>
                             <td><span class="badge shopfloor-status-pill"><?= h((string) $justification['status']) ?></span></td>
                         </tr>
                     <?php endforeach; ?>
