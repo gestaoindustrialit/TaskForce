@@ -390,7 +390,22 @@ $pdo->exec(
     )'
 );
 
-
+$hourBankLogColumnsStmt = $pdo->query('PRAGMA table_info(hr_hour_bank_logs)');
+$hourBankLogColumns = $hourBankLogColumnsStmt ? $hourBankLogColumnsStmt->fetchAll(PDO::FETCH_COLUMN, 1) : [];
+if (!in_array('action_type', $hourBankLogColumns, true)) {
+    try {
+        $pdo->exec("ALTER TABLE hr_hour_bank_logs ADD COLUMN action_type TEXT NOT NULL DEFAULT 'credito'");
+    } catch (PDOException $e) {
+        // Mantém compatibilidade com instalações que já tenham migração parcial.
+    }
+}
+if (!in_array('action_date', $hourBankLogColumns, true)) {
+    try {
+        $pdo->exec('ALTER TABLE hr_hour_bank_logs ADD COLUMN action_date TEXT');
+    } catch (PDOException $e) {
+        // Mantém compatibilidade com instalações que já tenham migração parcial.
+    }
+}
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS shopfloor_absence_reasons (
@@ -459,15 +474,35 @@ $pdo->exec(
     )'
 );
 
-$absenceRequestColumns = $pdo->query('PRAGMA table_info(shopfloor_absence_requests)')->fetchAll(PDO::FETCH_COLUMN, 1);
+$absenceRequestColumnsStmt = $pdo->query('PRAGMA table_info(shopfloor_absence_requests)');
+$absenceRequestColumns = $absenceRequestColumnsStmt ? $absenceRequestColumnsStmt->fetchAll(PDO::FETCH_COLUMN, 1) : [];
 if (!in_array('request_type', $absenceRequestColumns, true)) {
-    $pdo->exec("ALTER TABLE shopfloor_absence_requests ADD COLUMN request_type TEXT NOT NULL DEFAULT 'Dias inteiros'");
+    try {
+        $pdo->exec("ALTER TABLE shopfloor_absence_requests ADD COLUMN request_type TEXT NOT NULL DEFAULT 'Dias inteiros'");
+    } catch (PDOException $e) {
+        // Mantém compatibilidade com instalações que já tenham migração parcial.
+    }
 }
 if (!in_array('start_time', $absenceRequestColumns, true)) {
-    $pdo->exec('ALTER TABLE shopfloor_absence_requests ADD COLUMN start_time TEXT');
+    try {
+        $pdo->exec('ALTER TABLE shopfloor_absence_requests ADD COLUMN start_time TEXT');
+    } catch (PDOException $e) {
+        // Mantém compatibilidade com instalações que já tenham migração parcial.
+    }
 }
 if (!in_array('end_time', $absenceRequestColumns, true)) {
-    $pdo->exec('ALTER TABLE shopfloor_absence_requests ADD COLUMN end_time TEXT');
+    try {
+        $pdo->exec('ALTER TABLE shopfloor_absence_requests ADD COLUMN end_time TEXT');
+    } catch (PDOException $e) {
+        // Mantém compatibilidade com instalações que já tenham migração parcial.
+    }
+}
+if (!in_array('duration_type', $absenceRequestColumns, true)) {
+    try {
+        $pdo->exec("ALTER TABLE shopfloor_absence_requests ADD COLUMN duration_type TEXT NOT NULL DEFAULT 'Completa'");
+    } catch (PDOException $e) {
+        // Mantém compatibilidade com instalações que já tenham migração parcial.
+    }
 }
 
 $pdo->exec(

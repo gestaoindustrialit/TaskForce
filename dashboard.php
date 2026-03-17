@@ -777,6 +777,24 @@ if ($pendingRecurringTaskIds) {
     }
 }
 
+
+$pendingAbsenceApprovals = [];
+$pendingVacationApprovals = [];
+if ($isAdmin) {
+    $pendingAbsenceApprovals = $pdo->query('SELECT a.id, a.status, a.start_date, a.end_date, u.name AS user_name FROM shopfloor_absence_requests a INNER JOIN users u ON u.id = a.user_id WHERE a.status IN ("Pendente", "Pendente Nível 1", "Pendente Nível 2") ORDER BY a.created_at DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC);
+    $pendingVacationApprovals = $pdo->query('SELECT v.id, v.status, v.start_date, v.end_date, u.name AS user_name FROM shopfloor_vacation_requests v INNER JOIN users u ON u.id = v.user_id WHERE v.status = "Pendente" ORDER BY v.created_at DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC);
+} else {
+    $profileStmt = $pdo->prepare('SELECT access_profile FROM users WHERE id = ? LIMIT 1');
+    $profileStmt->execute([$userId]);
+    $accessProfile = (string) $profileStmt->fetchColumn();
+    if ($accessProfile === 'Chefias' || $accessProfile === 'RH') {
+        $pendingAbsenceApprovals = $pdo->query('SELECT a.id, a.status, a.start_date, a.end_date, u.name AS user_name FROM shopfloor_absence_requests a INNER JOIN users u ON u.id = a.user_id WHERE a.status IN ("Pendente Nível 1", "Pendente Nível 2") ORDER BY a.created_at DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC);
+    }
+    if ($accessProfile === 'RH') {
+        $pendingVacationApprovals = $pdo->query('SELECT v.id, v.status, v.start_date, v.end_date, u.name AS user_name FROM shopfloor_vacation_requests v INNER JOIN users u ON u.id = v.user_id WHERE v.status = "Pendente" ORDER BY v.created_at DESC LIMIT 10')->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
+
 $pageTitle = 'Dashboard';
 require __DIR__ . '/partials/header.php';
 ?>
@@ -821,6 +839,24 @@ require __DIR__ . '/partials/header.php';
 
 <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
+
+<?php if ($pendingAbsenceApprovals || $pendingVacationApprovals): ?>
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <h2 class="h5">Validações rápidas (RH/Chefias)</h2>
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <h3 class="h6">Ausências pendentes</h3>
+                <?php if ($pendingAbsenceApprovals): ?><ul class="mb-0"><?php foreach ($pendingAbsenceApprovals as $item): ?><li><?= h((string) $item['user_name']) ?> · <?= h((string) $item['start_date']) ?><?= $item['end_date'] !== $item['start_date'] ? ' → ' . h((string) $item['end_date']) : '' ?> <span class="text-muted">(<?= h((string) $item['status']) ?>)</span></li><?php endforeach; ?></ul><?php else: ?><p class="text-muted mb-0">Sem ausências pendentes.</p><?php endif; ?>
+            </div>
+            <div class="col-lg-6">
+                <h3 class="h6">Férias pendentes</h3>
+                <?php if ($pendingVacationApprovals): ?><ul class="mb-0"><?php foreach ($pendingVacationApprovals as $item): ?><li><?= h((string) $item['user_name']) ?> · <?= h((string) $item['start_date']) ?> → <?= h((string) $item['end_date']) ?></li><?php endforeach; ?></ul><?php else: ?><p class="text-muted mb-0">Sem férias pendentes.</p><?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <div class="row g-4">
     <div class="col-lg-8">
