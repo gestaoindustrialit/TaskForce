@@ -31,6 +31,9 @@ require __DIR__ . '/partials/header.php';
             <a class="btn btn-dark" href="hr.php"><i class="bi bi-speedometer2 me-1"></i>Painel RH</a>
             <a class="btn btn-outline-secondary" href="hr_departments.php">Departamentos</a>
             <a class="btn btn-outline-secondary" href="hr_schedules.php">Horários</a>
+            <a class="btn btn-outline-secondary" href="hr_calendar.php">Calendário</a>
+            <a class="btn btn-outline-secondary" href="hr_bank.php">Banco de horas</a>
+            <a class="btn btn-outline-secondary" href="hr_absences.php">Ausências</a>
             <a class="btn btn-outline-secondary" href="hr_alerts.php">Alertas</a>
         </div>
     </div>
@@ -98,12 +101,33 @@ require __DIR__ . '/partials/header.php';
         </div>
         <div class="col-lg-6">
             <a class="soft-card h-100 p-3 p-lg-4 d-block text-decoration-none hr-link-card" href="hr_vacations.php">
-                <h3 class="h5 mb-2">Calendário de férias</h3>
+                <h3 class="h5 mb-2">Férias</h3>
                 <p class="text-muted mb-3">Registos atuais de férias e ausências programadas para a equipa.</p>
                 <div class="d-flex justify-content-between align-items-center">
                     <span class="btn btn-sm btn-outline-dark">Abrir calendário</span>
                     <span class="badge text-bg-warning-subtle border"><?= $stats['vacations'] ?> registos</span>
                 </div>
+            </a>
+        </div>
+        <div class="col-lg-6">
+            <a class="soft-card h-100 p-3 p-lg-4 d-block text-decoration-none hr-link-card" href="hr_calendar.php">
+                <h3 class="h5 mb-2">Calendário</h3>
+                <p class="text-muted mb-3">Calendário anual com importação de feriados, pontes e marcações.</p>
+                <span class="btn btn-sm btn-outline-dark">Abrir calendário anual</span>
+            </a>
+        </div>
+        <div class="col-lg-6">
+            <a class="soft-card h-100 p-3 p-lg-4 d-block text-decoration-none hr-link-card" href="hr_bank.php">
+                <h3 class="h5 mb-2">Banco de horas</h3>
+                <p class="text-muted mb-3">Ajustes manuais de saldo com histórico administrativo por colaborador.</p>
+                <span class="btn btn-sm btn-outline-dark">Abrir banco de horas</span>
+            </a>
+        </div>
+        <div class="col-lg-6">
+            <a class="soft-card h-100 p-3 p-lg-4 d-block text-decoration-none hr-link-card" href="hr_absences.php">
+                <h3 class="h5 mb-2">Ausências</h3>
+                <p class="text-muted mb-3">Workflow com duas aprovações (N1 e RH) e gestão central de pedidos.</p>
+                <span class="btn btn-sm btn-outline-dark">Abrir ausências</span>
             </a>
         </div>
     </div>
