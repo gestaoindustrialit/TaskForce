@@ -46,9 +46,11 @@ header('Content-Type: text/html; charset=UTF-8');
                 <div class="navbar-nav me-auto ms-lg-4">
                     <?php if ($isPinOnlyUser): ?>
                         <a class="nav-link" href="shopfloor.php">Shopfloor</a>
+                    <a class="nav-link" href="resultados.php">Resultados</a>
                     <?php else: ?>
                     <a class="nav-link" href="dashboard.php">Vis&atilde;o geral</a>
                     <a class="nav-link" href="shopfloor.php">Shopfloor</a>
+                    <a class="nav-link" href="resultados.php">Resultados</a>
                     <?php if ($showHrMenu): ?>
                         <div class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">RH</a>

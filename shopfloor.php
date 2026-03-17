@@ -43,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $endTime = trim((string) ($_POST['end_time'] ?? ''));
         $reasonId = (int) ($_POST['reason_id'] ?? 0);
         $details = trim((string) ($_POST['details'] ?? ''));
+        $durationType = trim((string) ($_POST['duration_type'] ?? 'Completa'));
 
         $reasonStmt = $pdo->prepare('SELECT code, label FROM shopfloor_absence_reasons WHERE id = ? AND is_active = 1 LIMIT 1');
         $reasonStmt->execute([$reasonId]);
@@ -50,6 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!in_array($requestType, ['Dias inteiros', 'Intervalo de tempo'], true)) {
             $flashError = 'Tipo de ausência inválido.';
+        } elseif (!in_array($durationType, ['Completa', 'Parcial'], true)) {
+            $flashError = 'Tipo de duração inválido.';
         } elseif (!$reasonData) {
             $flashError = 'Selecione um motivo para comunicar ausência.';
         } elseif ($requestType === 'Dias inteiros' && ($startDate === '' || $endDate === '')) {
@@ -66,10 +69,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $endDate = $singleDate;
             }
             $reason = trim((string) ($reasonData['code'] ?? '')) . ' - ' . trim((string) ($reasonData['label'] ?? ''));
-            $stmt = $pdo->prepare('INSERT INTO shopfloor_absence_requests(user_id, request_type, start_date, end_date, start_time, end_time, reason, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+            $stmt = $pdo->prepare('INSERT INTO shopfloor_absence_requests(user_id, request_type, duration_type, start_date, end_date, start_time, end_time, reason, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
             $stmt->execute([
                 $userId,
-                $requestType,
+$requestType,
+                $durationType,
                 $startDate,
                 $endDate,
                 $requestType === 'Intervalo de tempo' ? $startTime : null,
@@ -81,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($absenceId > 0) {
                 $pdo->prepare('UPDATE shopfloor_absence_requests SET status = ? WHERE id = ?')->execute(['Pendente Nível 1', $absenceId]);
             }
-            log_app_event($pdo, $userId, 'shopfloor.absence.create', 'Comunicação de ausência submetida.', ['request_type' => $requestType, 'start_date' => $startDate, 'end_date' => $endDate, 'reason_id' => $reasonId]);
+            log_app_event($pdo, $userId, 'shopfloor.absence.create', 'Comunicação de ausência submetida.', ['request_type' => $requestType, 'duration_type' => $durationType, 'start_date' => $startDate, 'end_date' => $endDate, 'reason_id' => $reasonId]);
             $flashSuccess = 'Comunicação de ausência submetida com sucesso.';
         }
     }
@@ -128,6 +132,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 log_app_event($pdo, $userId, 'shopfloor.absence.review', 'Validação de ausência efetuada.', ['absence_id' => $absenceId, 'status' => $newStatus]);
                 $flashSuccess = 'Estado do pedido atualizado para ' . $newStatus . '.';
             }
+        }
+    }
+
+
+    if ($action === 'edit_absence' && ($isAdmin || $isRh)) {
+        $absenceId = (int) ($_POST['absence_id'] ?? 0);
+        $requestType = trim((string) ($_POST['request_type'] ?? 'Dias inteiros'));
+        $durationType = trim((string) ($_POST['duration_type'] ?? 'Completa'));
+        $startDate = trim((string) ($_POST['start_date'] ?? ''));
+        $endDate = trim((string) ($_POST['end_date'] ?? ''));
+        $startTime = trim((string) ($_POST['start_time'] ?? ''));
+        $endTime = trim((string) ($_POST['end_time'] ?? ''));
+        $details = trim((string) ($_POST['details'] ?? ''));
+
+        if ($absenceId <= 0 || !in_array($requestType, ['Dias inteiros', 'Intervalo de tempo'], true) || !in_array($durationType, ['Completa', 'Parcial'], true) || $startDate === '' || $endDate === '' || $endDate < $startDate) {
+            $flashError = 'Dados inválidos para editar ausência.';
+        } elseif ($requestType === 'Intervalo de tempo' && ($startTime === '' || $endTime === '' || $endTime <= $startTime)) {
+            $flashError = 'Preencha um intervalo horário válido.';
+        } else {
+            $updateStmt = $pdo->prepare('UPDATE shopfloor_absence_requests SET request_type = ?, duration_type = ?, start_date = ?, end_date = ?, start_time = ?, end_time = ?, details = ? WHERE id = ?');
+            $updateStmt->execute([$requestType, $durationType, $startDate, $endDate, $requestType === 'Intervalo de tempo' ? $startTime : null, $requestType === 'Intervalo de tempo' ? $endTime : null, $details !== '' ? $details : null, $absenceId]);
+            log_app_event($pdo, $userId, 'shopfloor.absence.edit', 'Pedido de ausência editado por RH/Admin.', ['absence_id' => $absenceId, 'request_type' => $requestType, 'duration_type' => $durationType, 'start_date' => $startDate, 'end_date' => $endDate]);
+            $flashSuccess = 'Pedido de ausência atualizado com sucesso.';
         }
     }
 
@@ -337,13 +364,13 @@ if ($latestTodayEntry && !empty($latestTodayEntry['occurred_at'])) {
 
 $absenceReasons = $pdo->query('SELECT id, code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY label COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
 
-$absenceRequestsStmt = $pdo->prepare('SELECT a.id, a.request_type, a.start_date, a.end_date, a.start_time, a.end_time, a.reason, a.details, a.status, a.created_at, r.color AS reason_color, j.attachment_path AS latest_attachment_path FROM shopfloor_absence_requests a LEFT JOIN shopfloor_absence_reasons r ON a.reason LIKE (r.code || " - %") LEFT JOIN shopfloor_justifications j ON j.id = (SELECT j2.id FROM shopfloor_justifications j2 WHERE j2.absence_request_id = a.id AND j2.attachment_path IS NOT NULL AND TRIM(j2.attachment_path) <> "" ORDER BY j2.created_at DESC LIMIT 1) WHERE a.user_id = ? ORDER BY a.created_at DESC LIMIT 10');
+$absenceRequestsStmt = $pdo->prepare('SELECT a.id, a.request_type, a.duration_type, a.start_date, a.end_date, a.start_time, a.end_time, a.reason, a.details, a.status, a.created_at, r.color AS reason_color, j.attachment_path AS latest_attachment_path FROM shopfloor_absence_requests a LEFT JOIN shopfloor_absence_reasons r ON a.reason LIKE (r.code || " - %") LEFT JOIN shopfloor_justifications j ON j.id = (SELECT j2.id FROM shopfloor_justifications j2 WHERE j2.absence_request_id = a.id AND j2.attachment_path IS NOT NULL AND TRIM(j2.attachment_path) <> "" ORDER BY j2.created_at DESC LIMIT 1) WHERE a.user_id = ? ORDER BY a.created_at DESC LIMIT 10');
 $absenceRequestsStmt->execute([$userId]);
 $absenceRequests = $absenceRequestsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $pendingChiefValidations = [];
 if ($isAdmin || $isChief) {
-    $pendingChiefStmt = $pdo->query('SELECT a.id, a.start_date, a.end_date, a.request_type, a.start_time, a.end_time, a.reason, a.status, u.name AS user_name FROM shopfloor_absence_requests a INNER JOIN users u ON u.id = a.user_id WHERE a.status = "Pendente Nível 1" ORDER BY a.created_at ASC LIMIT 20');
+    $pendingChiefStmt = $pdo->query('SELECT a.id, a.start_date, a.end_date, a.request_type, a.duration_type, a.start_time, a.end_time, a.reason, a.status, u.name AS user_name FROM shopfloor_absence_requests a INNER JOIN users u ON u.id = a.user_id WHERE a.status = "Pendente Nível 1" ORDER BY a.created_at ASC LIMIT 20');
     $pendingChiefValidations = $pendingChiefStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -359,7 +386,7 @@ if ($isAdmin || $isRh) {
     } elseif ($rhFilter === 'aprovados') {
         $rhWhere = 'WHERE a.status = "Aprovado"';
     }
-    $rhAbsenceStmt = $pdo->query('SELECT a.id, a.request_type, a.start_date, a.end_date, a.start_time, a.end_time, a.reason, a.status, a.created_at, u.name AS user_name FROM shopfloor_absence_requests a INNER JOIN users u ON u.id = a.user_id ' . $rhWhere . ' ORDER BY a.created_at DESC LIMIT 100');
+    $rhAbsenceStmt = $pdo->query('SELECT a.id, a.request_type, a.duration_type, a.start_date, a.end_date, a.start_time, a.end_time, a.reason, a.status, a.created_at, a.details, u.name AS user_name FROM shopfloor_absence_requests a INNER JOIN users u ON u.id = a.user_id ' . $rhWhere . ' ORDER BY a.created_at DESC LIMIT 100');
     $rhAbsenceRows = $rhAbsenceStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -485,6 +512,10 @@ require __DIR__ . '/partials/header.php';
                         <?php endforeach; ?>
                     </select>
                 </div>
+                <div>
+                    <label class="form-label">Duração</label>
+                    <select name="duration_type" class="form-select" required><option value="Completa">Completa</option><option value="Parcial">Parcial</option></select>
+                </div>
                 <div class="absence-full-days-field request-second-row">
                     <label class="form-label">Data início</label>
                     <input type="date" name="start_date" class="form-control" required>
@@ -524,7 +555,7 @@ require __DIR__ . '/partials/header.php';
                         <td>
                             <div class="d-flex align-items-center gap-2">
                                 <span class="shopfloor-dot" style="background: <?= h((string) ($absence['reason_color'] ?? '#2563eb')) ?>"></span>
-                                <span><?= h((string) $absence['reason']) ?></span>
+                                <span><?= h((string) $absence['reason']) ?></span><br><span class="small text-secondary">Duração: <?= h((string) ($absence['duration_type'] ?? 'Completa')) ?></span>
                             </div>
                             <div class="small text-secondary">Código: <?= (int) $absence['id'] ?></div>
                         </td>
@@ -694,6 +725,23 @@ require __DIR__ . '/partials/header.php';
                                 <?php else: ?>
                                     <span class="text-secondary small">Sem ação</span>
                                 <?php endif; ?>
+                                <button class="btn btn-sm btn-outline-secondary ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#edit-absence-<?= (int) $rhAbsence['id'] ?>">Editar</button>
+                            </td>
+                        </tr>
+                        <tr class="collapse" id="edit-absence-<?= (int) $rhAbsence['id'] ?>">
+                            <td colspan="5">
+                                <form method="post" class="row g-2 align-items-end">
+                                    <input type="hidden" name="action" value="edit_absence">
+                                    <input type="hidden" name="absence_id" value="<?= (int) $rhAbsence['id'] ?>">
+                                    <div class="col-md-2"><label class="form-label">Tipo</label><select class="form-select" name="request_type"><option value="Dias inteiros" <?= ($rhAbsence['request_type'] ?? '') === 'Dias inteiros' ? 'selected' : '' ?>>Dias inteiros</option><option value="Intervalo de tempo" <?= ($rhAbsence['request_type'] ?? '') === 'Intervalo de tempo' ? 'selected' : '' ?>>Intervalo</option></select></div>
+                                    <div class="col-md-2"><label class="form-label">Duração</label><select class="form-select" name="duration_type"><option value="Completa" <?= ($rhAbsence['duration_type'] ?? '') === 'Completa' ? 'selected' : '' ?>>Completa</option><option value="Parcial" <?= ($rhAbsence['duration_type'] ?? '') === 'Parcial' ? 'selected' : '' ?>>Parcial</option></select></div>
+                                    <div class="col-md-2"><label class="form-label">Início</label><input class="form-control" type="date" name="start_date" value="<?= h((string) $rhAbsence['start_date']) ?>" required></div>
+                                    <div class="col-md-2"><label class="form-label">Fim</label><input class="form-control" type="date" name="end_date" value="<?= h((string) $rhAbsence['end_date']) ?>" required></div>
+                                    <div class="col-md-1"><label class="form-label">H. ini</label><input class="form-control" type="time" name="start_time" value="<?= h((string) ($rhAbsence['start_time'] ?? '')) ?>"></div>
+                                    <div class="col-md-1"><label class="form-label">H. fim</label><input class="form-control" type="time" name="end_time" value="<?= h((string) ($rhAbsence['end_time'] ?? '')) ?>"></div>
+                                    <div class="col-md-2"><label class="form-label">Detalhes</label><input class="form-control" name="details" value="<?= h((string) ($rhAbsence['details'] ?? '')) ?>"></div>
+                                    <div class="col-md-12 d-grid"><button class="btn btn-dark btn-sm">Guardar edição</button></div>
+                                </form>
                             </td>
                         </tr>
                     <?php endforeach; else: ?>
