@@ -4,6 +4,9 @@ require_login();
 
 $userId = (int) $_SESSION['user_id'];
 $isAdmin = is_admin($pdo, $userId);
+$currentUser = current_user($pdo);
+$profile = (string) ($currentUser['access_profile'] ?? 'Utilizador');
+$canViewAllResults = $isAdmin || in_array($profile, ['RH', 'Chefias'], true);
 
 $startDate = trim((string) ($_GET['start_date'] ?? date('Y-m-d')));
 $endDate = trim((string) ($_GET['end_date'] ?? date('Y-m-d')));
@@ -22,7 +25,7 @@ $users = $pdo->query('SELECT id, name FROM users WHERE is_active = 1 ORDER BY na
 
 $params = [$startDate . ' 00:00:00', $endDate . ' 23:59:59'];
 $where = ['te.occurred_at BETWEEN ? AND ?'];
-if (!$isAdmin) {
+if (!$canViewAllResults) {
     $where[] = 'te.user_id = ?';
     $params[] = $userId;
 }
