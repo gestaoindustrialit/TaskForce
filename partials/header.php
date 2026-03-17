@@ -54,10 +54,17 @@ header('Content-Type: text/html; charset=UTF-8');
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">RH</a>
                             <ul class="dropdown-menu">
                                 <li><a class="dropdown-item" href="hr.php">M&oacute;dulo RH</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><h6 class="dropdown-header">Gestão base</h6></li>
                                 <li><a class="dropdown-item" href="users.php">Utilizadores</a></li>
                                 <li><a class="dropdown-item" href="hr_departments.php">Departamentos</a></li>
                                 <li><a class="dropdown-item" href="hr_schedules.php">Hor&aacute;rios</a></li>
-                                <li><a class="dropdown-item" href="hr_vacations.php">Calend&aacute;rio F&eacute;rias</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><h6 class="dropdown-header">Operação diária</h6></li>
+                                <li><a class="dropdown-item" href="hr_calendar.php">Calend&aacute;rio</a></li>
+                                <li><a class="dropdown-item" href="hr_bank.php">Banco de horas</a></li>
+                                <li><a class="dropdown-item" href="hr_absences.php">Aus&ecirc;ncias</a></li>
+                                <li><a class="dropdown-item" href="hr_vacations.php">F&eacute;rias</a></li>
                                 <li><a class="dropdown-item" href="hr_alerts.php">Alertas RH</a></li>
                                 <li><a class="dropdown-item" href="shopfloor_absence_reasons.php">Motivos de ausência</a></li>
                             </ul>
