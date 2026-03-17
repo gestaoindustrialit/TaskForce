@@ -504,6 +504,9 @@ if (!in_array('duration_type', $absenceRequestColumns, true)) {
         // Mantém compatibilidade com instalações que já tenham migração parcial.
     }
 }
+if (!in_array('duration_type', $absenceRequestColumns, true)) {
+    $pdo->exec("ALTER TABLE shopfloor_absence_requests ADD COLUMN duration_type TEXT NOT NULL DEFAULT 'Completa'");
+}
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS shopfloor_justifications (
@@ -550,6 +553,17 @@ $pdo->exec(
         created_by INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_announcement_targets (
+        announcement_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(announcement_id, user_id),
+        FOREIGN KEY(announcement_id) REFERENCES shopfloor_announcements(id) ON DELETE CASCADE,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )'
 );
 
