@@ -62,8 +62,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $signedSeconds = $adjustmentType === 'debito' ? -$durationSeconds : $durationSeconds;
             $deltaMinutes = (int) round($signedSeconds / 60);
             $deltaHours = $deltaMinutes / 60;
-            $stmt = $pdo->prepare('INSERT INTO shopfloor_hour_banks(user_id, balance_hours, notes, updated_by, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET balance_hours = COALESCE(shopfloor_hour_banks.balance_hours, 0) + excluded.balance_hours, notes = excluded.notes, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP');
-            $stmt->execute([$targetUserId, $deltaHours, $reason, $userId]);
+            $existingBalanceStmt = $pdo->prepare('SELECT balance_hours FROM shopfloor_hour_banks WHERE user_id = ? LIMIT 1');
+            $existingBalanceStmt->execute([$targetUserId]);
+            $existingBalance = $existingBalanceStmt->fetchColumn();
+
+            if ($existingBalance === false) {
+                $insertStmt = $pdo->prepare('INSERT INTO shopfloor_hour_banks(user_id, balance_hours, notes, updated_by, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)');
+                $insertStmt->execute([$targetUserId, $deltaHours, $reason, $userId]);
+            } else {
+                $newBalance = ((float) $existingBalance) + $deltaHours;
+                $updateStmt = $pdo->prepare('UPDATE shopfloor_hour_banks SET balance_hours = ?, notes = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?');
+                $updateStmt->execute([$newBalance, $reason, $userId, $targetUserId]);
+            }
 
             $logStmt = $pdo->prepare('INSERT INTO hr_hour_bank_logs(user_id, delta_minutes, reason, created_by, action_type, action_date) VALUES (?, ?, ?, ?, ?, ?)');
             $logStmt->execute([$targetUserId, $deltaMinutes, $reason, $userId, $adjustmentType, $actionDate]);

@@ -53,17 +53,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($targetUserId <= 0) {
             $flashError = 'Selecione um colaborador válido para guardar saldo anual.';
         } else {
-            $stmt = $pdo->prepare(
-                'INSERT INTO hr_vacation_balances(user_id, year, assigned_days, shift_time, is_active, updated_by)
-                 VALUES (?, ?, ?, ?, ?, ?)
-                 ON CONFLICT(user_id, year)
-                 DO UPDATE SET assigned_days = excluded.assigned_days,
-                               shift_time = excluded.shift_time,
-                               is_active = excluded.is_active,
-                               updated_by = excluded.updated_by,
-                               updated_at = CURRENT_TIMESTAMP'
-            );
-            $stmt->execute([$targetUserId, $year, $assignedDays, $shiftTime, $isActive, $userId]);
+            $existingBalanceStmt = $pdo->prepare('SELECT id FROM hr_vacation_balances WHERE user_id = ? AND year = ? LIMIT 1');
+            $existingBalanceStmt->execute([$targetUserId, $year]);
+            $existingBalanceId = $existingBalanceStmt->fetchColumn();
+
+            if ($existingBalanceId === false) {
+                $insertStmt = $pdo->prepare('INSERT INTO hr_vacation_balances(user_id, year, assigned_days, shift_time, is_active, updated_by) VALUES (?, ?, ?, ?, ?, ?)');
+                $insertStmt->execute([$targetUserId, $year, $assignedDays, $shiftTime, $isActive, $userId]);
+            } else {
+                $updateStmt = $pdo->prepare('UPDATE hr_vacation_balances SET assigned_days = ?, shift_time = ?, is_active = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+                $updateStmt->execute([$assignedDays, $shiftTime, $isActive, $userId, (int) $existingBalanceId]);
+            }
             $flashSuccess = 'Saldo anual atualizado com sucesso.';
             $selectedUserId = $targetUserId;
             $selectedYear = $year;

@@ -504,9 +504,6 @@ if (!in_array('duration_type', $absenceRequestColumns, true)) {
         // Mantém compatibilidade com instalações que já tenham migração parcial.
     }
 }
-if (!in_array('duration_type', $absenceRequestColumns, true)) {
-    $pdo->exec("ALTER TABLE shopfloor_absence_requests ADD COLUMN duration_type TEXT NOT NULL DEFAULT 'Completa'");
-}
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS shopfloor_justifications (
