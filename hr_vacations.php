@@ -47,25 +47,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $targetUserId = (int) ($_POST['user_id'] ?? 0);
         $year = (int) ($_POST['year'] ?? date('Y'));
         $assignedDays = max(0, (float) ($_POST['assigned_days'] ?? 0));
-        $employeeNumber = trim((string) ($_POST['employee_number'] ?? ''));
-        $shiftTime = trim((string) ($_POST['shift_time'] ?? '08:00'));
+        $shiftTime = '08:00';
         $isActive = isset($_POST['is_active']) ? 1 : 0;
 
         if ($targetUserId <= 0) {
             $flashError = 'Selecione um colaborador válido para guardar saldo anual.';
         } else {
             $stmt = $pdo->prepare(
-                'INSERT INTO hr_vacation_balances(user_id, year, assigned_days, employee_number, shift_time, is_active, updated_by)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                'INSERT INTO hr_vacation_balances(user_id, year, assigned_days, shift_time, is_active, updated_by)
+                 VALUES (?, ?, ?, ?, ?, ?)
                  ON CONFLICT(user_id, year)
                  DO UPDATE SET assigned_days = excluded.assigned_days,
-                               employee_number = excluded.employee_number,
                                shift_time = excluded.shift_time,
                                is_active = excluded.is_active,
                                updated_by = excluded.updated_by,
                                updated_at = CURRENT_TIMESTAMP'
             );
-            $stmt->execute([$targetUserId, $year, $assignedDays, $employeeNumber, $shiftTime, $isActive, $userId]);
+            $stmt->execute([$targetUserId, $year, $assignedDays, $shiftTime, $isActive, $userId]);
             $flashSuccess = 'Saldo anual atualizado com sucesso.';
             $selectedUserId = $targetUserId;
             $selectedYear = $year;
@@ -126,11 +124,10 @@ if ($selectedUserId <= 0 && $users) {
     $selectedUserId = (int) $users[0]['id'];
 }
 
-$balanceStmt = $pdo->prepare('SELECT assigned_days, employee_number, shift_time, is_active FROM hr_vacation_balances WHERE user_id = ? AND year = ?');
+$balanceStmt = $pdo->prepare('SELECT assigned_days, shift_time, is_active FROM hr_vacation_balances WHERE user_id = ? AND year = ?');
 $balanceStmt->execute([$selectedUserId, $selectedYear]);
 $balance = $balanceStmt->fetch(PDO::FETCH_ASSOC) ?: [
     'assigned_days' => 0,
-    'employee_number' => '',
     'shift_time' => '08:00',
     'is_active' => 1,
 ];
@@ -189,7 +186,7 @@ require __DIR__ . '/partials/header.php';
         <label class="form-label">Colaborador</label>
         <select class="form-select" name="user_id">
             <?php foreach ($users as $u): ?>
-                <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= h($u['name']) ?></option>
+                <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= (int) $u['id'] ?> - <?= h($u['name']) ?></option>
             <?php endforeach; ?>
         </select>
     </div>
@@ -217,15 +214,13 @@ require __DIR__ . '/partials/header.php';
                 <label class="form-label">Colaborador</label>
                 <select class="form-select" name="user_id" required>
                     <?php foreach ($users as $u): ?>
-                        <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= h($u['name']) ?></option>
+                        <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= (int) $u['id'] ?> - <?= h($u['name']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
             <div class="col-md-2"><label class="form-label">Ano</label><input class="form-control" type="number" name="year" min="2000" max="2100" value="<?= (int) $selectedYear ?>" required></div>
             <div class="col-md-3"><label class="form-label">Dias atribuídos</label><input class="form-control" type="number" step="0.5" min="0" name="assigned_days" value="<?= h((string) $balance['assigned_days']) ?>" required></div>
-            <div class="col-md-3"><label class="form-label">Nr. colaborador</label><input class="form-control" type="text" name="employee_number" placeholder="Ex: 166" value="<?= h((string) $balance['employee_number']) ?>"></div>
-            <div class="col-md-3"><label class="form-label">Turno/horário (hh:mm)</label><input class="form-control" type="time" name="shift_time" value="<?= h((string) $balance['shift_time']) ?>"></div>
-            <div class="col-md-2 form-check mt-4 ms-2"><input class="form-check-input" type="checkbox" id="is_active" name="is_active" <?= (int) ($balance['is_active'] ?? 0) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="is_active">Ativo</label></div>
+                        <div class="col-md-2 form-check mt-4 ms-2"><input class="form-check-input" type="checkbox" id="is_active" name="is_active" <?= (int) ($balance['is_active'] ?? 0) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="is_active">Ativo</label></div>
             <div class="col-md-3 d-grid"><button class="btn btn-dark">Guardar saldo</button></div>
             <div class="col-md-2 d-grid">
                 <a class="btn btn-outline-secondary" href="?user_id=<?= (int) $selectedUserId ?>&year=<?= (int) $selectedYear ?>&action=export_payroll">Export payroll pronto</a>
@@ -243,7 +238,7 @@ require __DIR__ . '/partials/header.php';
                 <label class="form-label">Colaborador</label>
                 <select class="form-select" name="user_id" required>
                     <?php foreach ($users as $u): ?>
-                        <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= h($u['name']) ?></option>
+                        <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= (int) $u['id'] ?> - <?= h($u['name']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>

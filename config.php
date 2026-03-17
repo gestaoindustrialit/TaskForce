@@ -390,7 +390,13 @@ $pdo->exec(
     )'
 );
 
-
+$hourBankLogColumns = $pdo->query('PRAGMA table_info(hr_hour_bank_logs)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('action_type', $hourBankLogColumns, true)) {
+    $pdo->exec("ALTER TABLE hr_hour_bank_logs ADD COLUMN action_type TEXT NOT NULL DEFAULT 'credito'");
+}
+if (!in_array('action_date', $hourBankLogColumns, true)) {
+    $pdo->exec('ALTER TABLE hr_hour_bank_logs ADD COLUMN action_date TEXT');
+}
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS shopfloor_absence_reasons (
@@ -468,6 +474,9 @@ if (!in_array('start_time', $absenceRequestColumns, true)) {
 }
 if (!in_array('end_time', $absenceRequestColumns, true)) {
     $pdo->exec('ALTER TABLE shopfloor_absence_requests ADD COLUMN end_time TEXT');
+}
+if (!in_array('duration_type', $absenceRequestColumns, true)) {
+    $pdo->exec("ALTER TABLE shopfloor_absence_requests ADD COLUMN duration_type TEXT NOT NULL DEFAULT 'Completa'");
 }
 
 $pdo->exec(
