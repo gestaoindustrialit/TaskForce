@@ -317,7 +317,7 @@ require __DIR__ . '/partials/header.php';
                     <div class="col-md-4"><label class="form-label">PIN (6 dígitos)</label><input class="form-control" type="text" name="pin_code" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="Opcional"></div>
                     <div class="col-md-4"><label class="form-label">Profissão</label><input class="form-control" name="profession" placeholder="Profissão"></div>
                     <div class="col-md-4"><label class="form-label">Categoria</label><input class="form-control" name="category" placeholder="Categoria"></div>
-                    <div class="col-md-4"><label class="form-label">Responsável</label><input class="form-control" name="manager_name" placeholder="Responsável"></div>
+                    <div class="col-md-4"><label class="form-label">Responsável</label><input class="form-control" name="manager_name" placeholder="Responsável" list="managerOptions" autocomplete="off"></div>
                     <div class="col-md-4">
                         <label class="form-label">Departamento</label>
                         <select class="form-select" name="department_id">
@@ -403,7 +403,7 @@ require __DIR__ . '/partials/header.php';
                     <div class="col-md-4"><label class="form-label">Novo PIN (6 dígitos)</label><input class="form-control" type="text" name="pin_code" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="Opcional"></div>
                     <div class="col-md-4"><label class="form-label">Profissão</label><input class="form-control" name="profession" value="<?= h((string) ($user['profession'] ?? '')) ?>" placeholder="Profissão"></div>
                     <div class="col-md-4"><label class="form-label">Categoria</label><input class="form-control" name="category" value="<?= h((string) ($user['category'] ?? '')) ?>" placeholder="Categoria"></div>
-                    <div class="col-md-4"><label class="form-label">Responsável</label><input class="form-control" name="manager_name" value="<?= h((string) ($user['manager_name'] ?? '')) ?>" placeholder="Responsável"></div>
+                    <div class="col-md-4"><label class="form-label">Responsável</label><input class="form-control" name="manager_name" value="<?= h((string) ($user['manager_name'] ?? '')) ?>" placeholder="Responsável" list="managerOptions" autocomplete="off"></div>
                     <div class="col-md-4">
                         <label class="form-label">Departamento</label>
                         <select class="form-select" name="department_id">
