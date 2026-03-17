@@ -130,6 +130,14 @@ require __DIR__ . '/partials/header.php';
                 <span class="btn btn-sm btn-outline-dark">Abrir ausências</span>
             </a>
         </div>
+
+        <div class="col-lg-6">
+            <a class="soft-card h-100 p-3 p-lg-4 d-block text-decoration-none hr-link-card" href="resultados.php">
+                <h3 class="h5 mb-2">Resultados de picagens</h3>
+                <p class="text-muted mb-3">Validação diária rápida de picagens com detalhe por colaborador e períodos E1/S1/E2/S2.</p>
+                <span class="btn btn-sm btn-outline-dark">Abrir validação de picagens</span>
+            </a>
+        </div>
     </div>
 </section>
 
