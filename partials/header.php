@@ -1,5 +1,9 @@
 <?php
-require_once __DIR__ . '/../helpers.php';
+$helpersPath = dirname(__DIR__) . '/helpers.php';
+if (!is_file($helpersPath)) {
+    $helpersPath = __DIR__ . '/helpers.php';
+}
+require_once $helpersPath;
 $user = current_user($pdo);
 $navbarLogo = app_setting($pdo, 'logo_navbar_light');
 $showHrMenu = $user && ((int) ($user['is_admin'] ?? 0) === 1 || (string) ($user['access_profile'] ?? '') === 'RH');
@@ -46,9 +50,11 @@ header('Content-Type: text/html; charset=UTF-8');
                 <div class="navbar-nav me-auto ms-lg-4">
                     <?php if ($isPinOnlyUser): ?>
                         <a class="nav-link" href="shopfloor.php">Shopfloor</a>
+                    <a class="nav-link" href="resultados.php">Resultados</a>
                     <?php else: ?>
                     <a class="nav-link" href="dashboard.php">Vis&atilde;o geral</a>
                     <a class="nav-link" href="shopfloor.php">Shopfloor</a>
+                    <a class="nav-link" href="resultados.php">Resultados</a>
                     <?php if ($showHrMenu): ?>
                         <div class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">RH</a>
