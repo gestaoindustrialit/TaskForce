@@ -357,11 +357,22 @@ $pdo->exec(
         user_id INTEGER NOT NULL,
         entry_type TEXT NOT NULL,
         note TEXT,
+        validated_by INTEGER,
+        validated_at DATETIME,
         occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(validated_by) REFERENCES users(id) ON DELETE SET NULL
     )'
 );
+
+$timeEntryColumns = $pdo->query('PRAGMA table_info(shopfloor_time_entries)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('validated_by', $timeEntryColumns, true)) {
+    $pdo->exec('ALTER TABLE shopfloor_time_entries ADD COLUMN validated_by INTEGER');
+}
+if (!in_array('validated_at', $timeEntryColumns, true)) {
+    $pdo->exec('ALTER TABLE shopfloor_time_entries ADD COLUMN validated_at DATETIME');
+}
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS hr_calendar_events (
