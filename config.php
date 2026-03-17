@@ -518,6 +518,17 @@ $pdo->exec(
     )'
 );
 
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_announcement_targets (
+        announcement_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(announcement_id, user_id),
+        FOREIGN KEY(announcement_id) REFERENCES shopfloor_announcements(id) ON DELETE CASCADE,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
 $defaultGroupStmt = $pdo->prepare('INSERT OR IGNORE INTO hr_department_groups(name) VALUES (?)');
 foreach (['Produção', 'Controlo', 'Administrativos'] as $defaultGroupName) {
     $defaultGroupStmt->execute([$defaultGroupName]);

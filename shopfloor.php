@@ -250,13 +250,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'publish_announcement' && ($isAdmin || $isRh)) {
         $title = trim((string) ($_POST['title'] ?? ''));
         $body = trim((string) ($_POST['body'] ?? ''));
+        $targetUserIds = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['target_user_ids'] ?? [])), static fn (int $id): bool => $id > 0)));
+
         if ($title === '' || $body === '') {
             $flashError = 'Preencha título e conteúdo para publicar o comunicado.';
         } else {
-            $stmt = $pdo->prepare('INSERT INTO shopfloor_announcements(title, body, audience, created_by) VALUES (?, ?, "shopfloor", ?)');
-            $stmt->execute([$title, $body, $userId]);
-            log_app_event($pdo, $userId, 'shopfloor.announcement.create', 'Comunicado publicado no Shopfloor.', ['title' => $title]);
+            $validTargetUserIds = [];
+            if ($targetUserIds !== []) {
+                $targetPlaceholders = implode(',', array_fill(0, count($targetUserIds), '?'));
+                $targetUsersStmt = $pdo->prepare('SELECT id FROM users WHERE id IN (' . $targetPlaceholders . ')');
+                $targetUsersStmt->execute($targetUserIds);
+                $validTargetUserIds = array_map('intval', $targetUsersStmt->fetchAll(PDO::FETCH_COLUMN));
+            }
+
+            $audience = $validTargetUserIds === [] ? 'shopfloor' : 'targeted';
+            $stmt = $pdo->prepare('INSERT INTO shopfloor_announcements(title, body, audience, created_by) VALUES (?, ?, ?, ?)');
+            $stmt->execute([$title, $body, $audience, $userId]);
+            $announcementId = (int) $pdo->lastInsertId();
+
+            if ($announcementId > 0 && $validTargetUserIds !== []) {
+                $targetInsertStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_announcement_targets(announcement_id, user_id) VALUES (?, ?)');
+                foreach ($validTargetUserIds as $targetUserId) {
+                    $targetInsertStmt->execute([$announcementId, $targetUserId]);
+                }
+            }
+
+            log_app_event($pdo, $userId, 'shopfloor.announcement.create', 'Comunicado publicado no Shopfloor.', ['title' => $title, 'targets' => $validTargetUserIds]);
             $flashSuccess = 'Comunicado publicado com sucesso.';
+        }
+    }
+
+    if ($action === 'toggle_announcement' && ($isAdmin || $isRh)) {
+        $announcementId = (int) ($_POST['announcement_id'] ?? 0);
+        $toggleStmt = $pdo->prepare('UPDATE shopfloor_announcements SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END WHERE id = ?');
+        $toggleStmt->execute([$announcementId]);
+
+        if ($toggleStmt->rowCount() > 0) {
+            log_app_event($pdo, $userId, 'shopfloor.announcement.toggle', 'Comunicado ativado/desativado no Shopfloor.', ['announcement_id' => $announcementId]);
+            $flashSuccess = 'Estado do comunicado atualizado com sucesso.';
+        } else {
+            $flashError = 'Comunicado inválido para alteração de estado.';
+        }
+    }
+
+    if ($action === 'delete_announcement' && ($isAdmin || $isRh)) {
+        $announcementId = (int) ($_POST['announcement_id'] ?? 0);
+        $deleteStmt = $pdo->prepare('DELETE FROM shopfloor_announcements WHERE id = ?');
+        $deleteStmt->execute([$announcementId]);
+
+        if ($deleteStmt->rowCount() > 0) {
+            log_app_event($pdo, $userId, 'shopfloor.announcement.delete', 'Comunicado eliminado no Shopfloor.', ['announcement_id' => $announcementId]);
+            $flashSuccess = 'Comunicado eliminado com sucesso.';
+        } else {
+            $flashError = 'Comunicado inválido para eliminação.';
         }
     }
 }
@@ -336,8 +382,21 @@ $vacationRequestsStmt = $pdo->prepare('SELECT id, start_date, end_date, total_da
 $vacationRequestsStmt->execute([$userId]);
 $vacationRequests = $vacationRequestsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$announcementsStmt = $pdo->query('SELECT a.title, a.body, a.created_at, COALESCE(u.name, "Sistema") AS created_by_name FROM shopfloor_announcements a LEFT JOIN users u ON u.id = a.created_by WHERE a.is_active = 1 AND a.audience IN ("all", "shopfloor") ORDER BY a.created_at DESC LIMIT 8');
+$announcementTargetUsers = [];
+if ($isAdmin || $isRh) {
+    $announcementTargetUsersStmt = $pdo->query('SELECT id, name, username FROM users ORDER BY name COLLATE NOCASE ASC');
+    $announcementTargetUsers = $announcementTargetUsersStmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+$announcementsStmt = $pdo->prepare('SELECT a.id, a.title, a.body, a.created_at, a.is_active, a.audience, COALESCE(u.name, "Sistema") AS created_by_name FROM shopfloor_announcements a LEFT JOIN users u ON u.id = a.created_by WHERE a.is_active = 1 AND (a.audience IN ("all", "shopfloor") OR EXISTS (SELECT 1 FROM shopfloor_announcement_targets t WHERE t.announcement_id = a.id AND t.user_id = ?)) ORDER BY a.created_at DESC LIMIT 8');
+$announcementsStmt->execute([$userId]);
 $announcements = $announcementsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$managedAnnouncements = [];
+if ($isAdmin || $isRh) {
+    $managedAnnouncementsStmt = $pdo->query('SELECT a.id, a.title, a.body, a.created_at, a.is_active, a.audience, COALESCE(u.name, "Sistema") AS created_by_name, (SELECT COUNT(*) FROM shopfloor_announcement_targets t WHERE t.announcement_id = a.id) AS target_count FROM shopfloor_announcements a LEFT JOIN users u ON u.id = a.created_by ORDER BY a.created_at DESC LIMIT 25');
+    $managedAnnouncements = $managedAnnouncementsStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 $uploadsCountStmt = $pdo->prepare('SELECT COUNT(*) FROM shopfloor_justifications WHERE user_id = ?');
 $uploadsCountStmt->execute([$userId]);
@@ -728,12 +787,51 @@ require __DIR__ . '/partials/header.php';
 
                 <?php if ($isAdmin || $isRh): ?>
                     <h3 class="h6">Publicar comunicado</h3>
-                    <form method="post" class="vstack gap-2">
+                    <form method="post" class="vstack gap-2 mb-4">
                         <input type="hidden" name="action" value="publish_announcement">
                         <input type="text" name="title" class="form-control" placeholder="Título" required>
                         <textarea name="body" class="form-control" rows="3" placeholder="Mensagem" required></textarea>
+                        <div>
+                            <label class="form-label mb-1">Direcionado a utilizadores (opcional)</label>
+                            <select name="target_user_ids[]" class="form-select" multiple size="5">
+                                <?php foreach ($announcementTargetUsers as $targetUser): ?>
+                                    <option value="<?= (int) $targetUser['id'] ?>"><?= h((string) $targetUser['name']) ?> (<?= h((string) $targetUser['username']) ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-text">Se não selecionar ninguém, o comunicado fica visível para todos os utilizadores do Shopfloor.</div>
+                        </div>
                         <button type="submit" class="btn btn-outline-primary">Publicar</button>
                     </form>
+
+                    <h3 class="h6">Gerir comunicados</h3>
+                    <ul class="list-group list-group-flush">
+                        <?php if ($managedAnnouncements): foreach ($managedAnnouncements as $announcement): ?>
+                            <li class="list-group-item shopfloor-list-item">
+                                <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                                    <div class="fw-semibold"><?= h((string) $announcement['title']) ?></div>
+                                    <span class="badge <?= ((int) $announcement['is_active'] === 1) ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= ((int) $announcement['is_active'] === 1) ? 'Ativo' : 'Inativo' ?></span>
+                                </div>
+                                <div class="small text-secondary mb-1">Por <?= h((string) $announcement['created_by_name']) ?> em <?= h((string) $announcement['created_at']) ?></div>
+                                <div class="small text-secondary mb-2">
+                                    <?= (string) $announcement['audience'] === 'targeted' ? ('Direcionado a ' . (int) $announcement['target_count'] . ' utilizador(es).') : 'Visível para todos os utilizadores Shopfloor.' ?>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <form method="post">
+                                        <input type="hidden" name="action" value="toggle_announcement">
+                                        <input type="hidden" name="announcement_id" value="<?= (int) $announcement['id'] ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary"><?= ((int) $announcement['is_active'] === 1) ? 'Desativar' : 'Ativar' ?></button>
+                                    </form>
+                                    <form method="post" onsubmit="return confirm('Eliminar este comunicado?');">
+                                        <input type="hidden" name="action" value="delete_announcement">
+                                        <input type="hidden" name="announcement_id" value="<?= (int) $announcement['id'] ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                                    </form>
+                                </div>
+                            </li>
+                        <?php endforeach; else: ?>
+                            <li class="list-group-item shopfloor-list-item text-secondary">Sem comunicados para gerir.</li>
+                        <?php endif; ?>
+                    </ul>
                 <?php endif; ?>
             </div>
         </div>
