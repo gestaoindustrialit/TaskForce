@@ -177,70 +177,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
 
     if ($action === 'update_entry_time') {
         $entryId = (int) ($_POST['entry_id'] ?? 0);
+        $slotIndex = (int) ($_POST['slot_index'] ?? 0);
+        $entryDate = trim((string) ($_POST['entry_date'] ?? ''));
+        $targetUserId = (int) ($_POST['target_user_id'] ?? 0);
         $newTime = trim((string) ($_POST['entry_time'] ?? ''));
 
         header('Content-Type: application/json; charset=UTF-8');
 
-        if ($entryId <= 0 || !preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $newTime)) {
-            echo json_encode(['ok' => false, 'message' => 'Hora inválida. Use HH:MM']);
+        if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $newTime)) {
+            echo json_encode(['ok' => false, 'message' => 'Hora inválida. Use HH:MM.']);
             exit;
         }
 
-        $entryStmt = $pdo->prepare('SELECT id, occurred_at FROM shopfloor_time_entries WHERE id = ? LIMIT 1');
-        $entryStmt->execute([$entryId]);
-        $entryRow = $entryStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$entryRow) {
-            echo json_encode(['ok' => false, 'message' => 'Registo não encontrado.']);
+        if ($entryId > 0) {
+            $entryStmt = $pdo->prepare('SELECT id, occurred_at FROM shopfloor_time_entries WHERE id = ? LIMIT 1');
+            $entryStmt->execute([$entryId]);
+            $entryRow = $entryStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$entryRow) {
+                echo json_encode(['ok' => false, 'message' => 'Registo não encontrado.']);
+                exit;
+            }
+
+            $resolvedDate = date('Y-m-d', strtotime((string) $entryRow['occurred_at']));
+            $newOccurredAt = $resolvedDate . ' ' . $newTime . ':00';
+            $pdo->prepare('UPDATE shopfloor_time_entries SET occurred_at = ? WHERE id = ?')->execute([$newOccurredAt, $entryId]);
+
+            log_app_event($pdo, $userId, 'shopfloor.time_entry.edit', 'Hora de picagem editada nos resultados.', [
+                'entry_id' => $entryId,
+                'new_time' => $newTime,
+                'entry_date' => $resolvedDate,
+            ]);
+
+            echo json_encode(['ok' => true, 'entry_id' => $entryId, 'entry_time' => $newTime]);
             exit;
         }
 
-        $entryDate = date('Y-m-d', strtotime((string) $entryRow['occurred_at']));
+        if ($slotIndex <= 0 || $targetUserId <= 0 || !DateTimeImmutable::createFromFormat('Y-m-d', $entryDate)) {
+            echo json_encode(['ok' => false, 'message' => 'Dados inválidos para criar picagem.']);
+            exit;
+        }
+
+        $entryType = $slotIndex % 2 === 1 ? 'entrada' : 'saida';
         $newOccurredAt = $entryDate . ' ' . $newTime . ':00';
+        $insertStmt = $pdo->prepare('INSERT INTO shopfloor_time_entries(user_id, entry_type, occurred_at) VALUES (?, ?, ?)');
+        $insertStmt->execute([$targetUserId, $entryType, $newOccurredAt]);
+        $newEntryId = (int) $pdo->lastInsertId();
 
-        $updateEntryStmt = $pdo->prepare('UPDATE shopfloor_time_entries SET occurred_at = ? WHERE id = ?');
-        $updateEntryStmt->execute([$newOccurredAt, $entryId]);
-
-        log_app_event($pdo, $userId, 'shopfloor.time_entry.edit', 'Hora de picagem editada nos resultados.', [
-            'entry_id' => $entryId,
+        log_app_event($pdo, $userId, 'shopfloor.time_entry.create', 'Nova picagem criada nos resultados.', [
+            'entry_id' => $newEntryId,
+            'entry_type' => $entryType,
             'new_time' => $newTime,
             'entry_date' => $entryDate,
         ]);
 
-        echo json_encode(['ok' => true, 'entry_time' => $newTime]);
+        echo json_encode(['ok' => true, 'entry_id' => $newEntryId, 'entry_time' => $newTime, 'entry_type' => $entryType]);
         exit;
-    } elseif ($action === 'save_bh_override') {
-        $overrideDate = trim((string) ($_POST['override_date'] ?? ''));
-        $overrideUserId = (int) ($_POST['override_user_id'] ?? 0);
-        $overrideBhValue = trim((string) ($_POST['override_bh_value'] ?? ''));
-        $overrideReason = trim((string) ($_POST['override_reason'] ?? ''));
-        $overrideMinutes = parse_signed_hhmm_to_minutes($overrideBhValue);
+    }
 
-        if (!DateTimeImmutable::createFromFormat('Y-m-d', $overrideDate) || $overrideUserId <= 0) {
-            $flashError = 'Dados inválidos para editar Tempo BH.';
-        } elseif ($overrideMinutes === null) {
-            $flashError = 'Tempo BH inválido. Use formato ±HH:MM.';
-        } else {
-            $previousStmt = $pdo->prepare('SELECT bh_minutes FROM shopfloor_bh_overrides WHERE user_id = ? AND work_date = ? LIMIT 1');
-            $previousStmt->execute([$overrideUserId, $overrideDate]);
-            $previousBh = $previousStmt->fetchColumn();
-
-            $upsertStmt = $pdo->prepare('INSERT INTO shopfloor_bh_overrides(user_id, work_date, bh_minutes, reason, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(user_id, work_date) DO UPDATE SET bh_minutes = excluded.bh_minutes, reason = excluded.reason, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP');
-            $upsertStmt->execute([$overrideUserId, $overrideDate, $overrideMinutes, $overrideReason !== '' ? $overrideReason : null, $userId]);
-
-            $logOverrideStmt = $pdo->prepare('INSERT INTO shopfloor_bh_override_logs(user_id, work_date, previous_bh_minutes, new_bh_minutes, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)');
-            $logOverrideStmt->execute([$overrideUserId, $overrideDate, $previousBh === false ? null : (int) $previousBh, $overrideMinutes, $overrideReason !== '' ? $overrideReason : null, $userId]);
-
-            log_app_event($pdo, $userId, 'shopfloor.bh_override.save', 'Tempo BH editado manualmente.', [
-                'target_user_id' => $overrideUserId,
-                'work_date' => $overrideDate,
-                'bh_minutes' => $overrideMinutes,
-                'reason' => $overrideReason,
-            ]);
-
-            $flashSuccess = 'Tempo BH atualizado com sucesso.';
-        }
-    } elseif (!DateTimeImmutable::createFromFormat('Y-m-d', $validateDate)) {
+    if (!DateTimeImmutable::createFromFormat('Y-m-d', $validateDate)) {
         $flashError = 'Data inválida para validação.';
     } elseif ($action === 'validate_row' && $validateUserId > 0) {
         $targetEntriesStmt = $pdo->prepare('SELECT id, entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = ? AND validated_at IS NULL ORDER BY occurred_at ASC');
@@ -250,63 +244,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
         if (!$targetEntries) {
             $flashError = 'Não existem picagens pendentes para validar.';
         } else {
-            $postedEntryTimes = (array) ($_POST['entry_time'] ?? []);
-            $postedSlotTimes = (array) ($_POST['slot_time'] ?? []);
             $overrideBhValue = trim((string) ($_POST['override_bh_value'] ?? ''));
             $overrideReason = trim((string) ($_POST['override_reason'] ?? ''));
 
             $pdo->beginTransaction();
             try {
-                $updateEntryStmt = $pdo->prepare('UPDATE shopfloor_time_entries SET occurred_at = ? WHERE id = ?');
-                foreach ($targetEntries as $targetEntry) {
-                    $entryId = (int) $targetEntry['id'];
-                    $newTime = trim((string) ($postedEntryTimes[$entryId] ?? ''));
-                    if ($newTime === '') {
-                        continue;
-                    }
-                    if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $newTime)) {
-                        throw new RuntimeException('Hora inválida. Use HH:MM.');
-                    }
-
-                    $entryDate = date('Y-m-d', strtotime((string) $targetEntry['occurred_at']));
-                    $newOccurredAt = $entryDate . ' ' . $newTime . ':00';
-                    $updateEntryStmt->execute([$newOccurredAt, $entryId]);
-
-                    log_app_event($pdo, $userId, 'shopfloor.time_entry.edit', 'Hora de picagem editada nos resultados.', [
-                        'entry_id' => $entryId,
-                        'new_time' => $newTime,
-                        'entry_date' => $entryDate,
-                    ]);
-                }
-
-                $insertEntryStmt = $pdo->prepare('INSERT INTO shopfloor_time_entries(user_id, entry_type, occurred_at) VALUES (?, ?, ?)');
-                foreach ($postedSlotTimes as $slotIndex => $slotTime) {
-                    $slotNumber = (int) $slotIndex;
-                    $newTime = trim((string) $slotTime);
-                    if ($slotNumber <= 0 || $newTime === '') {
-                        continue;
-                    }
-                    if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $newTime)) {
-                        throw new RuntimeException('Hora inválida. Use HH:MM.');
-                    }
-
-                    if ($slotNumber <= count($targetEntries)) {
-                        continue;
-                    }
-
-                    $entryType = $slotNumber % 2 === 1 ? 'entrada' : 'saida';
-                    $newOccurredAt = $validateDate . ' ' . $newTime . ':00';
-                    $insertEntryStmt->execute([$validateUserId, $entryType, $newOccurredAt]);
-                    $newEntryId = (int) $pdo->lastInsertId();
-
-                    log_app_event($pdo, $userId, 'shopfloor.time_entry.create', 'Nova picagem criada nos resultados.', [
-                        'entry_id' => $newEntryId,
-                        'entry_type' => $entryType,
-                        'new_time' => $newTime,
-                        'entry_date' => $validateDate,
-                    ]);
-                }
-
                 if ($overrideBhValue !== '') {
                     $overrideMinutes = parse_signed_hhmm_to_minutes($overrideBhValue);
                     if ($overrideMinutes === null) {
@@ -498,33 +440,6 @@ foreach ($overrideStmt->fetchAll(PDO::FETCH_ASSOC) as $overrideRow) {
     $overrideMap[$overrideKey] = $overrideRow;
 }
 
-$overrideParams = [$startDate, $endDate];
-$overrideWhere = ['work_date BETWEEN ? AND ?'];
-if (!$canViewAllResults) {
-    $overrideWhere[] = 'user_id = ?';
-    $overrideParams[] = $userId;
-}
-if ($teamId > 0) {
-    $overrideWhere[] = 'EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = ? AND tm.user_id = user_id)';
-    $overrideParams[] = $teamId;
-}
-if ($selectedUsers) {
-    $placeholders = implode(',', array_fill(0, count($selectedUsers), '?'));
-    $overrideWhere[] = 'user_id IN (' . $placeholders . ')';
-    foreach ($selectedUsers as $selUserId) {
-        $overrideParams[] = $selUserId;
-    }
-}
-
-$overrideSql = 'SELECT user_id, work_date, bh_minutes, reason, updated_at, updated_by FROM shopfloor_bh_overrides WHERE ' . implode(' AND ', $overrideWhere);
-$overrideStmt = $pdo->prepare($overrideSql);
-$overrideStmt->execute($overrideParams);
-$overrideMap = [];
-foreach ($overrideStmt->fetchAll(PDO::FETCH_ASSOC) as $overrideRow) {
-    $overrideKey = ((int) $overrideRow['user_id']) . '|' . (string) $overrideRow['work_date'];
-    $overrideMap[$overrideKey] = $overrideRow;
-}
-
 foreach ($daily as &$row) {
     $openIn = null;
     foreach ($row['entries'] as $point) {
@@ -684,10 +599,12 @@ require __DIR__ . '/partials/header.php';
                                         type="text"
                                         inputmode="numeric"
                                         pattern="^([01]\d|2[0-3]):([0-5]\d)$"
-                                        class="form-control form-control-sm results-entry-input"
+                                        class="form-control form-control-sm results-entry-input<?= $isPendingRow ? ' js-entry-time' : '' ?>"
                                         value="<?= h((string) ($entryPoint['time'] ?? '')) ?>"
-                                        name="<?= $entryPoint ? 'entry_time[' . (int) $entryPoint['id'] . ']' : 'slot_time[' . ($entryIdx + 1) . ']' ?>"
-                                        <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>
+                                        data-entry-id="<?= (int) ($entryPoint['id'] ?? 0) ?>"
+                                        data-slot-index="<?= (int) ($entryIdx + 1) ?>"
+                                        data-entry-date="<?= h($row['date']) ?>"
+                                        data-target-user-id="<?= (int) $row['user_id'] ?>"
                                         placeholder="--:--"
                                         <?= $entryPoint || $isPendingRow ? '' : 'disabled' ?>
                                     >
@@ -747,16 +664,19 @@ require __DIR__ . '/partials/header.php';
 
     entryInputs.forEach((input) => {
         input.addEventListener('blur', async () => {
-            const entryId = input.dataset.entryId || '';
-            const entryTime = input.value || '';
-            if (!entryId || !entryTime) {
+            const entryTime = (input.value || '').trim();
+            if (entryTime === '' || entryTime === '--:--') {
                 return;
             }
 
             const body = new URLSearchParams();
             body.set('action', 'update_entry_time');
-            body.set('entry_id', entryId);
+            body.set('entry_id', input.dataset.entryId || '0');
+            body.set('slot_index', input.dataset.slotIndex || '0');
+            body.set('entry_date', input.dataset.entryDate || '');
+            body.set('target_user_id', input.dataset.targetUserId || '0');
             body.set('entry_time', entryTime);
+            body.set('validate_date', input.dataset.entryDate || '');
 
             input.disabled = true;
             try {
@@ -771,12 +691,15 @@ require __DIR__ . '/partials/header.php';
 
                 const data = await response.json();
                 if (!data.ok) {
-                    throw new Error(data.message || 'Erro ao guardar');
+                    throw new Error(data.message || 'Erro ao guardar a picagem.');
                 }
 
+                if (data.entry_id) {
+                    input.dataset.entryId = String(data.entry_id);
+                }
                 input.classList.remove('is-invalid');
                 input.classList.add('is-valid');
-                setTimeout(() => input.classList.remove('is-valid'), 1000);
+                setTimeout(() => input.classList.remove('is-valid'), 900);
             } catch (error) {
                 input.classList.remove('is-valid');
                 input.classList.add('is-invalid');
