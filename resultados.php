@@ -464,17 +464,24 @@ require __DIR__ . '/partials/header.php';
     }
 
     .results-table .results-entry-col {
-        width: 4.6rem;
-        min-width: 4.6rem;
-        max-width: 4.6rem;
+        width: 5.1rem;
+        min-width: 5.1rem;
+        max-width: 5.1rem;
         text-align: center;
     }
 
     .results-table .results-entry-input {
-        min-width: 4.4rem;
-        width: 4.4rem;
-        padding: 0.18rem 0.3rem;
+        min-width: 4.9rem;
+        width: 4.9rem;
+        max-width: 4.9rem;
+        padding: 0.18rem 0.35rem;
         font-size: 0.8rem;
+        text-align: center;
+    }
+
+    .results-table .results-entry-input:disabled {
+        background-color: #f8f9fa;
+        opacity: 1;
     }
 
     .results-table .results-bh-input {
@@ -555,17 +562,27 @@ require __DIR__ . '/partials/header.php';
                         <?php for ($entryIdx = 0; $entryIdx < $maxEntryCount; $entryIdx++): ?>
                             <?php $entryPoint = $row['entries'][$entryIdx] ?? null; ?>
                             <td class="results-entry-col">
-                                <?php if ($entryPoint): ?>
-                                    <?php if ($canValidateResults): ?>
-                                        <input
-                                            type="time"
-                                            class="form-control form-control-sm js-entry-time results-entry-input"
-                                            value="<?= h((string) $entryPoint['time']) ?>"
-                                            data-entry-id="<?= (int) $entryPoint['id'] ?>"
-                                        >
-                                    <?php else: ?>
-                                        <?= h((string) $entryPoint['time']) ?>
-                                    <?php endif; ?>
+                                <?php if ($canValidateResults): ?>
+                                    <input
+                                        type="text"
+                                        inputmode="numeric"
+                                        pattern="^([01]\d|2[0-3]):([0-5]\d)$"
+                                        class="form-control form-control-sm results-entry-input<?= $entryPoint ? ' js-entry-time' : '' ?>"
+                                        value="<?= h((string) ($entryPoint['time'] ?? '')) ?>"
+                                        data-entry-id="<?= (int) ($entryPoint['id'] ?? 0) ?>"
+                                        placeholder="--:--"
+                                        <?= $entryPoint ? '' : 'disabled' ?>
+                                    >
+                                <?php elseif ($entryPoint): ?>
+                                    <?= h((string) $entryPoint['time']) ?>
+                                <?php else: ?>
+                                    <input
+                                        type="text"
+                                        class="form-control form-control-sm results-entry-input"
+                                        value=""
+                                        placeholder="--:--"
+                                        disabled
+                                    >
                                 <?php endif; ?>
                             </td>
                         <?php endfor; ?>
