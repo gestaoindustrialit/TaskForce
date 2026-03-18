@@ -266,7 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
 
                 $targetSeconds = (8 * 3600) + (15 * 60);
                 $effectiveSeconds = calculate_effective_seconds($targetEntries);
-                $bhSeconds = get_override_bh_seconds($pdo, $validateUserId, $validateDate) ?? ($targetSeconds - $effectiveSeconds);
+                $bhSeconds = get_override_bh_seconds($pdo, $validateUserId, $validateDate) ?? ($effectiveSeconds - $targetSeconds);
                 apply_hour_bank_delta($pdo, $validateUserId, $bhSeconds, $userId, $validateDate);
                 $pdo->commit();
                 $flashSuccess = 'Picagens validadas com sucesso.';
@@ -328,7 +328,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
                 $targetSeconds = (8 * 3600) + (15 * 60);
                 foreach ($entriesByUser as $entryUserId => $userEntries) {
                     $effectiveSeconds = calculate_effective_seconds($userEntries);
-                    $bhSeconds = get_override_bh_seconds($pdo, (int) $entryUserId, $validateDate) ?? ($targetSeconds - $effectiveSeconds);
+                    $bhSeconds = get_override_bh_seconds($pdo, (int) $entryUserId, $validateDate) ?? ($effectiveSeconds - $targetSeconds);
                     apply_hour_bank_delta($pdo, (int) $entryUserId, $bhSeconds, $userId, $validateDate);
                 }
 
@@ -455,7 +455,7 @@ foreach ($daily as &$row) {
     $row['type_label'] = count($row['entries']) >= 4 ? 'Normal' : 'Parcial';
     $row['effective'] = sprintf('%02d:%02d', intdiv($row['seconds'], 3600), intdiv($row['seconds'] % 3600, 60));
     $row['target'] = '08:15';
-    $computedBhSeconds = ((8 * 3600) + (15 * 60)) - $row['seconds'];
+    $computedBhSeconds = $row['seconds'] - ((8 * 3600) + (15 * 60));
     $rowKey = $row['user_id'] . '|' . $row['date'];
     $override = $overrideMap[$rowKey] ?? null;
     $row['bh_seconds'] = $override ? (((int) $override['bh_minutes']) * 60) : $computedBhSeconds;
@@ -624,7 +624,7 @@ require __DIR__ . '/partials/header.php';
                         <td><?= h($row['target']) ?></td>
                         <td><?= h($row['effective']) ?></td>
                         <td>
-                            <?php $bhClass = $row['bh_seconds'] > 0 ? 'text-danger' : ($row['bh_seconds'] < 0 ? 'text-success' : 'text-muted'); ?>
+                            <?php $bhClass = $row['bh_seconds'] < 0 ? 'text-danger' : ($row['bh_seconds'] > 0 ? 'text-success' : 'text-muted'); ?>
                             <?php if ($canValidateResults): ?>
                                 <div class="d-flex mt-1 align-items-center gap-1">
                                     <input type="text" class="form-control form-control-sm results-bh-input <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
