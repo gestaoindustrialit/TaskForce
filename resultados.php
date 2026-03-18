@@ -358,6 +358,28 @@ if ($canViewAllResults) {
     $users = $stmtUsers->fetchAll(PDO::FETCH_ASSOC);
 }
 
+$userTeamMap = [];
+$userTeamStmt = $pdo->query('SELECT tm.user_id, tm.team_id FROM team_members tm');
+foreach ($userTeamStmt->fetchAll(PDO::FETCH_ASSOC) as $membership) {
+    $memberUserId = (int) ($membership['user_id'] ?? 0);
+    $memberTeamId = (int) ($membership['team_id'] ?? 0);
+    if ($memberUserId <= 0 || $memberTeamId <= 0) {
+        continue;
+    }
+
+    if (!isset($userTeamMap[$memberUserId])) {
+        $userTeamMap[$memberUserId] = [];
+    }
+
+    $userTeamMap[$memberUserId][] = $memberTeamId;
+}
+
+foreach ($users as &$listedUser) {
+    $listedUserId = (int) ($listedUser['id'] ?? 0);
+    $listedUser['team_ids'] = $userTeamMap[$listedUserId] ?? [];
+}
+unset($listedUser);
+
 $params = [$startDate . ' 00:00:00', $endDate . ' 23:59:59'];
 $where = ['te.occurred_at BETWEEN ? AND ?'];
 if (!$canViewAllResults) {
@@ -549,19 +571,106 @@ require __DIR__ . '/partials/header.php';
     .results-table .badge {
         font-size: 0.77rem;
     }
+
+    .results-selected-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        min-height: 1.5rem;
+    }
+
+    .results-users-modal-list {
+        max-height: 24rem;
+        overflow-y: auto;
+        background: #fff;
+    }
+
+    .results-user-option {
+        cursor: pointer;
+    }
+
+    .results-user-option:hover {
+        background: rgba(15, 23, 42, 0.04);
+    }
 </style>
 <h1 class="h3 mb-3">Resultados de picagens</h1>
 <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
-<form method="get" class="card card-body shadow-sm mb-3">
+<form method="get" class="card card-body shadow-sm mb-3" id="resultsFilterForm">
     <div class="row g-2 align-items-end">
         <div class="col-md-2"><label class="form-label">Início</label><input class="form-control" type="date" name="start_date" value="<?= h($startDate) ?>"></div>
         <div class="col-md-2"><label class="form-label">Fim</label><input class="form-control" type="date" name="end_date" value="<?= h($endDate) ?>"></div>
-        <div class="col-md-3"><label class="form-label">Equipa</label><select class="form-select" name="team_id"><option value="0">Todas</option><?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>" <?= (int) $team['id'] === $teamId ? 'selected' : '' ?>><?= h((string) $team['name']) ?></option><?php endforeach; ?></select></div>
-        <div class="col-md-4"><label class="form-label">Utilizadores</label><select class="form-select" name="user_ids[]" multiple size="4" <?= $canViewAllResults ? '' : 'disabled' ?>><?php foreach ($users as $u): ?><option value="<?= (int) $u['id'] ?>" <?= in_array((int) $u['id'], $selectedUsers, true) ? 'selected' : '' ?>><?= h((string) (($u['user_number'] ?: $u['id']) . ' - ' . $u['name'])) ?></option><?php endforeach; ?></select></div>
+        <div class="col-md-3"><label class="form-label">Equipa</label><select class="form-select js-results-team-filter" name="team_id"><option value="0">Todas</option><?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>" <?= (int) $team['id'] === $teamId ? 'selected' : '' ?>><?= h((string) $team['name']) ?></option><?php endforeach; ?></select></div>
+        <div class="col-md-4">
+            <label class="form-label">Colaboradores</label>
+            <button
+                type="button"
+                class="btn btn-outline-secondary w-100 d-flex justify-content-between align-items-center results-collaborator-trigger"
+                data-bs-toggle="modal"
+                data-bs-target="#resultsCollaboratorsModal"
+                <?= $canViewAllResults ? '' : 'disabled' ?>
+            >
+                <span class="text-start">Selecionar colaboradores</span>
+                <span class="badge text-bg-dark js-results-users-count">0</span>
+            </button>
+            <div class="form-text js-results-users-summary">Todos</div>
+            <div class="results-selected-chips js-results-users-chips mt-2"></div>
+            <div class="d-none js-results-user-hidden-inputs">
+                <?php foreach ($selectedUsers as $selectedUserId): ?>
+                    <input type="hidden" name="user_ids[]" value="<?= (int) $selectedUserId ?>">
+                <?php endforeach; ?>
+            </div>
+        </div>
         <div class="col-md-1 d-grid"><button class="btn btn-dark">Filtrar</button></div>
     </div>
 </form>
+
+<?php if ($canViewAllResults): ?>
+    <div class="modal fade" id="resultsCollaboratorsModal" tabindex="-1" aria-labelledby="resultsCollaboratorsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-scrollable modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h2 class="modal-title fs-5" id="resultsCollaboratorsModalLabel">Escolher colaboradores</h2>
+                        <p class="text-muted small mb-0">Pesquise, selecione vários colaboradores e aplique ao filtro.</p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-2 align-items-center mb-3">
+                        <div class="col-md-6">
+                            <input type="search" class="form-control js-results-user-search" placeholder="Pesquisar colaborador">
+                        </div>
+                        <div class="col-md-6">
+                            <div class="d-flex flex-wrap gap-2 justify-content-md-end">
+                                <button type="button" class="btn btn-outline-secondary btn-sm js-results-select-all">Selecionar todos</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm js-results-clear-all">Limpar</button>
+                                <button type="button" class="btn btn-outline-primary btn-sm js-results-select-team">Só da equipa escolhida</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="results-users-modal-list border rounded p-2">
+                        <?php foreach ($users as $u): ?>
+                            <?php $userLabel = (string) (($u['user_number'] ?: $u['id']) . ' - ' . $u['name']); ?>
+                            <?php $userLabelSearch = function_exists('mb_strtolower') ? mb_strtolower($userLabel) : strtolower($userLabel); ?>
+                            <label class="results-user-option form-check d-flex align-items-start gap-2 px-2 py-2 rounded js-results-user-option" data-user-option data-user-id="<?= (int) $u['id'] ?>" data-user-label="<?= h($userLabelSearch) ?>" data-team-ids="<?= h(implode(',', array_map('intval', (array) ($u['team_ids'] ?? [])))) ?>">
+                                <input class="form-check-input mt-1 js-results-user-checkbox" type="checkbox" value="<?= (int) $u['id'] ?>" <?= in_array((int) $u['id'], $selectedUsers, true) ? 'checked' : '' ?>>
+                                <span class="flex-grow-1">
+                                    <span class="d-block fw-semibold"><?= h((string) $u['name']) ?></span>
+                                    <span class="d-block text-muted small"><?= h((string) ($u['user_number'] !== '' ? $u['user_number'] : $u['id'])) ?></span>
+                                </span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-dark js-results-apply-users">Aplicar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
 
 <?php if ($canValidateResults && $startDate === $endDate): ?>
     <form method="post" class="mb-3">
@@ -595,7 +704,7 @@ require __DIR__ . '/partials/header.php';
                     <?php $isPendingRow = $canValidateResults && $row['status'] !== 'Validado'; ?>
                     <?php $rowFormId = 'validate-row-' . (int) $row['user_id'] . '-' . str_replace('-', '', (string) $row['date']); ?>
                     <?php $existingEntryCount = (int) ($row['entries_count'] ?? count($row['entries'])); ?>
-                    <tr>
+                    <tr class="js-results-row" data-user-id="<?= (int) $row['user_id'] ?>" data-work-date="<?= h($row['date']) ?>">
                         <td><span class="badge <?= $row['status'] === 'Validado' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= h($row['status']) ?></span></td>
                         <td><?= h($row['type_label']) ?></td>
                         <td><?= h(format_date_pt($row['date'])) ?></td>
@@ -631,13 +740,13 @@ require __DIR__ . '/partials/header.php';
                                 <?php endif; ?>
                             </td>
                         <?php endfor; ?>
-                        <td><?= h($row['target']) ?></td>
-                        <td><?= h($row['effective']) ?></td>
+                        <td class="js-results-target" data-target-seconds="<?= (8 * 3600) + (15 * 60) ?>"><?= h($row['target']) ?></td>
+                        <td class="js-results-effective" data-effective-seconds="<?= (int) $row['seconds'] ?>"><?= h($row['effective']) ?></td>
                         <td>
                             <?php $bhClass = $row['bh_seconds'] < 0 ? 'text-danger' : ($row['bh_seconds'] > 0 ? 'text-success' : 'text-muted'); ?>
                             <?php if ($canValidateResults): ?>
                                 <div class="d-flex mt-1 align-items-center gap-1">
-                                    <input type="text" class="form-control form-control-sm results-bh-input <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
+                                    <input type="text" class="form-control form-control-sm results-bh-input js-results-bh-input <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM" data-default-value="<?= h($row['bh']) ?>" data-auto-bh="<?= h($row['bh']) ?>" data-is-override="<?= $row['bh_is_override'] ? '1' : '0' ?>" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
                                     <input type="text" class="form-control form-control-sm results-bh-reason" name="override_reason" value="<?= h((string) $row['bh_reason']) ?>" placeholder="Motivo" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
                                 </div>
                             <?php else: ?>
@@ -667,10 +776,229 @@ require __DIR__ . '/partials/header.php';
 </div>
 <script>
 (function () {
+    const resultsFilterForm = document.getElementById('resultsFilterForm');
+    if (resultsFilterForm) {
+        const hiddenInputsContainer = resultsFilterForm.querySelector('.js-results-user-hidden-inputs');
+        const teamFilter = resultsFilterForm.querySelector('.js-results-team-filter');
+        const summary = resultsFilterForm.querySelector('.js-results-users-summary');
+        const countBadge = resultsFilterForm.querySelector('.js-results-users-count');
+        const chipsContainer = resultsFilterForm.querySelector('.js-results-users-chips');
+        const modalElement = document.getElementById('resultsCollaboratorsModal');
+
+        if (hiddenInputsContainer && summary && countBadge && chipsContainer && modalElement) {
+            const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
+            const searchInput = modalElement.querySelector('.js-results-user-search');
+            const userOptions = Array.from(modalElement.querySelectorAll('[data-user-option]'));
+            const applyButton = modalElement.querySelector('.js-results-apply-users');
+            const selectAllButton = modalElement.querySelector('.js-results-select-all');
+            const clearAllButton = modalElement.querySelector('.js-results-clear-all');
+            const selectTeamButton = modalElement.querySelector('.js-results-select-team');
+
+            const getCheckboxes = () => userOptions.map((option) => option.querySelector('.js-results-user-checkbox')).filter(Boolean);
+            const getSelectedOptions = () => userOptions.filter((option) => {
+                const checkbox = option.querySelector('.js-results-user-checkbox');
+                return checkbox && checkbox.checked;
+            });
+
+            const syncVisibleUsers = () => {
+                const term = (searchInput?.value || '').trim().toLowerCase();
+                const selectedTeamId = String(teamFilter?.value || '0');
+
+                userOptions.forEach((option) => {
+                    const userLabel = option.dataset.userLabel || '';
+                    const teamIds = (option.dataset.teamIds || '').split(',').filter(Boolean);
+                    const matchesSearch = term === '' || userLabel.includes(term);
+                    const matchesTeam = selectedTeamId === '0' || teamIds.includes(selectedTeamId);
+                    option.classList.toggle('d-none', !(matchesSearch && matchesTeam));
+                });
+            };
+
+            const renderSelectedUsers = () => {
+                const selectedOptions = getSelectedOptions();
+                hiddenInputsContainer.innerHTML = '';
+                chipsContainer.innerHTML = '';
+
+                selectedOptions.forEach((option) => {
+                    const checkbox = option.querySelector('.js-results-user-checkbox');
+                    if (!checkbox) {
+                        return;
+                    }
+
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'user_ids[]';
+                    input.value = checkbox.value;
+                    hiddenInputsContainer.appendChild(input);
+                });
+
+                countBadge.textContent = String(selectedOptions.length);
+                if (!selectedOptions.length) {
+                    summary.textContent = 'Todos';
+                    return;
+                }
+
+                if (selectedOptions.length <= 2) {
+                    summary.textContent = selectedOptions.map((option) => option.querySelector('.fw-semibold')?.textContent?.trim() || '').filter(Boolean).join(', ');
+                } else {
+                    summary.textContent = `${selectedOptions.length} selecionados`;
+                }
+
+                const chipNames = selectedOptions
+                    .map((option) => option.querySelector('.fw-semibold')?.textContent?.trim() || '')
+                    .filter(Boolean);
+
+                chipNames.slice(0, 2).forEach((name) => {
+                    const chip = document.createElement('span');
+                    chip.className = 'badge rounded-pill text-bg-light border text-dark';
+                    chip.textContent = name;
+                    chipsContainer.appendChild(chip);
+                });
+
+                if (chipNames.length > 2) {
+                    const extraChip = document.createElement('span');
+                    extraChip.className = 'badge rounded-pill text-bg-secondary';
+                    extraChip.textContent = `+${chipNames.length - 2}`;
+                    chipsContainer.appendChild(extraChip);
+                }
+            };
+
+            searchInput?.addEventListener('input', syncVisibleUsers);
+            teamFilter?.addEventListener('change', syncVisibleUsers);
+            selectAllButton?.addEventListener('click', () => {
+                getCheckboxes().forEach((checkbox) => { checkbox.checked = true; });
+                renderSelectedUsers();
+                syncVisibleUsers();
+            });
+            clearAllButton?.addEventListener('click', () => {
+                getCheckboxes().forEach((checkbox) => { checkbox.checked = false; });
+                renderSelectedUsers();
+            });
+            selectTeamButton?.addEventListener('click', () => {
+                const selectedTeamId = String(teamFilter?.value || '0');
+                getCheckboxes().forEach((checkbox) => { checkbox.checked = false; });
+                userOptions.forEach((option) => {
+                    const checkbox = option.querySelector('.js-results-user-checkbox');
+                    if (!checkbox) {
+                        return;
+                    }
+                    const teamIds = (option.dataset.teamIds || '').split(',').filter(Boolean);
+                    checkbox.checked = selectedTeamId === '0' || teamIds.includes(selectedTeamId);
+                });
+                renderSelectedUsers();
+                syncVisibleUsers();
+            });
+            getCheckboxes().forEach((checkbox) => checkbox.addEventListener('change', renderSelectedUsers));
+            applyButton?.addEventListener('click', () => {
+                renderSelectedUsers();
+                modal.hide();
+            });
+            modalElement.addEventListener('shown.bs.modal', () => {
+                syncVisibleUsers();
+                searchInput?.focus();
+            });
+
+            renderSelectedUsers();
+            syncVisibleUsers();
+        }
+    }
+
+    const formatHHMM = (totalSeconds, signed = false) => {
+        const absoluteSeconds = Math.abs(totalSeconds);
+        const hours = Math.floor(absoluteSeconds / 3600);
+        const minutes = Math.floor((absoluteSeconds % 3600) / 60);
+        const prefix = signed && totalSeconds < 0 ? '-' : '';
+        return `${prefix}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    };
+
+    const updateBhInputState = (input, bhSeconds) => {
+        input.classList.remove('text-success', 'text-danger', 'text-muted');
+        if (bhSeconds > 0) {
+            input.classList.add('text-success');
+        } else if (bhSeconds < 0) {
+            input.classList.add('text-danger');
+        } else {
+            input.classList.add('text-muted');
+        }
+    };
+
+    const recalculateRow = (row) => {
+        if (!row) {
+            return;
+        }
+
+        const entryInputs = Array.from(row.querySelectorAll('.js-entry-time'));
+        const effectiveCell = row.querySelector('.js-results-effective');
+        const targetCell = row.querySelector('.js-results-target');
+        const bhInput = row.querySelector('.js-results-bh-input');
+        if (!effectiveCell || !targetCell || !bhInput) {
+            return;
+        }
+
+        const sortedEntries = entryInputs
+            .map((input) => ({
+                slotIndex: Number(input.dataset.slotIndex || '0'),
+                time: (input.value || '').trim()
+            }))
+            .filter((entry) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(entry.time))
+            .sort((a, b) => a.slotIndex - b.slotIndex);
+
+        let openSeconds = null;
+        let effectiveSeconds = 0;
+        sortedEntries.forEach((entry) => {
+            const [hours, minutes] = entry.time.split(':').map(Number);
+            const currentSeconds = (hours * 3600) + (minutes * 60);
+            if (entry.slotIndex % 2 === 1) {
+                openSeconds = currentSeconds;
+            } else if (openSeconds !== null && currentSeconds > openSeconds) {
+                effectiveSeconds += currentSeconds - openSeconds;
+                openSeconds = null;
+            }
+        });
+
+        effectiveCell.dataset.effectiveSeconds = String(effectiveSeconds);
+        effectiveCell.textContent = formatHHMM(effectiveSeconds);
+
+        const targetSeconds = Number(targetCell.dataset.targetSeconds || '0');
+        const bhSeconds = effectiveSeconds - targetSeconds;
+        const autoBhValue = formatHHMM(bhSeconds, true);
+        bhInput.dataset.autoBh = autoBhValue;
+
+        const isManualOverride = bhInput.dataset.isOverride === '1' || (bhInput.value || '').trim() !== (bhInput.dataset.defaultValue || '').trim();
+        if (!isManualOverride) {
+            bhInput.value = autoBhValue;
+            bhInput.dataset.defaultValue = autoBhValue;
+        }
+
+        updateBhInputState(bhInput, isManualOverride ? bhSecondsFromValue(bhInput.value) : bhSeconds);
+    };
+
+    const bhSecondsFromValue = (value) => {
+        const match = String(value || '').trim().match(/^([+-])?(\d{1,3}):(\d{2})$/);
+        if (!match) {
+            return 0;
+        }
+
+        const sign = match[1] === '-' ? -1 : 1;
+        return sign * (((Number(match[2]) * 60) + Number(match[3])) * 60);
+    };
+
     const entryInputs = document.querySelectorAll('.js-entry-time');
     if (!entryInputs.length) {
         return;
     }
+
+    document.querySelectorAll('.js-results-row').forEach((row) => recalculateRow(row));
+    document.querySelectorAll('.js-results-bh-input').forEach((input) => {
+        input.addEventListener('input', () => {
+            input.dataset.isOverride = '1';
+            updateBhInputState(input, bhSecondsFromValue(input.value));
+        });
+        input.addEventListener('focus', () => {
+            if (input.dataset.isOverride !== '1') {
+                input.dataset.defaultValue = input.value || '';
+            }
+        });
+    });
 
     entryInputs.forEach((input) => {
         input.addEventListener('blur', async () => {
@@ -707,6 +1035,7 @@ require __DIR__ . '/partials/header.php';
                 if (data.entry_id) {
                     input.dataset.entryId = String(data.entry_id);
                 }
+                recalculateRow(input.closest('.js-results-row'));
                 input.classList.remove('is-invalid');
                 input.classList.add('is-valid');
                 setTimeout(() => input.classList.remove('is-valid'), 900);
