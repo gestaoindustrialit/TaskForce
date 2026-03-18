@@ -351,6 +351,38 @@ $pdo->exec(
     )'
 );
 
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_bh_overrides (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        work_date TEXT NOT NULL,
+        bh_minutes INTEGER NOT NULL,
+        reason TEXT,
+        updated_by INTEGER,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, work_date),
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_bh_override_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        work_date TEXT NOT NULL,
+        previous_bh_minutes INTEGER,
+        new_bh_minutes INTEGER NOT NULL,
+        reason TEXT,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS shopfloor_time_entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
