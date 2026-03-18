@@ -587,10 +587,29 @@ require __DIR__ . '/partials/header.php';
 
     .results-user-option {
         cursor: pointer;
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        margin: 0;
+        padding-left: 0.75rem;
     }
 
     .results-user-option:hover {
         background: rgba(15, 23, 42, 0.04);
+    }
+
+    .results-user-option.is-selected {
+        background: rgba(13, 110, 253, 0.08);
+        border-color: rgba(13, 110, 253, 0.2);
+    }
+
+    .results-user-option .results-user-checkbox {
+        margin: 0.2rem 0 0;
+        flex: 0 0 auto;
+    }
+
+    .results-user-option .results-user-meta {
+        min-width: 0;
     }
 </style>
 <h1 class="h3 mb-3">Resultados de picagens</h1>
@@ -653,9 +672,9 @@ require __DIR__ . '/partials/header.php';
                         <?php foreach ($users as $u): ?>
                             <?php $userLabel = (string) (($u['user_number'] ?: $u['id']) . ' - ' . $u['name']); ?>
                             <?php $userLabelSearch = function_exists('mb_strtolower') ? mb_strtolower($userLabel) : strtolower($userLabel); ?>
-                            <label class="results-user-option form-check d-flex align-items-start gap-2 px-2 py-2 rounded js-results-user-option" data-user-option data-user-id="<?= (int) $u['id'] ?>" data-user-label="<?= h($userLabelSearch) ?>" data-team-ids="<?= h(implode(',', array_map('intval', (array) ($u['team_ids'] ?? [])))) ?>">
-                                <input class="form-check-input mt-1 js-results-user-checkbox" type="checkbox" value="<?= (int) $u['id'] ?>" <?= in_array((int) $u['id'], $selectedUsers, true) ? 'checked' : '' ?>>
-                                <span class="flex-grow-1">
+                            <label class="results-user-option border px-2 py-2 rounded js-results-user-option" data-user-option data-user-id="<?= (int) $u['id'] ?>" data-user-label="<?= h($userLabelSearch) ?>" data-team-ids="<?= h(implode(',', array_map('intval', (array) ($u['team_ids'] ?? [])))) ?>">
+                                <input class="form-check-input results-user-checkbox js-results-user-checkbox" type="checkbox" value="<?= (int) $u['id'] ?>" <?= in_array((int) $u['id'], $selectedUsers, true) ? 'checked' : '' ?>>
+                                <span class="results-user-meta flex-grow-1">
                                     <span class="d-block fw-semibold"><?= h((string) $u['name']) ?></span>
                                     <span class="d-block text-muted small"><?= h((string) ($u['user_number'] !== '' ? $u['user_number'] : $u['id'])) ?></span>
                                 </span>
@@ -795,10 +814,17 @@ require __DIR__ . '/partials/header.php';
             const selectTeamButton = modalElement.querySelector('.js-results-select-team');
 
             const getCheckboxes = () => userOptions.map((option) => option.querySelector('.js-results-user-checkbox')).filter(Boolean);
+            const getVisibleOptions = () => userOptions.filter((option) => !option.classList.contains('d-none'));
             const getSelectedOptions = () => userOptions.filter((option) => {
                 const checkbox = option.querySelector('.js-results-user-checkbox');
                 return checkbox && checkbox.checked;
             });
+            const syncOptionCheckedState = () => {
+                userOptions.forEach((option) => {
+                    const checkbox = option.querySelector('.js-results-user-checkbox');
+                    option.classList.toggle('is-selected', Boolean(checkbox?.checked));
+                });
+            };
 
             const syncVisibleUsers = () => {
                 const term = (searchInput?.value || '').trim().toLowerCase();
@@ -817,6 +843,7 @@ require __DIR__ . '/partials/header.php';
                 const selectedOptions = getSelectedOptions();
                 hiddenInputsContainer.innerHTML = '';
                 chipsContainer.innerHTML = '';
+                syncOptionCheckedState();
 
                 selectedOptions.forEach((option) => {
                     const checkbox = option.querySelector('.js-results-user-checkbox');
@@ -865,9 +892,14 @@ require __DIR__ . '/partials/header.php';
             searchInput?.addEventListener('input', syncVisibleUsers);
             teamFilter?.addEventListener('change', syncVisibleUsers);
             selectAllButton?.addEventListener('click', () => {
-                getCheckboxes().forEach((checkbox) => { checkbox.checked = true; });
+                const visibleOptions = getVisibleOptions();
+                visibleOptions.forEach((option) => {
+                    const checkbox = option.querySelector('.js-results-user-checkbox');
+                    if (checkbox) {
+                        checkbox.checked = true;
+                    }
+                });
                 renderSelectedUsers();
-                syncVisibleUsers();
             });
             clearAllButton?.addEventListener('click', () => {
                 getCheckboxes().forEach((checkbox) => { checkbox.checked = false; });
