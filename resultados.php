@@ -100,6 +100,27 @@ function format_signed_hhmm(int $seconds): string
     return sprintf('%s%02d:%02d', $prefix, $hours, $minutes);
 }
 
+function format_date_pt(string $date): string
+{
+    $timestamp = strtotime($date);
+    if (!$timestamp) {
+        return $date;
+    }
+
+    $weekdayMap = [
+        1 => 'Seg',
+        2 => 'Ter',
+        3 => 'Qua',
+        4 => 'Qui',
+        5 => 'Sex',
+        6 => 'Sáb',
+        7 => 'Dom',
+    ];
+    $weekday = $weekdayMap[(int) date('N', $timestamp)] ?? date('D', $timestamp);
+
+    return date('d-m-Y', $timestamp) . ' (' . $weekday . ')';
+}
+
 function parse_signed_hhmm_to_minutes(string $value): ?int
 {
     if (!preg_match('/^([+-])?(\d{1,3}):(\d{2})$/', $value, $matches)) {
@@ -133,7 +154,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
     $validateDate = trim((string) ($_POST['validate_date'] ?? ''));
     $validateUserId = (int) ($_POST['validate_user_id'] ?? 0);
 
-    if ($action === 'save_bh_override') {
+    if ($action === 'update_entry_time') {
+        $entryId = (int) ($_POST['entry_id'] ?? 0);
+        $newTime = trim((string) ($_POST['entry_time'] ?? ''));
+
+        header('Content-Type: application/json; charset=UTF-8');
+
+        if ($entryId <= 0 || !preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $newTime)) {
+            echo json_encode(['ok' => false, 'message' => 'Hora inválida. Use HH:MM']);
+            exit;
+        }
+
+        $entryStmt = $pdo->prepare('SELECT id, occurred_at FROM shopfloor_time_entries WHERE id = ? LIMIT 1');
+        $entryStmt->execute([$entryId]);
+        $entryRow = $entryStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$entryRow) {
+            echo json_encode(['ok' => false, 'message' => 'Registo não encontrado.']);
+            exit;
+        }
+
+        $entryDate = date('Y-m-d', strtotime((string) $entryRow['occurred_at']));
+        $newOccurredAt = $entryDate . ' ' . $newTime . ':00';
+
+        $updateEntryStmt = $pdo->prepare('UPDATE shopfloor_time_entries SET occurred_at = ? WHERE id = ?');
+        $updateEntryStmt->execute([$newOccurredAt, $entryId]);
+
+        log_app_event($pdo, $userId, 'shopfloor.time_entry.edit', 'Hora de picagem editada nos resultados.', [
+            'entry_id' => $entryId,
+            'new_time' => $newTime,
+            'entry_date' => $entryDate,
+        ]);
+
+        echo json_encode(['ok' => true, 'entry_time' => $newTime]);
+        exit;
+    } elseif ($action === 'save_bh_override') {
         $overrideDate = trim((string) ($_POST['override_date'] ?? ''));
         $overrideUserId = (int) ($_POST['override_user_id'] ?? 0);
         $overrideBhValue = trim((string) ($_POST['override_bh_value'] ?? ''));
@@ -287,7 +341,7 @@ if ($selectedUsers) {
     }
 }
 
-$sql = 'SELECT te.user_id, te.entry_type, te.occurred_at, te.validated_at, u.name AS user_name, u.user_number
+$sql = 'SELECT te.id, te.user_id, te.entry_type, te.occurred_at, te.validated_at, u.name AS user_name, u.user_number
         FROM shopfloor_time_entries te
         INNER JOIN users u ON u.id = te.user_id
         WHERE ' . implode(' AND ', $where) . '
@@ -315,6 +369,7 @@ foreach ($entries as $entry) {
     }
 
     $daily[$key]['entries'][] = [
+        'id' => (int) $entry['id'],
         'type' => (string) $entry['entry_type'],
         'time' => date('H:i', strtotime((string) $entry['occurred_at'])),
         'timestamp' => strtotime((string) $entry['occurred_at']),
@@ -375,14 +430,6 @@ foreach ($daily as &$row) {
     $row['bh_is_override'] = $override !== null;
     $row['bh_reason'] = $override['reason'] ?? '';
 
-    $times = [];
-    foreach ($row['entries'] as $point) {
-        $times[] = $point['time'];
-    }
-    $row['e1'] = $times[0] ?? '';
-    $row['s1'] = $times[1] ?? '';
-    $row['e2'] = $times[2] ?? '';
-    $row['s2'] = $times[3] ?? '';
 }
 unset($row);
 
@@ -395,6 +442,11 @@ usort(
         return strcmp($b['date'], $a['date']);
     }
 );
+
+$maxEntryCount = 0;
+foreach ($daily as $dailyRow) {
+    $maxEntryCount = max($maxEntryCount, count($dailyRow['entries']));
+}
 
 $pageTitle = 'Resultados';
 require __DIR__ . '/partials/header.php';
@@ -427,39 +479,59 @@ require __DIR__ . '/partials/header.php';
                 <thead>
                     <tr>
                         <th>Estado</th><th>Tipo</th><th>Data</th><th>Número</th><th>Nome</th>
-                        <th>E1</th><th>S1</th><th>E2</th><th>S2</th><th>Objectivo</th><th>Efectivo</th><th>Tempo BH</th>
+                        <?php for ($i = 1; $i <= $maxEntryCount; $i++): ?>
+                            <?php $entryPrefix = $i % 2 === 1 ? 'E' : 'S'; ?>
+                            <?php $entrySequence = (int) ceil($i / 2); ?>
+                            <th><?= $entryPrefix . $entrySequence ?></th>
+                        <?php endfor; ?>
+                        <th>Objectivo</th><th>Efectivo</th><th>Tempo BH</th>
                         <?php if ($canValidateResults): ?><th class="text-end">Validação</th><?php endif; ?>
                     </tr>
                 </thead>
                 <tbody>
                 <?php if (!$daily): ?>
-                    <tr><td colspan="<?= $canValidateResults ? '13' : '12' ?>" class="text-muted">Sem registos no intervalo.</td></tr>
+                    <tr><td colspan="<?= 8 + $maxEntryCount + ($canValidateResults ? 1 : 0) ?>" class="text-muted">Sem registos no intervalo.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($daily as $row): ?>
                     <tr>
                         <td><span class="badge <?= $row['status'] === 'Validado' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= h($row['status']) ?></span></td>
                         <td><?= h($row['type_label']) ?></td>
-                        <td><?= h(date('d-m-Y (D)', strtotime($row['date']))) ?></td>
+                        <td><?= h(format_date_pt($row['date'])) ?></td>
                         <td><?= h($row['user_number'] !== '' ? $row['user_number'] : (string) $row['user_id']) ?></td>
                         <td><?= h($row['user_name']) ?></td>
-                        <td><?= h($row['e1']) ?></td>
-                        <td><?= h($row['s1']) ?></td>
-                        <td><?= h($row['e2']) ?></td>
-                        <td><?= h($row['s2']) ?></td>
+                        <?php for ($entryIdx = 0; $entryIdx < $maxEntryCount; $entryIdx++): ?>
+                            <?php $entryPoint = $row['entries'][$entryIdx] ?? null; ?>
+                            <td>
+                                <?php if ($entryPoint): ?>
+                                    <?php if ($canValidateResults): ?>
+                                        <input
+                                            type="time"
+                                            class="form-control form-control-sm js-entry-time"
+                                            value="<?= h((string) $entryPoint['time']) ?>"
+                                            data-entry-id="<?= (int) $entryPoint['id'] ?>"
+                                            style="min-width: 88px;"
+                                        >
+                                    <?php else: ?>
+                                        <?= h((string) $entryPoint['time']) ?>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                            </td>
+                        <?php endfor; ?>
                         <td><?= h($row['target']) ?></td>
                         <td><?= h($row['effective']) ?></td>
                         <td>
                             <?php $bhClass = $row['bh_seconds'] > 0 ? 'text-danger' : ($row['bh_seconds'] < 0 ? 'text-success' : 'text-muted'); ?>
-                            <div class="<?= $bhClass ?>"><?= h($row['bh']) ?><?= $row['bh_is_override'] ? ' *' : '' ?></div>
                             <?php if ($canValidateResults): ?>
-                                <form method="post" class="d-flex gap-1 mt-1">
+                                <form method="post" class="d-flex gap-1 mt-1 align-items-center">
                                     <input type="hidden" name="action" value="save_bh_override">
                                     <input type="hidden" name="override_date" value="<?= h($row['date']) ?>">
                                     <input type="hidden" name="override_user_id" value="<?= (int) $row['user_id'] ?>">
-                                    <input type="text" class="form-control form-control-sm" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM" style="max-width: 88px;">
+                                    <input type="text" class="form-control form-control-sm <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM" style="max-width: 88px;">
                                     <input type="text" class="form-control form-control-sm" name="override_reason" value="<?= h((string) $row['bh_reason']) ?>" placeholder="Motivo" style="max-width: 130px;">
                                     <button class="btn btn-outline-secondary btn-sm">Guardar</button>
                                 </form>
+                            <?php else: ?>
+                                <input type="text" class="form-control form-control-sm <?= $bhClass ?>" value="<?= h($row['bh']) ?>" readonly style="max-width: 88px;">
                             <?php endif; ?>
                         </td>
                         <?php if ($canValidateResults): ?>
@@ -483,4 +555,54 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 </div>
+<script>
+(function () {
+    const entryInputs = document.querySelectorAll('.js-entry-time');
+    if (!entryInputs.length) {
+        return;
+    }
+
+    entryInputs.forEach((input) => {
+        input.addEventListener('blur', async () => {
+            const entryId = input.dataset.entryId || '';
+            const entryTime = input.value || '';
+            if (!entryId || !entryTime) {
+                return;
+            }
+
+            const body = new URLSearchParams();
+            body.set('action', 'update_entry_time');
+            body.set('entry_id', entryId);
+            body.set('entry_time', entryTime);
+
+            input.disabled = true;
+            try {
+                const response = await fetch('resultados.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: body.toString()
+                });
+
+                const data = await response.json();
+                if (!data.ok) {
+                    throw new Error(data.message || 'Erro ao guardar');
+                }
+
+                input.classList.remove('is-invalid');
+                input.classList.add('is-valid');
+                setTimeout(() => input.classList.remove('is-valid'), 1000);
+            } catch (error) {
+                input.classList.remove('is-valid');
+                input.classList.add('is-invalid');
+                console.error(error);
+            } finally {
+                input.disabled = false;
+            }
+        });
+    });
+})();
+</script>
 <?php require __DIR__ . '/partials/footer.php'; ?>
