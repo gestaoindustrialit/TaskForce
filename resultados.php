@@ -572,11 +572,23 @@ require __DIR__ . '/partials/header.php';
         font-size: 0.77rem;
     }
 
+    .results-collaborator-meta {
+        min-height: 3.25rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .results-users-summary {
+        display: block;
+        min-height: 1.25rem;
+        margin-bottom: 0.35rem;
+    }
+
     .results-selected-chips {
         display: flex;
         flex-wrap: wrap;
         gap: 0.35rem;
         min-height: 1.5rem;
+        align-content: flex-start;
     }
 
     .results-users-modal-list {
@@ -622,6 +634,10 @@ require __DIR__ . '/partials/header.php';
         <div class="col-md-3"><label class="form-label">Equipa</label><select class="form-select js-results-team-filter" name="team_id"><option value="0">Todas</option><?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>" <?= (int) $team['id'] === $teamId ? 'selected' : '' ?>><?= h((string) $team['name']) ?></option><?php endforeach; ?></select></div>
         <div class="col-md-4">
             <label class="form-label">Colaboradores</label>
+            <div class="results-collaborator-meta">
+                <div class="form-text mt-0 js-results-users-summary results-users-summary">Todos</div>
+                <div class="results-selected-chips js-results-users-chips"></div>
+            </div>
             <button
                 type="button"
                 class="btn btn-outline-secondary w-100 d-flex justify-content-between align-items-center results-collaborator-trigger"
@@ -632,8 +648,6 @@ require __DIR__ . '/partials/header.php';
                 <span class="text-start">Selecionar colaboradores</span>
                 <span class="badge text-bg-dark js-results-users-count">0</span>
             </button>
-            <div class="form-text js-results-users-summary">Todos</div>
-            <div class="results-selected-chips js-results-users-chips mt-2"></div>
             <div class="d-none js-results-user-hidden-inputs">
                 <?php foreach ($selectedUsers as $selectedUserId): ?>
                     <input type="hidden" name="user_ids[]" value="<?= (int) $selectedUserId ?>">
