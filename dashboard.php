@@ -3,7 +3,9 @@ require_once __DIR__ . '/helpers.php';
 require_login();
 
 $userId = (int) $_SESSION['user_id'];
+$user = current_user($pdo);
 $isAdmin = is_admin($pdo, $userId);
+$isPinOnlyUser = $user && (int) ($user['pin_only_login'] ?? 0) === 1;
 $flashSuccess = null;
 $flashError = null;
 
@@ -83,6 +85,19 @@ function infer_team_ticket_preset(string $teamName): array
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
+
+    if ($action === 'clock_entry' && !$isPinOnlyUser) {
+        $entryType = trim((string) ($_POST['entry_type'] ?? ''));
+
+        if (!in_array($entryType, ['entrada', 'saida'], true)) {
+            $flashError = 'Tipo de registo de ponto inválido.';
+        } else {
+            $stmt = $pdo->prepare('INSERT INTO shopfloor_time_entries(user_id, entry_type, note) VALUES (?, ?, NULL)');
+            $stmt->execute([$userId, $entryType]);
+            log_app_event($pdo, $userId, 'shopfloor.clock.' . $entryType, 'Registo de ponto no dashboard.', ['entry_type' => $entryType]);
+            $flashSuccess = $entryType === 'entrada' ? 'Ponto de entrada registado com sucesso.' : 'Ponto de saída registado com sucesso.';
+        }
+    }
 
     if ($action === 'create_team') {
         $name = trim($_POST['name'] ?? '');
@@ -408,6 +423,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+}
+
+$navbarClockControl = null;
+if (!$isPinOnlyUser) {
+    $todayEntriesStmt = $pdo->prepare('SELECT entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC');
+    $todayEntriesStmt->execute([$userId]);
+    $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $latestTodayEntry = $todayEntries[0] ?? null;
+    $nextEntryType = $latestTodayEntry && (($latestTodayEntry['entry_type'] ?? '') === 'entrada') ? 'saida' : 'entrada';
+    $clockButtonLabel = $nextEntryType === 'entrada' ? 'Ponto de entrada' : 'Ponto de saída';
+    $clockButtonClass = $nextEntryType === 'entrada' ? 'btn-primary' : 'btn-outline-light';
+    $latestEntryTimeLabel = null;
+
+    if ($latestTodayEntry && !empty($latestTodayEntry['occurred_at'])) {
+        $latestTimestamp = strtotime((string) $latestTodayEntry['occurred_at']);
+        if ($latestTimestamp !== false) {
+            $latestEntryTimeLabel = sprintf(
+                '%s às %s',
+                (($latestTodayEntry['entry_type'] ?? '') === 'entrada') ? 'Entrada' : 'Saída',
+                date('H:i', $latestTimestamp)
+            );
+        }
+    }
+
+    $navbarClockControl = [
+        'form_action' => 'dashboard.php',
+        'entry_type' => $nextEntryType,
+        'button_label' => $clockButtonLabel,
+        'button_class' => $clockButtonClass,
+        'latest_time_label' => $latestEntryTimeLabel,
+    ];
 }
 
 $teamsStmt = $pdo->prepare('SELECT t.*, tm.role, (SELECT COUNT(*) FROM projects p WHERE p.team_id = t.id) AS total_projects FROM teams t INNER JOIN team_members tm ON tm.team_id = t.id WHERE tm.user_id = ? ORDER BY t.created_at DESC');
