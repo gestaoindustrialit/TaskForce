@@ -541,10 +541,10 @@ body {
 }
 
 .shopfloor-topbar-kpis {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: stretch;
     gap: 0.55rem;
-    width: min(420px, 100%);
     margin-left: auto;
 }
 
@@ -570,16 +570,21 @@ body {
 }
 
 .shopfloor-kpi-card-compact {
-    min-height: 84px;
-    padding: 0.7rem 0.85rem;
+    min-height: 0;
+    min-width: 180px;
+    padding: 0.55rem 0.8rem;
 }
 
 .shopfloor-kpi-card-compact h2 {
-    font-size: 1rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
 }
 
 .shopfloor-kpi-card-compact strong {
-    font-size: 1.8rem;
+    display: block;
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-top: 0.1rem;
 }
 
 .shopfloor-panel {
@@ -655,6 +660,12 @@ body {
 
     .shopfloor-topbar-kpis {
         width: 100%;
+        flex-wrap: wrap;
+        margin-left: 0;
+    }
+
+    .shopfloor-kpi-card-compact {
+        min-width: calc(50% - 0.275rem);
     }
 
     .shopfloor-form-grid {
