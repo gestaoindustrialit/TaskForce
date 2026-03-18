@@ -8,6 +8,38 @@ $user = current_user($pdo);
 $navbarLogo = app_setting($pdo, 'logo_navbar_light');
 $showHrMenu = $user && ((int) ($user['is_admin'] ?? 0) === 1 || (string) ($user['access_profile'] ?? '') === 'RH');
 $isPinOnlyUser = $user && (int) ($user['pin_only_login'] ?? 0) === 1;
+
+if ($user && !$isPinOnlyUser && !isset($navbarClockControl)) {
+    $todayEntriesStmt = $pdo->prepare('SELECT entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC');
+    $todayEntriesStmt->execute([(int) $user['id']]);
+    $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $latestTodayEntry = $todayEntries[0] ?? null;
+    $nextEntryType = $latestTodayEntry && (($latestTodayEntry['entry_type'] ?? '') === 'entrada') ? 'saida' : 'entrada';
+    $clockButtonLabel = $nextEntryType === 'entrada' ? 'Ponto de entrada' : 'Ponto de saída';
+    $clockButtonClass = $nextEntryType === 'entrada' ? 'btn-primary' : 'btn-outline-light';
+    $latestEntryTimeLabel = null;
+
+    if ($latestTodayEntry && !empty($latestTodayEntry['occurred_at'])) {
+        $latestTimestamp = strtotime((string) $latestTodayEntry['occurred_at']);
+        if ($latestTimestamp !== false) {
+            $latestEntryTimeLabel = sprintf(
+                '%s às %s',
+                (($latestTodayEntry['entry_type'] ?? '') === 'entrada') ? 'Entrada' : 'Saída',
+                date('H:i', $latestTimestamp)
+            );
+        }
+    }
+
+    $navbarClockControl = [
+        'form_action' => 'shopfloor.php',
+        'entry_type' => $nextEntryType,
+        'button_label' => $clockButtonLabel,
+        'button_class' => $clockButtonClass,
+        'latest_time_label' => $latestEntryTimeLabel,
+    ];
+}
+
 header('Content-Type: text/html; charset=UTF-8');
 ?>
 <!doctype html>
@@ -111,7 +143,7 @@ header('Content-Type: text/html; charset=UTF-8');
                 <div class="navbar-user mt-3 mt-lg-0 ms-lg-auto d-flex flex-column flex-lg-row align-items-start align-items-lg-center gap-2 gap-lg-3 text-white">
                     <span class="small">Ol&aacute;, <?= h($user['name']) ?><?= (int) $user['is_admin'] === 1 ? ' &middot; Admin' : '' ?></span>
                     <?php if (isset($navbarClockControl) && is_array($navbarClockControl)): ?>
-                        <form method="post" action="shopfloor.php" class="d-flex align-items-center gap-2 mb-0">
+                        <form method="post" action="<?= h((string) ($navbarClockControl['form_action'] ?? 'shopfloor.php')) ?>" class="d-flex align-items-center gap-2 mb-0">
                             <input type="hidden" name="action" value="clock_entry">
                             <input type="hidden" name="entry_type" value="<?= h((string) ($navbarClockControl['entry_type'] ?? 'entrada')) ?>">
                             <button type="submit" class="btn btn-sm fw-semibold <?= h((string) ($navbarClockControl['button_class'] ?? 'btn-primary')) ?>"><?= h((string) ($navbarClockControl['button_label'] ?? 'Ponto de entrada')) ?></button>
