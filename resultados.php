@@ -175,7 +175,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
     $validateDate = trim((string) ($_POST['validate_date'] ?? ''));
     $validateUserId = (int) ($_POST['validate_user_id'] ?? 0);
 
-    if (!DateTimeImmutable::createFromFormat('Y-m-d', $validateDate)) {
+    if ($action === 'update_entry_time') {
+        $entryId = (int) ($_POST['entry_id'] ?? 0);
+        $newTime = trim((string) ($_POST['entry_time'] ?? ''));
+
+        header('Content-Type: application/json; charset=UTF-8');
+
+        if ($entryId <= 0 || !preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $newTime)) {
+            echo json_encode(['ok' => false, 'message' => 'Hora inválida. Use HH:MM']);
+            exit;
+        }
+
+        $entryStmt = $pdo->prepare('SELECT id, occurred_at FROM shopfloor_time_entries WHERE id = ? LIMIT 1');
+        $entryStmt->execute([$entryId]);
+        $entryRow = $entryStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$entryRow) {
+            echo json_encode(['ok' => false, 'message' => 'Registo não encontrado.']);
+            exit;
+        }
+
+        $entryDate = date('Y-m-d', strtotime((string) $entryRow['occurred_at']));
+        $newOccurredAt = $entryDate . ' ' . $newTime . ':00';
+
+        $updateEntryStmt = $pdo->prepare('UPDATE shopfloor_time_entries SET occurred_at = ? WHERE id = ?');
+        $updateEntryStmt->execute([$newOccurredAt, $entryId]);
+
+        log_app_event($pdo, $userId, 'shopfloor.time_entry.edit', 'Hora de picagem editada nos resultados.', [
+            'entry_id' => $entryId,
+            'new_time' => $newTime,
+            'entry_date' => $entryDate,
+        ]);
+
+        echo json_encode(['ok' => true, 'entry_time' => $newTime]);
+        exit;
+    } elseif ($action === 'save_bh_override') {
+        $overrideDate = trim((string) ($_POST['override_date'] ?? ''));
+        $overrideUserId = (int) ($_POST['override_user_id'] ?? 0);
+        $overrideBhValue = trim((string) ($_POST['override_bh_value'] ?? ''));
+        $overrideReason = trim((string) ($_POST['override_reason'] ?? ''));
+        $overrideMinutes = parse_signed_hhmm_to_minutes($overrideBhValue);
+
+        if (!DateTimeImmutable::createFromFormat('Y-m-d', $overrideDate) || $overrideUserId <= 0) {
+            $flashError = 'Dados inválidos para editar Tempo BH.';
+        } elseif ($overrideMinutes === null) {
+            $flashError = 'Tempo BH inválido. Use formato ±HH:MM.';
+        } else {
+            $previousStmt = $pdo->prepare('SELECT bh_minutes FROM shopfloor_bh_overrides WHERE user_id = ? AND work_date = ? LIMIT 1');
+            $previousStmt->execute([$overrideUserId, $overrideDate]);
+            $previousBh = $previousStmt->fetchColumn();
+
+            $upsertStmt = $pdo->prepare('INSERT INTO shopfloor_bh_overrides(user_id, work_date, bh_minutes, reason, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id, work_date) DO UPDATE SET bh_minutes = excluded.bh_minutes, reason = excluded.reason, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP');
+            $upsertStmt->execute([$overrideUserId, $overrideDate, $overrideMinutes, $overrideReason !== '' ? $overrideReason : null, $userId]);
+
+            $logOverrideStmt = $pdo->prepare('INSERT INTO shopfloor_bh_override_logs(user_id, work_date, previous_bh_minutes, new_bh_minutes, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)');
+            $logOverrideStmt->execute([$overrideUserId, $overrideDate, $previousBh === false ? null : (int) $previousBh, $overrideMinutes, $overrideReason !== '' ? $overrideReason : null, $userId]);
+
+            log_app_event($pdo, $userId, 'shopfloor.bh_override.save', 'Tempo BH editado manualmente.', [
+                'target_user_id' => $overrideUserId,
+                'work_date' => $overrideDate,
+                'bh_minutes' => $overrideMinutes,
+                'reason' => $overrideReason,
+            ]);
+
+            $flashSuccess = 'Tempo BH atualizado com sucesso.';
+        }
+    } elseif (!DateTimeImmutable::createFromFormat('Y-m-d', $validateDate)) {
         $flashError = 'Data inválida para validação.';
     } elseif ($action === 'validate_row' && $validateUserId > 0) {
         $targetEntriesStmt = $pdo->prepare('SELECT id, entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = ? AND validated_at IS NULL ORDER BY occurred_at ASC');
@@ -433,6 +498,33 @@ foreach ($overrideStmt->fetchAll(PDO::FETCH_ASSOC) as $overrideRow) {
     $overrideMap[$overrideKey] = $overrideRow;
 }
 
+$overrideParams = [$startDate, $endDate];
+$overrideWhere = ['work_date BETWEEN ? AND ?'];
+if (!$canViewAllResults) {
+    $overrideWhere[] = 'user_id = ?';
+    $overrideParams[] = $userId;
+}
+if ($teamId > 0) {
+    $overrideWhere[] = 'EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = ? AND tm.user_id = user_id)';
+    $overrideParams[] = $teamId;
+}
+if ($selectedUsers) {
+    $placeholders = implode(',', array_fill(0, count($selectedUsers), '?'));
+    $overrideWhere[] = 'user_id IN (' . $placeholders . ')';
+    foreach ($selectedUsers as $selUserId) {
+        $overrideParams[] = $selUserId;
+    }
+}
+
+$overrideSql = 'SELECT user_id, work_date, bh_minutes, reason, updated_at, updated_by FROM shopfloor_bh_overrides WHERE ' . implode(' AND ', $overrideWhere);
+$overrideStmt = $pdo->prepare($overrideSql);
+$overrideStmt->execute($overrideParams);
+$overrideMap = [];
+foreach ($overrideStmt->fetchAll(PDO::FETCH_ASSOC) as $overrideRow) {
+    $overrideKey = ((int) $overrideRow['user_id']) . '|' . (string) $overrideRow['work_date'];
+    $overrideMap[$overrideKey] = $overrideRow;
+}
+
 foreach ($daily as &$row) {
     $openIn = null;
     foreach ($row['entries'] as $point) {
@@ -646,4 +738,54 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 </div>
+<script>
+(function () {
+    const entryInputs = document.querySelectorAll('.js-entry-time');
+    if (!entryInputs.length) {
+        return;
+    }
+
+    entryInputs.forEach((input) => {
+        input.addEventListener('blur', async () => {
+            const entryId = input.dataset.entryId || '';
+            const entryTime = input.value || '';
+            if (!entryId || !entryTime) {
+                return;
+            }
+
+            const body = new URLSearchParams();
+            body.set('action', 'update_entry_time');
+            body.set('entry_id', entryId);
+            body.set('entry_time', entryTime);
+
+            input.disabled = true;
+            try {
+                const response = await fetch('resultados.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: body.toString()
+                });
+
+                const data = await response.json();
+                if (!data.ok) {
+                    throw new Error(data.message || 'Erro ao guardar');
+                }
+
+                input.classList.remove('is-invalid');
+                input.classList.add('is-valid');
+                setTimeout(() => input.classList.remove('is-valid'), 1000);
+            } catch (error) {
+                input.classList.remove('is-valid');
+                input.classList.add('is-invalid');
+                console.error(error);
+            } finally {
+                input.disabled = false;
+            }
+        });
+    });
+})();
+</script>
 <?php require __DIR__ . '/partials/footer.php'; ?>
