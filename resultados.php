@@ -401,6 +401,8 @@ foreach ($entries as $entry) {
             'validated_at' => null,
             'seconds' => 0,
             'entries_count' => 0,
+            'has_pending_entries' => false,
+            'validated_entries_count' => 0,
         ];
     }
 
@@ -413,6 +415,9 @@ foreach ($entries as $entry) {
 
     if (!empty($entry['validated_at'])) {
         $daily[$key]['validated_at'] = (string) $entry['validated_at'];
+        $daily[$key]['validated_entries_count']++;
+    } else {
+        $daily[$key]['has_pending_entries'] = true;
     }
 
     $daily[$key]['entries_count'] = count($daily[$key]['entries']);
@@ -456,7 +461,7 @@ foreach ($daily as &$row) {
         }
     }
 
-    $row['status'] = $row['validated_at'] ? 'Validado' : 'Em curso';
+    $row['status'] = (!$row['has_pending_entries'] && $row['validated_entries_count'] === $row['entries_count'] && $row['entries_count'] > 0) ? 'Validado' : 'Em curso';
     $row['type_label'] = count($row['entries']) >= 4 ? 'Normal' : 'Parcial';
     $row['effective'] = sprintf('%02d:%02d', intdiv($row['seconds'], 3600), intdiv($row['seconds'] % 3600, 60));
     $row['target'] = '08:15';
