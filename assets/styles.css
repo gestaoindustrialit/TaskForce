@@ -531,7 +531,7 @@ body {
     display: flex;
     justify-content: space-between;
     gap: 1rem;
-    align-items: flex-start;
+    align-items: stretch;
     margin-bottom: 1rem;
 }
 

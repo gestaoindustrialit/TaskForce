@@ -24,17 +24,229 @@ if ($endDate === '' || !DateTimeImmutable::createFromFormat('Y-m-d', $endDate) |
 $flashSuccess = null;
 $flashError = null;
 
+function ensure_hour_bank_row(PDO $pdo, int $targetUserId): float
+{
+    $balanceStmt = $pdo->prepare('SELECT balance_hours FROM shopfloor_hour_banks WHERE user_id = ? LIMIT 1');
+    $balanceStmt->execute([$targetUserId]);
+    $balance = $balanceStmt->fetchColumn();
+
+    if ($balance === false) {
+        $pdo->prepare('INSERT INTO shopfloor_hour_banks(user_id, balance_hours, notes) VALUES (?, 0, NULL)')->execute([$targetUserId]);
+        return 0.0;
+    }
+
+    return (float) $balance;
+}
+
+function apply_hour_bank_delta(PDO $pdo, int $targetUserId, int $deltaSeconds, int $validatedBy, string $actionDate): void
+{
+    if ($deltaSeconds === 0) {
+        return;
+    }
+
+    $deltaMinutes = (int) round($deltaSeconds / 60);
+    if ($deltaMinutes === 0) {
+        return;
+    }
+
+    $currentBalance = ensure_hour_bank_row($pdo, $targetUserId);
+    $deltaHours = $deltaMinutes / 60;
+    $newBalance = $currentBalance + $deltaHours;
+
+    $updateStmt = $pdo->prepare('UPDATE shopfloor_hour_banks SET balance_hours = ?, notes = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?');
+    $updateStmt->execute([$newBalance, 'Validação automática de picagens', $validatedBy, $targetUserId]);
+
+    $actionType = $deltaMinutes < 0 ? 'debito' : 'credito';
+    $reason = 'Validação de picagens - ' . $actionDate;
+    $logStmt = $pdo->prepare('INSERT INTO hr_hour_bank_logs(user_id, delta_minutes, reason, created_by, action_type, action_date) VALUES (?, ?, ?, ?, ?, ?)');
+    $logStmt->execute([$targetUserId, $deltaMinutes, $reason, $validatedBy, $actionType, $actionDate]);
+}
+
+function calculate_effective_seconds(array $entries): int
+{
+    usort(
+        $entries,
+        static function (array $a, array $b): int {
+            return strcmp((string) ($a['occurred_at'] ?? ''), (string) ($b['occurred_at'] ?? ''));
+        }
+    );
+
+    $seconds = 0;
+    $openIn = null;
+    foreach ($entries as $entry) {
+        $entryType = (string) ($entry['entry_type'] ?? '');
+        $timestamp = strtotime((string) ($entry['occurred_at'] ?? ''));
+        if (!$timestamp) {
+            continue;
+        }
+
+        if ($entryType === 'entrada') {
+            $openIn = $timestamp;
+        } elseif ($entryType === 'saida' && $openIn !== null && $timestamp > $openIn) {
+            $seconds += ($timestamp - $openIn);
+            $openIn = null;
+        }
+    }
+
+    return $seconds;
+}
+
+function format_signed_hhmm(int $seconds): string
+{
+    $abs = abs($seconds);
+    $hours = intdiv($abs, 3600);
+    $minutes = intdiv($abs % 3600, 60);
+    $prefix = $seconds < 0 ? '-' : '';
+    return sprintf('%s%02d:%02d', $prefix, $hours, $minutes);
+}
+
+function format_date_pt(string $date): string
+{
+    $timestamp = strtotime($date);
+    if (!$timestamp) {
+        return $date;
+    }
+
+    $weekdayMap = [
+        1 => 'Seg',
+        2 => 'Ter',
+        3 => 'Qua',
+        4 => 'Qui',
+        5 => 'Sex',
+        6 => 'Sáb',
+        7 => 'Dom',
+    ];
+    $weekday = $weekdayMap[(int) date('N', $timestamp)] ?? date('D', $timestamp);
+
+    return date('d-m-Y', $timestamp) . ' (' . $weekday . ')';
+}
+
+function parse_signed_hhmm_to_minutes(string $value): ?int
+{
+    if (!preg_match('/^([+-])?(\d{1,3}):(\d{2})$/', $value, $matches)) {
+        return null;
+    }
+
+    $sign = ($matches[1] ?? '') === '-' ? -1 : 1;
+    $hours = (int) $matches[2];
+    $minutes = (int) $matches[3];
+    if ($minutes > 59) {
+        return null;
+    }
+
+    return $sign * (($hours * 60) + $minutes);
+}
+
+function get_override_bh_seconds(PDO $pdo, int $targetUserId, string $workDate): ?int
+{
+    $overrideStmt = $pdo->prepare('SELECT bh_minutes FROM shopfloor_bh_overrides WHERE user_id = ? AND work_date = ? LIMIT 1');
+    $overrideStmt->execute([$targetUserId, $workDate]);
+    $bhMinutes = $overrideStmt->fetchColumn();
+    if ($bhMinutes === false) {
+        return null;
+    }
+
+    return ((int) $bhMinutes) * 60;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
     $action = trim((string) ($_POST['action'] ?? ''));
     $validateDate = trim((string) ($_POST['validate_date'] ?? ''));
     $validateUserId = (int) ($_POST['validate_user_id'] ?? 0);
 
-    if (!DateTimeImmutable::createFromFormat('Y-m-d', $validateDate)) {
+    if ($action === 'update_entry_time') {
+        $entryId = (int) ($_POST['entry_id'] ?? 0);
+        $newTime = trim((string) ($_POST['entry_time'] ?? ''));
+
+        header('Content-Type: application/json; charset=UTF-8');
+
+        if ($entryId <= 0 || !preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $newTime)) {
+            echo json_encode(['ok' => false, 'message' => 'Hora inválida. Use HH:MM']);
+            exit;
+        }
+
+        $entryStmt = $pdo->prepare('SELECT id, occurred_at FROM shopfloor_time_entries WHERE id = ? LIMIT 1');
+        $entryStmt->execute([$entryId]);
+        $entryRow = $entryStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$entryRow) {
+            echo json_encode(['ok' => false, 'message' => 'Registo não encontrado.']);
+            exit;
+        }
+
+        $entryDate = date('Y-m-d', strtotime((string) $entryRow['occurred_at']));
+        $newOccurredAt = $entryDate . ' ' . $newTime . ':00';
+
+        $updateEntryStmt = $pdo->prepare('UPDATE shopfloor_time_entries SET occurred_at = ? WHERE id = ?');
+        $updateEntryStmt->execute([$newOccurredAt, $entryId]);
+
+        log_app_event($pdo, $userId, 'shopfloor.time_entry.edit', 'Hora de picagem editada nos resultados.', [
+            'entry_id' => $entryId,
+            'new_time' => $newTime,
+            'entry_date' => $entryDate,
+        ]);
+
+        echo json_encode(['ok' => true, 'entry_time' => $newTime]);
+        exit;
+    } elseif ($action === 'save_bh_override') {
+        $overrideDate = trim((string) ($_POST['override_date'] ?? ''));
+        $overrideUserId = (int) ($_POST['override_user_id'] ?? 0);
+        $overrideBhValue = trim((string) ($_POST['override_bh_value'] ?? ''));
+        $overrideReason = trim((string) ($_POST['override_reason'] ?? ''));
+        $overrideMinutes = parse_signed_hhmm_to_minutes($overrideBhValue);
+
+        if (!DateTimeImmutable::createFromFormat('Y-m-d', $overrideDate) || $overrideUserId <= 0) {
+            $flashError = 'Dados inválidos para editar Tempo BH.';
+        } elseif ($overrideMinutes === null) {
+            $flashError = 'Tempo BH inválido. Use formato ±HH:MM.';
+        } else {
+            $previousStmt = $pdo->prepare('SELECT bh_minutes FROM shopfloor_bh_overrides WHERE user_id = ? AND work_date = ? LIMIT 1');
+            $previousStmt->execute([$overrideUserId, $overrideDate]);
+            $previousBh = $previousStmt->fetchColumn();
+
+            $upsertStmt = $pdo->prepare('INSERT INTO shopfloor_bh_overrides(user_id, work_date, bh_minutes, reason, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id, work_date) DO UPDATE SET bh_minutes = excluded.bh_minutes, reason = excluded.reason, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP');
+            $upsertStmt->execute([$overrideUserId, $overrideDate, $overrideMinutes, $overrideReason !== '' ? $overrideReason : null, $userId]);
+
+            $logOverrideStmt = $pdo->prepare('INSERT INTO shopfloor_bh_override_logs(user_id, work_date, previous_bh_minutes, new_bh_minutes, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)');
+            $logOverrideStmt->execute([$overrideUserId, $overrideDate, $previousBh === false ? null : (int) $previousBh, $overrideMinutes, $overrideReason !== '' ? $overrideReason : null, $userId]);
+
+            log_app_event($pdo, $userId, 'shopfloor.bh_override.save', 'Tempo BH editado manualmente.', [
+                'target_user_id' => $overrideUserId,
+                'work_date' => $overrideDate,
+                'bh_minutes' => $overrideMinutes,
+                'reason' => $overrideReason,
+            ]);
+
+            $flashSuccess = 'Tempo BH atualizado com sucesso.';
+        }
+    } elseif (!DateTimeImmutable::createFromFormat('Y-m-d', $validateDate)) {
         $flashError = 'Data inválida para validação.';
     } elseif ($action === 'validate_row' && $validateUserId > 0) {
-        $stmt = $pdo->prepare('UPDATE shopfloor_time_entries SET validated_by = ?, validated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND date(occurred_at) = ?');
-        $stmt->execute([$userId, $validateUserId, $validateDate]);
-        $flashSuccess = 'Picagens validadas com sucesso.';
+        $targetEntriesStmt = $pdo->prepare('SELECT entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = ? AND validated_at IS NULL ORDER BY occurred_at ASC');
+        $targetEntriesStmt->execute([$validateUserId, $validateDate]);
+        $targetEntries = $targetEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!$targetEntries) {
+            $flashError = 'Não existem picagens pendentes para validar.';
+        } else {
+            $pdo->beginTransaction();
+            try {
+                $stmt = $pdo->prepare('UPDATE shopfloor_time_entries SET validated_by = ?, validated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND date(occurred_at) = ? AND validated_at IS NULL');
+                $stmt->execute([$userId, $validateUserId, $validateDate]);
+
+                $targetSeconds = (8 * 3600) + (15 * 60);
+                $effectiveSeconds = calculate_effective_seconds($targetEntries);
+                $bhSeconds = get_override_bh_seconds($pdo, $validateUserId, $validateDate) ?? ($targetSeconds - $effectiveSeconds);
+                apply_hour_bank_delta($pdo, $validateUserId, $bhSeconds, $userId, $validateDate);
+                $pdo->commit();
+                $flashSuccess = 'Picagens validadas com sucesso.';
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                $flashError = 'Não foi possível validar as picagens.';
+            }
+        }
     } elseif ($action === 'validate_day') {
         $whereParts = ['date(occurred_at) = ?'];
         $params = [$validateDate];
@@ -51,12 +263,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
             }
         }
 
-        $sqlValidate = 'UPDATE shopfloor_time_entries
-            SET validated_by = ?, validated_at = CURRENT_TIMESTAMP
-            WHERE ' . implode(' AND ', $whereParts);
-        array_unshift($params, $userId);
-        $pdo->prepare($sqlValidate)->execute($params);
-        $flashSuccess = 'Picagens do dia validadas.';
+        $fetchSql = 'SELECT user_id, entry_type, occurred_at
+            FROM shopfloor_time_entries
+            WHERE validated_at IS NULL AND ' . implode(' AND ', $whereParts) . '
+            ORDER BY user_id ASC, occurred_at ASC';
+        $fetchStmt = $pdo->prepare($fetchSql);
+        $fetchStmt->execute($params);
+        $pendingEntries = $fetchStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!$pendingEntries) {
+            $flashError = 'Não existem picagens pendentes para validar no dia selecionado.';
+        } else {
+            $entriesByUser = [];
+            foreach ($pendingEntries as $entry) {
+                $entryUserId = (int) ($entry['user_id'] ?? 0);
+                if ($entryUserId <= 0) {
+                    continue;
+                }
+                if (!isset($entriesByUser[$entryUserId])) {
+                    $entriesByUser[$entryUserId] = [];
+                }
+                $entriesByUser[$entryUserId][] = $entry;
+            }
+
+            $pdo->beginTransaction();
+            try {
+                $sqlValidate = 'UPDATE shopfloor_time_entries
+                    SET validated_by = ?, validated_at = CURRENT_TIMESTAMP
+                    WHERE validated_at IS NULL AND ' . implode(' AND ', $whereParts);
+                $validateParams = $params;
+                array_unshift($validateParams, $userId);
+                $pdo->prepare($sqlValidate)->execute($validateParams);
+
+                $targetSeconds = (8 * 3600) + (15 * 60);
+                foreach ($entriesByUser as $entryUserId => $userEntries) {
+                    $effectiveSeconds = calculate_effective_seconds($userEntries);
+                    $bhSeconds = get_override_bh_seconds($pdo, (int) $entryUserId, $validateDate) ?? ($targetSeconds - $effectiveSeconds);
+                    apply_hour_bank_delta($pdo, (int) $entryUserId, $bhSeconds, $userId, $validateDate);
+                }
+
+                $pdo->commit();
+                $flashSuccess = 'Picagens do dia validadas.';
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                $flashError = 'Não foi possível validar as picagens do dia.';
+            }
+        }
     }
 }
 
@@ -87,7 +341,7 @@ if ($selectedUsers) {
     }
 }
 
-$sql = 'SELECT te.user_id, te.entry_type, te.occurred_at, te.validated_at, u.name AS user_name, u.user_number
+$sql = 'SELECT te.id, te.user_id, te.entry_type, te.occurred_at, te.validated_at, u.name AS user_name, u.user_number
         FROM shopfloor_time_entries te
         INNER JOIN users u ON u.id = te.user_id
         WHERE ' . implode(' AND ', $where) . '
@@ -115,6 +369,7 @@ foreach ($entries as $entry) {
     }
 
     $daily[$key]['entries'][] = [
+        'id' => (int) $entry['id'],
         'type' => (string) $entry['entry_type'],
         'time' => date('H:i', strtotime((string) $entry['occurred_at'])),
         'timestamp' => strtotime((string) $entry['occurred_at']),
@@ -123,6 +378,33 @@ foreach ($entries as $entry) {
     if (!empty($entry['validated_at'])) {
         $daily[$key]['validated_at'] = (string) $entry['validated_at'];
     }
+}
+
+$overrideParams = [$startDate, $endDate];
+$overrideWhere = ['work_date BETWEEN ? AND ?'];
+if (!$canViewAllResults) {
+    $overrideWhere[] = 'user_id = ?';
+    $overrideParams[] = $userId;
+}
+if ($teamId > 0) {
+    $overrideWhere[] = 'EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = ? AND tm.user_id = user_id)';
+    $overrideParams[] = $teamId;
+}
+if ($selectedUsers) {
+    $placeholders = implode(',', array_fill(0, count($selectedUsers), '?'));
+    $overrideWhere[] = 'user_id IN (' . $placeholders . ')';
+    foreach ($selectedUsers as $selUserId) {
+        $overrideParams[] = $selUserId;
+    }
+}
+
+$overrideSql = 'SELECT user_id, work_date, bh_minutes, reason, updated_at, updated_by FROM shopfloor_bh_overrides WHERE ' . implode(' AND ', $overrideWhere);
+$overrideStmt = $pdo->prepare($overrideSql);
+$overrideStmt->execute($overrideParams);
+$overrideMap = [];
+foreach ($overrideStmt->fetchAll(PDO::FETCH_ASSOC) as $overrideRow) {
+    $overrideKey = ((int) $overrideRow['user_id']) . '|' . (string) $overrideRow['work_date'];
+    $overrideMap[$overrideKey] = $overrideRow;
 }
 
 foreach ($daily as &$row) {
@@ -140,15 +422,14 @@ foreach ($daily as &$row) {
     $row['type_label'] = count($row['entries']) >= 4 ? 'Normal' : 'Parcial';
     $row['effective'] = sprintf('%02d:%02d', intdiv($row['seconds'], 3600), intdiv($row['seconds'] % 3600, 60));
     $row['target'] = '08:15';
+    $computedBhSeconds = ((8 * 3600) + (15 * 60)) - $row['seconds'];
+    $rowKey = $row['user_id'] . '|' . $row['date'];
+    $override = $overrideMap[$rowKey] ?? null;
+    $row['bh_seconds'] = $override ? (((int) $override['bh_minutes']) * 60) : $computedBhSeconds;
+    $row['bh'] = format_signed_hhmm($row['bh_seconds']);
+    $row['bh_is_override'] = $override !== null;
+    $row['bh_reason'] = $override['reason'] ?? '';
 
-    $times = [];
-    foreach ($row['entries'] as $point) {
-        $times[] = $point['time'];
-    }
-    $row['e1'] = $times[0] ?? '';
-    $row['s1'] = $times[1] ?? '';
-    $row['e2'] = $times[2] ?? '';
-    $row['s2'] = $times[3] ?? '';
 }
 unset($row);
 
@@ -162,9 +443,67 @@ usort(
     }
 );
 
+$maxEntryCount = 6;
+foreach ($daily as $dailyRow) {
+    $maxEntryCount = max($maxEntryCount, count($dailyRow['entries']));
+}
+
 $pageTitle = 'Resultados';
 require __DIR__ . '/partials/header.php';
 ?>
+<style>
+    .results-table {
+        font-size: 0.88rem;
+    }
+
+    .results-table th,
+    .results-table td {
+        padding: 0.35rem 0.3rem;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+
+    .results-table .results-entry-col {
+        width: 4.6rem;
+        min-width: 4.6rem;
+        max-width: 4.6rem;
+        text-align: center;
+    }
+
+    .results-table .results-entry-input {
+        min-width: 4.4rem;
+        width: 4.4rem;
+        padding: 0.18rem 0.3rem;
+        font-size: 0.8rem;
+    }
+
+    .results-table .results-bh-input {
+        width: 5.4rem;
+        max-width: 5.4rem;
+        padding: 0.2rem 0.35rem;
+        font-size: 0.82rem;
+    }
+
+    .results-table .results-bh-reason {
+        width: 7.8rem;
+        max-width: 7.8rem;
+        padding: 0.2rem 0.35rem;
+        font-size: 0.82rem;
+    }
+
+    .results-table .results-bh-form {
+        gap: 0.25rem !important;
+    }
+
+    .results-table .btn-sm {
+        padding: 0.2rem 0.45rem;
+        font-size: 0.78rem;
+    }
+
+    .results-table .badge {
+        font-size: 0.77rem;
+    }
+</style>
 <h1 class="h3 mb-3">Resultados de picagens</h1>
 <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
@@ -189,31 +528,64 @@ require __DIR__ . '/partials/header.php';
 <div class="card shadow-sm">
     <div class="card-body">
         <div class="table-responsive">
-            <table class="table table-sm align-middle">
+            <table class="table table-sm align-middle results-table">
                 <thead>
                     <tr>
                         <th>Estado</th><th>Tipo</th><th>Data</th><th>Número</th><th>Nome</th>
-                        <th>E1</th><th>S1</th><th>E2</th><th>S2</th><th>Objectivo</th><th>Efectivo</th>
+                        <?php for ($i = 1; $i <= $maxEntryCount; $i++): ?>
+                            <?php $entryPrefix = $i % 2 === 1 ? 'E' : 'S'; ?>
+                            <?php $entrySequence = (int) ceil($i / 2); ?>
+                            <th class="results-entry-col"><?= $entryPrefix . $entrySequence ?></th>
+                        <?php endfor; ?>
+                        <th>Objectivo</th><th>Efectivo</th><th>Tempo BH</th>
                         <?php if ($canValidateResults): ?><th class="text-end">Validação</th><?php endif; ?>
                     </tr>
                 </thead>
                 <tbody>
                 <?php if (!$daily): ?>
-                    <tr><td colspan="<?= $canValidateResults ? '12' : '11' ?>" class="text-muted">Sem registos no intervalo.</td></tr>
+                    <tr><td colspan="<?= 8 + $maxEntryCount + ($canValidateResults ? 1 : 0) ?>" class="text-muted">Sem registos no intervalo.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($daily as $row): ?>
                     <tr>
                         <td><span class="badge <?= $row['status'] === 'Validado' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= h($row['status']) ?></span></td>
                         <td><?= h($row['type_label']) ?></td>
-                        <td><?= h(date('d-m-Y (D)', strtotime($row['date']))) ?></td>
+                        <td><?= h(format_date_pt($row['date'])) ?></td>
                         <td><?= h($row['user_number'] !== '' ? $row['user_number'] : (string) $row['user_id']) ?></td>
                         <td><?= h($row['user_name']) ?></td>
-                        <td><?= h($row['e1']) ?></td>
-                        <td><?= h($row['s1']) ?></td>
-                        <td><?= h($row['e2']) ?></td>
-                        <td><?= h($row['s2']) ?></td>
+                        <?php for ($entryIdx = 0; $entryIdx < $maxEntryCount; $entryIdx++): ?>
+                            <?php $entryPoint = $row['entries'][$entryIdx] ?? null; ?>
+                            <td class="results-entry-col">
+                                <?php if ($entryPoint): ?>
+                                    <?php if ($canValidateResults): ?>
+                                        <input
+                                            type="time"
+                                            class="form-control form-control-sm js-entry-time results-entry-input"
+                                            value="<?= h((string) $entryPoint['time']) ?>"
+                                            data-entry-id="<?= (int) $entryPoint['id'] ?>"
+                                        >
+                                    <?php else: ?>
+                                        <?= h((string) $entryPoint['time']) ?>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                            </td>
+                        <?php endfor; ?>
                         <td><?= h($row['target']) ?></td>
                         <td><?= h($row['effective']) ?></td>
+                        <td>
+                            <?php $bhClass = $row['bh_seconds'] > 0 ? 'text-danger' : ($row['bh_seconds'] < 0 ? 'text-success' : 'text-muted'); ?>
+                            <?php if ($canValidateResults): ?>
+                                <form method="post" class="d-flex mt-1 align-items-center results-bh-form">
+                                    <input type="hidden" name="action" value="save_bh_override">
+                                    <input type="hidden" name="override_date" value="<?= h($row['date']) ?>">
+                                    <input type="hidden" name="override_user_id" value="<?= (int) $row['user_id'] ?>">
+                                    <input type="text" class="form-control form-control-sm results-bh-input <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM">
+                                    <input type="text" class="form-control form-control-sm results-bh-reason" name="override_reason" value="<?= h((string) $row['bh_reason']) ?>" placeholder="Motivo">
+                                    <button class="btn btn-outline-secondary btn-sm">Guardar</button>
+                                </form>
+                            <?php else: ?>
+                                <input type="text" class="form-control form-control-sm results-bh-input <?= $bhClass ?>" value="<?= h($row['bh']) ?>" readonly>
+                            <?php endif; ?>
+                        </td>
                         <?php if ($canValidateResults): ?>
                             <td class="text-end">
                                 <?php if ($row['status'] === 'Validado'): ?>
@@ -235,4 +607,54 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 </div>
+<script>
+(function () {
+    const entryInputs = document.querySelectorAll('.js-entry-time');
+    if (!entryInputs.length) {
+        return;
+    }
+
+    entryInputs.forEach((input) => {
+        input.addEventListener('blur', async () => {
+            const entryId = input.dataset.entryId || '';
+            const entryTime = input.value || '';
+            if (!entryId || !entryTime) {
+                return;
+            }
+
+            const body = new URLSearchParams();
+            body.set('action', 'update_entry_time');
+            body.set('entry_id', entryId);
+            body.set('entry_time', entryTime);
+
+            input.disabled = true;
+            try {
+                const response = await fetch('resultados.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: body.toString()
+                });
+
+                const data = await response.json();
+                if (!data.ok) {
+                    throw new Error(data.message || 'Erro ao guardar');
+                }
+
+                input.classList.remove('is-invalid');
+                input.classList.add('is-valid');
+                setTimeout(() => input.classList.remove('is-valid'), 1000);
+            } catch (error) {
+                input.classList.remove('is-valid');
+                input.classList.add('is-invalid');
+                console.error(error);
+            } finally {
+                input.disabled = false;
+            }
+        });
+    });
+})();
+</script>
 <?php require __DIR__ . '/partials/footer.php'; ?>
