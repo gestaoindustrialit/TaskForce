@@ -425,10 +425,6 @@ if ($isAdmin || $isRh) {
     $managedAnnouncements = $managedAnnouncementsStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-$uploadsCountStmt = $pdo->prepare('SELECT COUNT(*) FROM shopfloor_justifications WHERE user_id = ?');
-$uploadsCountStmt->execute([$userId]);
-$uploadsCount = (int) $uploadsCountStmt->fetchColumn();
-
 $pendingVacationDaysStmt = $pdo->prepare('SELECT COALESCE(SUM(total_days), 0) FROM shopfloor_vacation_requests WHERE user_id = ? AND status IN ("Pendente", "Aprovado")');
 $pendingVacationDaysStmt->execute([$userId]);
 $pendingVacationDays = (float) $pendingVacationDaysStmt->fetchColumn();
@@ -448,9 +444,19 @@ require __DIR__ . '/partials/header.php';
 
 <section class="shopfloor-shell">
     <div class="shopfloor-topbar">
-        <div>
+        <div class="shopfloor-topbar-title">
             <h1 class="h4 mb-1">Gestão pessoal</h1>
             <p class="text-secondary mb-0">Pedidos ligados ao módulo de RH e respetivas justificações.</p>
+        </div>
+        <div class="shopfloor-topbar-kpis" aria-label="Resumo rápido de horas e férias">
+            <article class="shopfloor-kpi-card shopfloor-kpi-card-compact">
+                <h2>Balanço de BH</h2>
+                <strong><?= h($formattedHourBank) ?></strong>
+            </article>
+            <article class="shopfloor-kpi-card shopfloor-kpi-card-compact">
+                <h2>Dias de férias</h2>
+                <strong><?= h(number_format($pendingVacationDays, 1, ',', '.')) ?></strong>
+            </article>
         </div>
     </div>
 
@@ -460,27 +466,6 @@ require __DIR__ . '/partials/header.php';
     <?php if ($flashError): ?>
         <div class="alert alert-danger mt-3 mb-3"><?= h($flashError) ?></div>
     <?php endif; ?>
-
-    <div class="row g-3 mb-4">
-        <div class="col-lg-4">
-            <article class="shopfloor-kpi-card">
-                <h2>Balanço de BH</h2>
-                <strong><?= h($formattedHourBank) ?></strong>
-            </article>
-        </div>
-        <div class="col-lg-4">
-            <article class="shopfloor-kpi-card">
-                <h2>Dias de férias a gozar</h2>
-                <strong><?= h(number_format($pendingVacationDays, 1, ',', '.')) ?> dias</strong>
-            </article>
-        </div>
-        <div class="col-lg-4">
-            <article class="shopfloor-kpi-card">
-                <h2>Uploads efetuados</h2>
-                <strong><?= (int) $uploadsCount ?></strong>
-            </article>
-        </div>
-    </div>
 
     <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
