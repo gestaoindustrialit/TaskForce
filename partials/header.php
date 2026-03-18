@@ -50,7 +50,6 @@ header('Content-Type: text/html; charset=UTF-8');
                 <div class="navbar-nav me-auto ms-lg-4">
                     <?php if ($isPinOnlyUser): ?>
                         <a class="nav-link" href="shopfloor.php">Shopfloor</a>
-                    <a class="nav-link" href="resultados.php">Resultados</a>
                     <?php else: ?>
                     <a class="nav-link" href="dashboard.php">Vis&atilde;o geral</a>
                     <a class="nav-link" href="shopfloor.php">Shopfloor</a>
@@ -72,7 +71,7 @@ header('Content-Type: text/html; charset=UTF-8');
                                 <li><a class="dropdown-item" href="hr_absences.php">Aus&ecirc;ncias</a></li>
                                 <li><a class="dropdown-item" href="hr_vacations.php">F&eacute;rias</a></li>
                                 <li><a class="dropdown-item" href="hr_alerts.php">Alertas RH</a></li>
-                                <li><a class="dropdown-item" href="resultados.php">Resultados de picagens</a></li>
+                                <li><a class="dropdown-item" href="resultados.php">Resultados</a></li>
                                 <li><a class="dropdown-item" href="shopfloor_absence_reasons.php">Motivos de ausência</a></li>
                             </ul>
                         </div>
@@ -112,7 +111,7 @@ header('Content-Type: text/html; charset=UTF-8');
                 <div class="navbar-user mt-3 mt-lg-0 ms-lg-auto d-flex flex-column flex-lg-row align-items-start align-items-lg-center gap-2 gap-lg-3 text-white">
                     <span class="small">Ol&aacute;, <?= h($user['name']) ?><?= (int) $user['is_admin'] === 1 ? ' &middot; Admin' : '' ?></span>
                     <?php if (isset($navbarClockControl) && is_array($navbarClockControl)): ?>
-                        <form method="post" action="shopfloor.php" class="d-flex align-items-center gap-2 mb-0">
+                        <form method="post" action="<?= h((string) ($navbarClockControl['form_action'] ?? 'shopfloor.php')) ?>" class="d-flex align-items-center gap-2 mb-0">
                             <input type="hidden" name="action" value="clock_entry">
                             <input type="hidden" name="entry_type" value="<?= h((string) ($navbarClockControl['entry_type'] ?? 'entrada')) ?>">
                             <button type="submit" class="btn btn-sm fw-semibold <?= h((string) ($navbarClockControl['button_class'] ?? 'btn-primary')) ?>"><?= h((string) ($navbarClockControl['button_label'] ?? 'Ponto de entrada')) ?></button>
