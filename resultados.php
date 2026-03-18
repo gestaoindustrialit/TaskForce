@@ -149,6 +149,27 @@ function get_override_bh_seconds(PDO $pdo, int $targetUserId, string $workDate):
     return ((int) $bhMinutes) * 60;
 }
 
+function persist_bh_override(PDO $pdo, int $targetUserId, string $workDate, int $overrideMinutes, string $overrideReason, int $actorUserId): void
+{
+    $previousStmt = $pdo->prepare('SELECT bh_minutes FROM shopfloor_bh_overrides WHERE user_id = ? AND work_date = ? LIMIT 1');
+    $previousStmt->execute([$targetUserId, $workDate]);
+    $previousBh = $previousStmt->fetchColumn();
+
+    $upsertStmt = $pdo->prepare('INSERT INTO shopfloor_bh_overrides(user_id, work_date, bh_minutes, reason, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id, work_date) DO UPDATE SET bh_minutes = excluded.bh_minutes, reason = excluded.reason, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP');
+    $upsertStmt->execute([$targetUserId, $workDate, $overrideMinutes, $overrideReason !== '' ? $overrideReason : null, $actorUserId]);
+
+    $logOverrideStmt = $pdo->prepare('INSERT INTO shopfloor_bh_override_logs(user_id, work_date, previous_bh_minutes, new_bh_minutes, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)');
+    $logOverrideStmt->execute([$targetUserId, $workDate, $previousBh === false ? null : (int) $previousBh, $overrideMinutes, $overrideReason !== '' ? $overrideReason : null, $actorUserId]);
+
+    log_app_event($pdo, $actorUserId, 'shopfloor.bh_override.save', 'Tempo BH editado manualmente.', [
+        'target_user_id' => $targetUserId,
+        'work_date' => $workDate,
+        'bh_minutes' => $overrideMinutes,
+        'reason' => $overrideReason,
+    ]);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
     $action = trim((string) ($_POST['action'] ?? ''));
     $validateDate = trim((string) ($_POST['validate_date'] ?? ''));
@@ -222,15 +243,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
     } elseif (!DateTimeImmutable::createFromFormat('Y-m-d', $validateDate)) {
         $flashError = 'Data inválida para validação.';
     } elseif ($action === 'validate_row' && $validateUserId > 0) {
-        $targetEntriesStmt = $pdo->prepare('SELECT entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = ? AND validated_at IS NULL ORDER BY occurred_at ASC');
+        $targetEntriesStmt = $pdo->prepare('SELECT id, entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = ? AND validated_at IS NULL ORDER BY occurred_at ASC');
         $targetEntriesStmt->execute([$validateUserId, $validateDate]);
         $targetEntries = $targetEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
 
         if (!$targetEntries) {
             $flashError = 'Não existem picagens pendentes para validar.';
         } else {
+            $postedEntryTimes = (array) ($_POST['entry_time'] ?? []);
+            $overrideBhValue = trim((string) ($_POST['override_bh_value'] ?? ''));
+            $overrideReason = trim((string) ($_POST['override_reason'] ?? ''));
+
             $pdo->beginTransaction();
             try {
+                $updateEntryStmt = $pdo->prepare('UPDATE shopfloor_time_entries SET occurred_at = ? WHERE id = ?');
+                foreach ($targetEntries as $targetEntry) {
+                    $entryId = (int) $targetEntry['id'];
+                    $newTime = trim((string) ($postedEntryTimes[$entryId] ?? ''));
+                    if ($newTime === '') {
+                        continue;
+                    }
+                    if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $newTime)) {
+                        throw new RuntimeException('Hora inválida. Use HH:MM.');
+                    }
+
+                    $entryDate = date('Y-m-d', strtotime((string) $targetEntry['occurred_at']));
+                    $newOccurredAt = $entryDate . ' ' . $newTime . ':00';
+                    $updateEntryStmt->execute([$newOccurredAt, $entryId]);
+
+                    log_app_event($pdo, $userId, 'shopfloor.time_entry.edit', 'Hora de picagem editada nos resultados.', [
+                        'entry_id' => $entryId,
+                        'new_time' => $newTime,
+                        'entry_date' => $entryDate,
+                    ]);
+                }
+
+                if ($overrideBhValue !== '') {
+                    $overrideMinutes = parse_signed_hhmm_to_minutes($overrideBhValue);
+                    if ($overrideMinutes === null) {
+                        throw new RuntimeException('Tempo BH inválido. Use formato ±HH:MM.');
+                    }
+
+                    persist_bh_override($pdo, $validateUserId, $validateDate, $overrideMinutes, $overrideReason, $userId);
+                }
+
+                $targetEntriesStmt->execute([$validateUserId, $validateDate]);
+                $targetEntries = $targetEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
+
                 $stmt = $pdo->prepare('UPDATE shopfloor_time_entries SET validated_by = ?, validated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND date(occurred_at) = ? AND validated_at IS NULL');
                 $stmt->execute([$userId, $validateUserId, $validateDate]);
 
@@ -244,7 +303,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
-                $flashError = 'Não foi possível validar as picagens.';
+                $flashError = $e instanceof RuntimeException ? $e->getMessage() : 'Não foi possível validar as picagens.';
             }
         }
     } elseif ($action === 'validate_day') {
@@ -498,10 +557,6 @@ require __DIR__ . '/partials/header.php';
         font-size: 0.82rem;
     }
 
-    .results-table .results-bh-form {
-        gap: 0.25rem !important;
-    }
-
     .results-table .btn-sm {
         padding: 0.2rem 0.45rem;
         font-size: 0.78rem;
@@ -553,6 +608,8 @@ require __DIR__ . '/partials/header.php';
                     <tr><td colspan="<?= 8 + $maxEntryCount + ($canValidateResults ? 1 : 0) ?>" class="text-muted">Sem registos no intervalo.</td></tr>
                 <?php endif; ?>
                 <?php foreach ($daily as $row): ?>
+                    <?php $isPendingRow = $canValidateResults && $row['status'] !== 'Validado'; ?>
+                    <?php $rowFormId = 'validate-row-' . (int) $row['user_id'] . '-' . str_replace('-', '', (string) $row['date']); ?>
                     <tr>
                         <td><span class="badge <?= $row['status'] === 'Validado' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= h($row['status']) ?></span></td>
                         <td><?= h($row['type_label']) ?></td>
@@ -567,9 +624,10 @@ require __DIR__ . '/partials/header.php';
                                         type="text"
                                         inputmode="numeric"
                                         pattern="^([01]\d|2[0-3]):([0-5]\d)$"
-                                        class="form-control form-control-sm results-entry-input<?= $entryPoint ? ' js-entry-time' : '' ?>"
+                                        class="form-control form-control-sm results-entry-input"
                                         value="<?= h((string) ($entryPoint['time'] ?? '')) ?>"
-                                        data-entry-id="<?= (int) ($entryPoint['id'] ?? 0) ?>"
+                                        name="<?= $entryPoint ? 'entry_time[' . (int) $entryPoint['id'] . ']' : '' ?>"
+                                        <?= $isPendingRow && $entryPoint ? 'form="' . h($rowFormId) . '"' : '' ?>
                                         placeholder="--:--"
                                         <?= $entryPoint ? '' : 'disabled' ?>
                                     >
@@ -591,14 +649,10 @@ require __DIR__ . '/partials/header.php';
                         <td>
                             <?php $bhClass = $row['bh_seconds'] > 0 ? 'text-danger' : ($row['bh_seconds'] < 0 ? 'text-success' : 'text-muted'); ?>
                             <?php if ($canValidateResults): ?>
-                                <form method="post" class="d-flex mt-1 align-items-center results-bh-form">
-                                    <input type="hidden" name="action" value="save_bh_override">
-                                    <input type="hidden" name="override_date" value="<?= h($row['date']) ?>">
-                                    <input type="hidden" name="override_user_id" value="<?= (int) $row['user_id'] ?>">
-                                    <input type="text" class="form-control form-control-sm results-bh-input <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM">
-                                    <input type="text" class="form-control form-control-sm results-bh-reason" name="override_reason" value="<?= h((string) $row['bh_reason']) ?>" placeholder="Motivo">
-                                    <button class="btn btn-outline-secondary btn-sm">Guardar</button>
-                                </form>
+                                <div class="d-flex mt-1 align-items-center gap-1">
+                                    <input type="text" class="form-control form-control-sm results-bh-input <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
+                                    <input type="text" class="form-control form-control-sm results-bh-reason" name="override_reason" value="<?= h((string) $row['bh_reason']) ?>" placeholder="Motivo" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
+                                </div>
                             <?php else: ?>
                                 <input type="text" class="form-control form-control-sm results-bh-input <?= $bhClass ?>" value="<?= h($row['bh']) ?>" readonly>
                             <?php endif; ?>
@@ -608,11 +662,11 @@ require __DIR__ . '/partials/header.php';
                                 <?php if ($row['status'] === 'Validado'): ?>
                                     <span class="text-success small"><i class="bi bi-check-circle-fill me-1"></i>Validado</span>
                                 <?php else: ?>
-                                    <form method="post" class="d-inline">
+                                    <button class="btn btn-outline-success btn-sm" type="submit" form="<?= h($rowFormId) ?>">Validar</button>
+                                    <form method="post" id="<?= h($rowFormId) ?>" class="d-none">
                                         <input type="hidden" name="action" value="validate_row">
                                         <input type="hidden" name="validate_date" value="<?= h($row['date']) ?>">
                                         <input type="hidden" name="validate_user_id" value="<?= (int) $row['user_id'] ?>">
-                                        <button class="btn btn-outline-success btn-sm">Validar</button>
                                     </form>
                                 <?php endif; ?>
                             </td>
