@@ -151,13 +151,18 @@ function get_override_bh_seconds(PDO $pdo, int $targetUserId, string $workDate):
 
 function persist_bh_override(PDO $pdo, int $targetUserId, string $workDate, int $overrideMinutes, string $overrideReason, int $actorUserId): void
 {
-    $previousStmt = $pdo->prepare('SELECT bh_minutes FROM shopfloor_bh_overrides WHERE user_id = ? AND work_date = ? LIMIT 1');
+    $previousStmt = $pdo->prepare('SELECT id, bh_minutes FROM shopfloor_bh_overrides WHERE user_id = ? AND work_date = ? LIMIT 1');
     $previousStmt->execute([$targetUserId, $workDate]);
-    $previousBh = $previousStmt->fetchColumn();
+    $previousRow = $previousStmt->fetch(PDO::FETCH_ASSOC);
+    $previousBh = $previousRow['bh_minutes'] ?? false;
 
-    $upsertStmt = $pdo->prepare('INSERT INTO shopfloor_bh_overrides(user_id, work_date, bh_minutes, reason, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(user_id, work_date) DO UPDATE SET bh_minutes = excluded.bh_minutes, reason = excluded.reason, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP');
-    $upsertStmt->execute([$targetUserId, $workDate, $overrideMinutes, $overrideReason !== '' ? $overrideReason : null, $actorUserId]);
+    if ($previousRow) {
+        $updateStmt = $pdo->prepare('UPDATE shopfloor_bh_overrides SET bh_minutes = ?, reason = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+        $updateStmt->execute([$overrideMinutes, $overrideReason !== '' ? $overrideReason : null, $actorUserId, (int) $previousRow['id']]);
+    } else {
+        $insertStmt = $pdo->prepare('INSERT INTO shopfloor_bh_overrides(user_id, work_date, bh_minutes, reason, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)');
+        $insertStmt->execute([$targetUserId, $workDate, $overrideMinutes, $overrideReason !== '' ? $overrideReason : null, $actorUserId]);
+    }
 
     $logOverrideStmt = $pdo->prepare('INSERT INTO shopfloor_bh_override_logs(user_id, work_date, previous_bh_minutes, new_bh_minutes, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)');
     $logOverrideStmt->execute([$targetUserId, $workDate, $previousBh === false ? null : (int) $previousBh, $overrideMinutes, $overrideReason !== '' ? $overrideReason : null, $actorUserId]);
