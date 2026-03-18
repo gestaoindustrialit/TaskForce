@@ -434,6 +434,7 @@ $formattedHourBank = sprintf('%02dh%02dm', (int) floor((float) $hourBank['balanc
 $pageTitle = 'Shopfloor';
 $bodyClass = 'bg-light';
 $navbarClockControl = [
+    'form_action' => 'shopfloor.php',
     'entry_type' => $nextEntryType,
     'button_label' => $clockButtonLabel,
     'button_class' => $clockButtonClass,
