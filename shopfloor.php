@@ -433,12 +433,6 @@ $formattedHourBank = sprintf('%02dh%02dm', (int) floor((float) $hourBank['balanc
 
 $pageTitle = 'Shopfloor';
 $bodyClass = 'bg-light';
-$navbarClockControl = [
-    'entry_type' => $nextEntryType,
-    'button_label' => $clockButtonLabel,
-    'button_class' => $clockButtonClass,
-    'latest_time_label' => $latestEntryTimeLabel,
-];
 require __DIR__ . '/partials/header.php';
 ?>
 
