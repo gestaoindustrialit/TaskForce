@@ -443,7 +443,7 @@ usort(
     }
 );
 
-$maxEntryCount = 0;
+$maxEntryCount = 6;
 foreach ($daily as $dailyRow) {
     $maxEntryCount = max($maxEntryCount, count($dailyRow['entries']));
 }
@@ -451,6 +451,59 @@ foreach ($daily as $dailyRow) {
 $pageTitle = 'Resultados';
 require __DIR__ . '/partials/header.php';
 ?>
+<style>
+    .results-table {
+        font-size: 0.88rem;
+    }
+
+    .results-table th,
+    .results-table td {
+        padding: 0.35rem 0.3rem;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+
+    .results-table .results-entry-col {
+        width: 4.6rem;
+        min-width: 4.6rem;
+        max-width: 4.6rem;
+        text-align: center;
+    }
+
+    .results-table .results-entry-input {
+        min-width: 4.4rem;
+        width: 4.4rem;
+        padding: 0.18rem 0.3rem;
+        font-size: 0.8rem;
+    }
+
+    .results-table .results-bh-input {
+        width: 5.4rem;
+        max-width: 5.4rem;
+        padding: 0.2rem 0.35rem;
+        font-size: 0.82rem;
+    }
+
+    .results-table .results-bh-reason {
+        width: 7.8rem;
+        max-width: 7.8rem;
+        padding: 0.2rem 0.35rem;
+        font-size: 0.82rem;
+    }
+
+    .results-table .results-bh-form {
+        gap: 0.25rem !important;
+    }
+
+    .results-table .btn-sm {
+        padding: 0.2rem 0.45rem;
+        font-size: 0.78rem;
+    }
+
+    .results-table .badge {
+        font-size: 0.77rem;
+    }
+</style>
 <h1 class="h3 mb-3">Resultados de picagens</h1>
 <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
@@ -475,14 +528,14 @@ require __DIR__ . '/partials/header.php';
 <div class="card shadow-sm">
     <div class="card-body">
         <div class="table-responsive">
-            <table class="table table-sm align-middle">
+            <table class="table table-sm align-middle results-table">
                 <thead>
                     <tr>
                         <th>Estado</th><th>Tipo</th><th>Data</th><th>Número</th><th>Nome</th>
                         <?php for ($i = 1; $i <= $maxEntryCount; $i++): ?>
                             <?php $entryPrefix = $i % 2 === 1 ? 'E' : 'S'; ?>
                             <?php $entrySequence = (int) ceil($i / 2); ?>
-                            <th><?= $entryPrefix . $entrySequence ?></th>
+                            <th class="results-entry-col"><?= $entryPrefix . $entrySequence ?></th>
                         <?php endfor; ?>
                         <th>Objectivo</th><th>Efectivo</th><th>Tempo BH</th>
                         <?php if ($canValidateResults): ?><th class="text-end">Validação</th><?php endif; ?>
@@ -501,15 +554,14 @@ require __DIR__ . '/partials/header.php';
                         <td><?= h($row['user_name']) ?></td>
                         <?php for ($entryIdx = 0; $entryIdx < $maxEntryCount; $entryIdx++): ?>
                             <?php $entryPoint = $row['entries'][$entryIdx] ?? null; ?>
-                            <td>
+                            <td class="results-entry-col">
                                 <?php if ($entryPoint): ?>
                                     <?php if ($canValidateResults): ?>
                                         <input
                                             type="time"
-                                            class="form-control form-control-sm js-entry-time"
+                                            class="form-control form-control-sm js-entry-time results-entry-input"
                                             value="<?= h((string) $entryPoint['time']) ?>"
                                             data-entry-id="<?= (int) $entryPoint['id'] ?>"
-                                            style="min-width: 88px;"
                                         >
                                     <?php else: ?>
                                         <?= h((string) $entryPoint['time']) ?>
@@ -522,16 +574,16 @@ require __DIR__ . '/partials/header.php';
                         <td>
                             <?php $bhClass = $row['bh_seconds'] > 0 ? 'text-danger' : ($row['bh_seconds'] < 0 ? 'text-success' : 'text-muted'); ?>
                             <?php if ($canValidateResults): ?>
-                                <form method="post" class="d-flex gap-1 mt-1 align-items-center">
+                                <form method="post" class="d-flex mt-1 align-items-center results-bh-form">
                                     <input type="hidden" name="action" value="save_bh_override">
                                     <input type="hidden" name="override_date" value="<?= h($row['date']) ?>">
                                     <input type="hidden" name="override_user_id" value="<?= (int) $row['user_id'] ?>">
-                                    <input type="text" class="form-control form-control-sm <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM" style="max-width: 88px;">
-                                    <input type="text" class="form-control form-control-sm" name="override_reason" value="<?= h((string) $row['bh_reason']) ?>" placeholder="Motivo" style="max-width: 130px;">
+                                    <input type="text" class="form-control form-control-sm results-bh-input <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM">
+                                    <input type="text" class="form-control form-control-sm results-bh-reason" name="override_reason" value="<?= h((string) $row['bh_reason']) ?>" placeholder="Motivo">
                                     <button class="btn btn-outline-secondary btn-sm">Guardar</button>
                                 </form>
                             <?php else: ?>
-                                <input type="text" class="form-control form-control-sm <?= $bhClass ?>" value="<?= h($row['bh']) ?>" readonly style="max-width: 88px;">
+                                <input type="text" class="form-control form-control-sm results-bh-input <?= $bhClass ?>" value="<?= h($row['bh']) ?>" readonly>
                             <?php endif; ?>
                         </td>
                         <?php if ($canValidateResults): ?>
