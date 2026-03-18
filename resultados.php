@@ -251,6 +251,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
             $flashError = 'Não existem picagens pendentes para validar.';
         } else {
             $postedEntryTimes = (array) ($_POST['entry_time'] ?? []);
+            $postedSlotTimes = (array) ($_POST['slot_time'] ?? []);
             $overrideBhValue = trim((string) ($_POST['override_bh_value'] ?? ''));
             $overrideReason = trim((string) ($_POST['override_reason'] ?? ''));
 
@@ -275,6 +276,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
                         'entry_id' => $entryId,
                         'new_time' => $newTime,
                         'entry_date' => $entryDate,
+                    ]);
+                }
+
+                $insertEntryStmt = $pdo->prepare('INSERT INTO shopfloor_time_entries(user_id, entry_type, occurred_at) VALUES (?, ?, ?)');
+                foreach ($postedSlotTimes as $slotIndex => $slotTime) {
+                    $slotNumber = (int) $slotIndex;
+                    $newTime = trim((string) $slotTime);
+                    if ($slotNumber <= 0 || $newTime === '') {
+                        continue;
+                    }
+                    if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $newTime)) {
+                        throw new RuntimeException('Hora inválida. Use HH:MM.');
+                    }
+
+                    if ($slotNumber <= count($targetEntries)) {
+                        continue;
+                    }
+
+                    $entryType = $slotNumber % 2 === 1 ? 'entrada' : 'saida';
+                    $newOccurredAt = $validateDate . ' ' . $newTime . ':00';
+                    $insertEntryStmt->execute([$validateUserId, $entryType, $newOccurredAt]);
+                    $newEntryId = (int) $pdo->lastInsertId();
+
+                    log_app_event($pdo, $userId, 'shopfloor.time_entry.create', 'Nova picagem criada nos resultados.', [
+                        'entry_id' => $newEntryId,
+                        'entry_type' => $entryType,
+                        'new_time' => $newTime,
+                        'entry_date' => $validateDate,
                     ]);
                 }
 
@@ -424,6 +453,7 @@ foreach ($entries as $entry) {
             'entries' => [],
             'validated_at' => null,
             'seconds' => 0,
+            'entries_count' => 0,
         ];
     }
 
@@ -437,6 +467,35 @@ foreach ($entries as $entry) {
     if (!empty($entry['validated_at'])) {
         $daily[$key]['validated_at'] = (string) $entry['validated_at'];
     }
+
+    $daily[$key]['entries_count'] = count($daily[$key]['entries']);
+}
+
+$overrideParams = [$startDate, $endDate];
+$overrideWhere = ['work_date BETWEEN ? AND ?'];
+if (!$canViewAllResults) {
+    $overrideWhere[] = 'user_id = ?';
+    $overrideParams[] = $userId;
+}
+if ($teamId > 0) {
+    $overrideWhere[] = 'EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = ? AND tm.user_id = user_id)';
+    $overrideParams[] = $teamId;
+}
+if ($selectedUsers) {
+    $placeholders = implode(',', array_fill(0, count($selectedUsers), '?'));
+    $overrideWhere[] = 'user_id IN (' . $placeholders . ')';
+    foreach ($selectedUsers as $selUserId) {
+        $overrideParams[] = $selUserId;
+    }
+}
+
+$overrideSql = 'SELECT user_id, work_date, bh_minutes, reason, updated_at, updated_by FROM shopfloor_bh_overrides WHERE ' . implode(' AND ', $overrideWhere);
+$overrideStmt = $pdo->prepare($overrideSql);
+$overrideStmt->execute($overrideParams);
+$overrideMap = [];
+foreach ($overrideStmt->fetchAll(PDO::FETCH_ASSOC) as $overrideRow) {
+    $overrideKey = ((int) $overrideRow['user_id']) . '|' . (string) $overrideRow['work_date'];
+    $overrideMap[$overrideKey] = $overrideRow;
 }
 
 $overrideParams = [$startDate, $endDate];
@@ -610,6 +669,7 @@ require __DIR__ . '/partials/header.php';
                 <?php foreach ($daily as $row): ?>
                     <?php $isPendingRow = $canValidateResults && $row['status'] !== 'Validado'; ?>
                     <?php $rowFormId = 'validate-row-' . (int) $row['user_id'] . '-' . str_replace('-', '', (string) $row['date']); ?>
+                    <?php $existingEntryCount = (int) ($row['entries_count'] ?? count($row['entries'])); ?>
                     <tr>
                         <td><span class="badge <?= $row['status'] === 'Validado' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= h($row['status']) ?></span></td>
                         <td><?= h($row['type_label']) ?></td>
@@ -626,10 +686,10 @@ require __DIR__ . '/partials/header.php';
                                         pattern="^([01]\d|2[0-3]):([0-5]\d)$"
                                         class="form-control form-control-sm results-entry-input"
                                         value="<?= h((string) ($entryPoint['time'] ?? '')) ?>"
-                                        name="<?= $entryPoint ? 'entry_time[' . (int) $entryPoint['id'] . ']' : '' ?>"
-                                        <?= $isPendingRow && $entryPoint ? 'form="' . h($rowFormId) . '"' : '' ?>
+                                        name="<?= $entryPoint ? 'entry_time[' . (int) $entryPoint['id'] . ']' : 'slot_time[' . ($entryIdx + 1) . ']' ?>"
+                                        <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>
                                         placeholder="--:--"
-                                        <?= $entryPoint ? '' : 'disabled' ?>
+                                        <?= $entryPoint || $isPendingRow ? '' : 'disabled' ?>
                                     >
                                 <?php elseif ($entryPoint): ?>
                                     <?= h((string) $entryPoint['time']) ?>
