@@ -722,3 +722,56 @@ body {
     transform: translateY(-1px);
     box-shadow: 0 12px 20px rgba(15, 23, 42, 0.08);
 }
+
+
+.user-picker-meta {
+    min-height: 3.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.user-picker-summary {
+    display: block;
+    min-height: 1.25rem;
+    margin-bottom: 0.35rem;
+}
+
+.user-picker-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    min-height: 1.5rem;
+    align-content: flex-start;
+}
+
+.user-picker-modal-list {
+    max-height: 24rem;
+    overflow-y: auto;
+    background: #fff;
+}
+
+.user-picker-option {
+    cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin: 0;
+    padding-left: 0.75rem;
+}
+
+.user-picker-option:hover {
+    background: rgba(15, 23, 42, 0.04);
+}
+
+.user-picker-option.is-selected {
+    background: rgba(13, 110, 253, 0.08);
+    border-color: rgba(13, 110, 253, 0.2);
+}
+
+.user-picker-option .user-picker-checkbox {
+    margin: 0.2rem 0 0;
+    flex: 0 0 auto;
+}
+
+.user-picker-option .user-picker-meta-label {
+    min-width: 0;
+}

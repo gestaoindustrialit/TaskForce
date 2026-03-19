@@ -301,6 +301,9 @@ require __DIR__ . '/partials/header.php';
             <div class="col-12">
                 <?php render_alert_collaborator_picker('alertCollaboratorsCreateModal', $users, $teams, [], 'selected_user_ids[]'); ?>
             </div>
+            <div class="col-12">
+                <?php render_alert_collaborator_picker('alertCollaboratorsCreateModal', $users, $teams, [], 'selected_user_ids[]'); ?>
+            </div>
             <div class="col-12"><button class="btn btn-primary">Criar alerta</button></div>
         </form>
     </div>

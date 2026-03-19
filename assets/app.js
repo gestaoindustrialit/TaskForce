@@ -274,35 +274,42 @@ function initResultsPage() {
         return;
     }
 
-    const hiddenInputsContainer = resultsFilterForm.querySelector('.js-results-user-hidden-inputs');
-    const teamFilter = resultsFilterForm.querySelector('.js-results-team-filter');
-    const summary = resultsFilterForm.querySelector('.js-results-users-summary');
-    const countBadge = resultsFilterForm.querySelector('.js-results-users-count');
-    const chipsContainer = resultsFilterForm.querySelector('.js-results-users-chips');
-    const modalElement = document.getElementById('resultsCollaboratorsModal');
+    pickerRoots.forEach((pickerRoot) => {
+        const hiddenInputsContainer = pickerRoot.querySelector('.js-alert-user-hidden-inputs');
+        const teamFilter = pickerRoot.querySelector('.js-alert-team-filter');
+        const summary = pickerRoot.querySelector('.js-alert-users-summary');
+        const countBadge = pickerRoot.querySelector('.js-alert-users-count');
+        const chipsContainer = pickerRoot.querySelector('.js-alert-users-chips');
+        const triggerButton = pickerRoot.querySelector('[data-bs-target]');
+        const inputName = pickerRoot.dataset.inputName || 'selected_user_ids[]';
+        const modalSelector = triggerButton?.getAttribute('data-bs-target') || '';
+        const modalElement = modalSelector ? document.querySelector(modalSelector) : null;
 
-    if (hiddenInputsContainer && summary && countBadge && chipsContainer && modalElement && window.bootstrap?.Modal) {
+        if (!hiddenInputsContainer || !summary || !countBadge || !chipsContainer || !modalElement) {
+            return;
+        }
+
         const modal = window.bootstrap.Modal.getOrCreateInstance(modalElement);
-        const searchInput = modalElement.querySelector('.js-results-user-search');
+        const searchInput = modalElement.querySelector('.js-alert-user-search');
         const userOptions = Array.from(modalElement.querySelectorAll('[data-user-option]'));
-        const applyButton = modalElement.querySelector('.js-results-apply-users');
-        const selectAllButton = modalElement.querySelector('.js-results-select-all');
-        const clearAllButton = modalElement.querySelector('.js-results-clear-all');
-        const selectTeamButton = modalElement.querySelector('.js-results-select-team');
+        const applyButton = modalElement.querySelector('.js-alert-apply-users');
+        const selectAllButton = modalElement.querySelector('.js-alert-select-all');
+        const clearAllButton = modalElement.querySelector('.js-alert-clear-all');
+        const selectTeamButton = modalElement.querySelector('.js-alert-select-team');
 
         const getCheckboxes = () => userOptions
-            .map((option) => option.querySelector('.js-results-user-checkbox'))
+            .map((option) => option.querySelector('.js-alert-user-checkbox'))
             .filter(Boolean);
 
         const getVisibleOptions = () => userOptions.filter((option) => !option.classList.contains('d-none'));
         const getSelectedOptions = () => userOptions.filter((option) => {
-            const checkbox = option.querySelector('.js-results-user-checkbox');
+            const checkbox = option.querySelector('.js-alert-user-checkbox');
             return checkbox && checkbox.checked;
         });
 
         const syncOptionCheckedState = () => {
             userOptions.forEach((option) => {
-                const checkbox = option.querySelector('.js-results-user-checkbox');
+                const checkbox = option.querySelector('.js-alert-user-checkbox');
                 option.classList.toggle('is-selected', Boolean(checkbox?.checked));
             });
         };
@@ -327,48 +334,46 @@ function initResultsPage() {
             syncOptionCheckedState();
 
             selectedOptions.forEach((option) => {
-                const checkbox = option.querySelector('.js-results-user-checkbox');
+                const checkbox = option.querySelector('.js-alert-user-checkbox');
                 if (!checkbox) {
                     return;
                 }
 
                 const input = document.createElement('input');
                 input.type = 'hidden';
-                input.name = 'user_ids[]';
+                input.name = inputName;
                 input.value = checkbox.value;
                 hiddenInputsContainer.appendChild(input);
             });
 
             countBadge.textContent = String(selectedOptions.length);
             if (!selectedOptions.length) {
-                summary.textContent = 'Todos';
+                summary.textContent = 'Todos os colaboradores ativos';
                 return;
             }
 
-            if (selectedOptions.length <= 2) {
-                summary.textContent = selectedOptions
-                    .map((option) => option.querySelector('.fw-semibold')?.textContent?.trim() || '')
-                    .filter(Boolean)
-                    .join(', ');
-            } else {
-                summary.textContent = `${selectedOptions.length} selecionados`;
-            }
-
-            const chipNames = selectedOptions
-                .map((option) => option.querySelector('.fw-semibold')?.textContent?.trim() || '')
+            const selectedLabels = selectedOptions
+                .map((option) => option.dataset.userDisplayLabel
+                    || option.querySelector('.js-alert-user-label')?.textContent?.trim()
+                    || option.querySelector('.fw-semibold')?.textContent?.trim()
+                    || '')
                 .filter(Boolean);
 
-            chipNames.slice(0, 2).forEach((name) => {
+            summary.textContent = selectedLabels.length <= 2
+                ? selectedLabels.join(', ')
+                : `${selectedLabels.length} colaboradores selecionados`;
+
+            selectedLabels.slice(0, 2).forEach((label) => {
                 const chip = document.createElement('span');
                 chip.className = 'badge rounded-pill text-bg-light border text-dark';
-                chip.textContent = name;
+                chip.textContent = label;
                 chipsContainer.appendChild(chip);
             });
 
-            if (chipNames.length > 2) {
+            if (selectedLabels.length > 2) {
                 const extraChip = document.createElement('span');
                 extraChip.className = 'badge rounded-pill text-bg-secondary';
-                extraChip.textContent = `+${chipNames.length - 2}`;
+                extraChip.textContent = `+${selectedLabels.length - 2}`;
                 chipsContainer.appendChild(extraChip);
             }
         };
@@ -377,7 +382,7 @@ function initResultsPage() {
         teamFilter?.addEventListener('change', syncVisibleUsers);
         selectAllButton?.addEventListener('click', () => {
             getVisibleOptions().forEach((option) => {
-                const checkbox = option.querySelector('.js-results-user-checkbox');
+                const checkbox = option.querySelector('.js-alert-user-checkbox');
                 if (checkbox) {
                     checkbox.checked = true;
                 }
@@ -396,7 +401,7 @@ function initResultsPage() {
                 checkbox.checked = false;
             });
             userOptions.forEach((option) => {
-                const checkbox = option.querySelector('.js-results-user-checkbox');
+                const checkbox = option.querySelector('.js-alert-user-checkbox');
                 if (!checkbox) {
                     return;
                 }
@@ -418,8 +423,178 @@ function initResultsPage() {
 
         renderSelectedUsers();
         syncVisibleUsers();
+    });
+}
+
+function initUserPicker(root) {
+    if (!root || root.dataset.userPickerInitialized === '1' || !window.bootstrap?.Modal) {
+        return;
     }
 
+    root.dataset.userPickerInitialized = '1';
+
+    const hiddenInputsContainer = root.querySelector('.js-user-picker-hidden-inputs');
+    const summary = root.querySelector('.js-user-picker-summary');
+    const countBadge = root.querySelector('.js-user-picker-count');
+    const chipsContainer = root.querySelector('.js-user-picker-chips');
+    const modalSelector = root.dataset.userPickerModalTarget || '';
+    const modalElement = modalSelector ? document.querySelector(modalSelector) : null;
+
+    if (!hiddenInputsContainer || !summary || !countBadge || !chipsContainer || !modalElement) {
+        return;
+    }
+
+    const modal = window.bootstrap.Modal.getOrCreateInstance(modalElement);
+    const searchInput = modalElement.querySelector('.js-user-picker-search');
+    const userOptions = Array.from(modalElement.querySelectorAll('[data-user-option]'));
+    const applyButton = modalElement.querySelector('.js-user-picker-apply');
+    const selectAllButton = modalElement.querySelector('.js-user-picker-select-all');
+    const clearAllButton = modalElement.querySelector('.js-user-picker-clear-all');
+    const selectTeamButton = modalElement.querySelector('.js-user-picker-select-team');
+    const teamFilterSelector = root.dataset.userPickerTeamFilter || '';
+    const teamFilter = teamFilterSelector ? document.querySelector(teamFilterSelector) : null;
+    const summaryAllLabel = root.dataset.userPickerAllLabel || 'Todos';
+    const summarySelectedSuffix = root.dataset.userPickerSelectedSuffix || 'selecionados';
+
+    const getCheckboxes = () => userOptions
+        .map((option) => option.querySelector('.js-user-picker-checkbox'))
+        .filter(Boolean);
+
+    const getVisibleOptions = () => userOptions.filter((option) => !option.classList.contains('d-none'));
+    const getSelectedOptions = () => userOptions.filter((option) => {
+        const checkbox = option.querySelector('.js-user-picker-checkbox');
+        return checkbox && checkbox.checked;
+    });
+
+    const getOptionDisplayLabel = (option) => option.dataset.userDisplayLabel
+        || option.querySelector('.js-user-picker-label')?.textContent?.trim()
+        || option.querySelector('.js-user-picker-name')?.textContent?.trim()
+        || '';
+
+    const syncOptionCheckedState = () => {
+        userOptions.forEach((option) => {
+            const checkbox = option.querySelector('.js-user-picker-checkbox');
+            option.classList.toggle('is-selected', Boolean(checkbox?.checked));
+        });
+    };
+
+    const syncVisibleUsers = () => {
+        const term = (searchInput?.value || '').trim().toLowerCase();
+        const selectedTeamId = String(teamFilter?.value || '0');
+
+        userOptions.forEach((option) => {
+            const userLabel = option.dataset.userLabel || '';
+            const teamIds = (option.dataset.teamIds || '').split(',').filter(Boolean);
+            const matchesSearch = term === '' || userLabel.includes(term);
+            const matchesTeam = !teamFilter || selectedTeamId === '0' || teamIds.includes(selectedTeamId);
+            option.classList.toggle('d-none', !(matchesSearch && matchesTeam));
+        });
+    };
+
+    const renderSelectedUsers = () => {
+        const selectedOptions = getSelectedOptions();
+        hiddenInputsContainer.innerHTML = '';
+        chipsContainer.innerHTML = '';
+        syncOptionCheckedState();
+
+        selectedOptions.forEach((option) => {
+            const checkbox = option.querySelector('.js-user-picker-checkbox');
+            if (!checkbox) {
+                return;
+            }
+
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = root.dataset.userPickerInputName || 'user_ids[]';
+            input.value = checkbox.value;
+            hiddenInputsContainer.appendChild(input);
+        });
+
+        countBadge.textContent = String(selectedOptions.length);
+        if (!selectedOptions.length) {
+            summary.textContent = summaryAllLabel;
+            return;
+        }
+
+        const selectedLabels = selectedOptions
+            .map((option) => getOptionDisplayLabel(option))
+            .filter(Boolean);
+
+        if (selectedLabels.length <= 2) {
+            summary.textContent = selectedLabels.join(', ');
+        } else {
+            summary.textContent = `${selectedLabels.length} ${summarySelectedSuffix}`;
+        }
+
+        selectedLabels.slice(0, 2).forEach((label) => {
+            const chip = document.createElement('span');
+            chip.className = 'badge rounded-pill text-bg-light border text-dark';
+            chip.textContent = label;
+            chipsContainer.appendChild(chip);
+        });
+
+        if (selectedLabels.length > 2) {
+            const extraChip = document.createElement('span');
+            extraChip.className = 'badge rounded-pill text-bg-secondary';
+            extraChip.textContent = `+${selectedLabels.length - 2}`;
+            chipsContainer.appendChild(extraChip);
+        }
+    };
+
+    searchInput?.addEventListener('input', syncVisibleUsers);
+    teamFilter?.addEventListener('change', syncVisibleUsers);
+    selectAllButton?.addEventListener('click', () => {
+        getVisibleOptions().forEach((option) => {
+            const checkbox = option.querySelector('.js-user-picker-checkbox');
+            if (checkbox) {
+                checkbox.checked = true;
+            }
+        });
+        renderSelectedUsers();
+    });
+    clearAllButton?.addEventListener('click', () => {
+        getCheckboxes().forEach((checkbox) => {
+            checkbox.checked = false;
+        });
+        renderSelectedUsers();
+    });
+    selectTeamButton?.addEventListener('click', () => {
+        const selectedTeamId = String(teamFilter?.value || '0');
+        getCheckboxes().forEach((checkbox) => {
+            checkbox.checked = false;
+        });
+        userOptions.forEach((option) => {
+            const checkbox = option.querySelector('.js-user-picker-checkbox');
+            if (!checkbox) {
+                return;
+            }
+            const teamIds = (option.dataset.teamIds || '').split(',').filter(Boolean);
+            checkbox.checked = !teamFilter || selectedTeamId === '0' || teamIds.includes(selectedTeamId);
+        });
+        renderSelectedUsers();
+        syncVisibleUsers();
+    });
+    getCheckboxes().forEach((checkbox) => checkbox.addEventListener('change', renderSelectedUsers));
+    applyButton?.addEventListener('click', () => {
+        renderSelectedUsers();
+        modal.hide();
+    });
+    modalElement.addEventListener('shown.bs.modal', () => {
+        syncVisibleUsers();
+        searchInput?.focus();
+    });
+
+    renderSelectedUsers();
+    syncVisibleUsers();
+}
+
+function initResultsPage() {
+    const resultsFilterForm = document.getElementById('resultsFilterForm');
+    if (!resultsFilterForm) {
+        return;
+    }
+
+    initUserPicker(resultsFilterForm);
     const formatHHMM = (totalSeconds, signed = false) => {
         const absoluteSeconds = Math.abs(totalSeconds);
         const hours = Math.floor(absoluteSeconds / 3600);
@@ -610,5 +785,6 @@ function initResultsPage() {
     window.setInterval(refreshRowsWithOpenEntries, 60000);
 }
 
+document.querySelectorAll('[data-user-picker-modal-target]').forEach((root) => initUserPicker(root));
 initResultsPage();
 initHrAlertsPage();
