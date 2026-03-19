@@ -98,8 +98,179 @@ document.querySelectorAll('.js-collapse-toggle').forEach((button) => {
 
 
 function initHrAlertsPage() {
+    const scheduleConfigs = Array.from(document.querySelectorAll('[data-alert-schedule-config]'));
+    scheduleConfigs.forEach((config) => {
+        const modeSelect = config.querySelector('.js-alert-schedule-mode');
+        const weeklyWrap = config.querySelector('.js-alert-weekdays-wrap');
+        const monthlyWrap = config.querySelector('.js-alert-monthly-day-wrap');
+
+        const syncMode = () => {
+            const mode = modeSelect?.value || 'weekly';
+            weeklyWrap?.classList.toggle('d-none', mode !== 'weekly');
+            monthlyWrap?.classList.toggle('d-none', mode !== 'monthly');
+        };
+
+        modeSelect?.addEventListener('change', syncMode);
+        syncMode();
+    });
+
     const pickerRoots = Array.from(document.querySelectorAll('[data-hr-alert-picker]'));
     if (!pickerRoots.length || !window.bootstrap?.Modal) {
+        return;
+    }
+
+    pickerRoots.forEach((pickerRoot) => {
+        const hiddenInputsContainer = pickerRoot.querySelector('.js-alert-user-hidden-inputs');
+        const teamFilter = pickerRoot.querySelector('.js-alert-team-filter');
+        const summary = pickerRoot.querySelector('.js-alert-users-summary');
+        const countBadge = pickerRoot.querySelector('.js-alert-users-count');
+        const chipsContainer = pickerRoot.querySelector('.js-alert-users-chips');
+        const triggerButton = pickerRoot.querySelector('[data-bs-target]');
+        const inputName = pickerRoot.dataset.inputName || 'selected_user_ids[]';
+        const modalSelector = triggerButton?.getAttribute('data-bs-target') || '';
+        const modalElement = modalSelector ? document.querySelector(modalSelector) : null;
+
+        if (!hiddenInputsContainer || !summary || !countBadge || !chipsContainer || !modalElement) {
+            return;
+        }
+
+        const modal = window.bootstrap.Modal.getOrCreateInstance(modalElement);
+        const searchInput = modalElement.querySelector('.js-alert-user-search');
+        const userOptions = Array.from(modalElement.querySelectorAll('[data-user-option]'));
+        const applyButton = modalElement.querySelector('.js-alert-apply-users');
+        const selectAllButton = modalElement.querySelector('.js-alert-select-all');
+        const clearAllButton = modalElement.querySelector('.js-alert-clear-all');
+        const selectTeamButton = modalElement.querySelector('.js-alert-select-team');
+
+        const getCheckboxes = () => userOptions
+            .map((option) => option.querySelector('.js-alert-user-checkbox'))
+            .filter(Boolean);
+
+        const getVisibleOptions = () => userOptions.filter((option) => !option.classList.contains('d-none'));
+        const getSelectedOptions = () => userOptions.filter((option) => {
+            const checkbox = option.querySelector('.js-alert-user-checkbox');
+            return checkbox && checkbox.checked;
+        });
+
+        const syncOptionCheckedState = () => {
+            userOptions.forEach((option) => {
+                const checkbox = option.querySelector('.js-alert-user-checkbox');
+                option.classList.toggle('is-selected', Boolean(checkbox?.checked));
+            });
+        };
+
+        const syncVisibleUsers = () => {
+            const term = (searchInput?.value || '').trim().toLowerCase();
+            const selectedTeamId = String(teamFilter?.value || '0');
+
+            userOptions.forEach((option) => {
+                const userLabel = option.dataset.userLabel || '';
+                const teamIds = (option.dataset.teamIds || '').split(',').filter(Boolean);
+                const matchesSearch = term === '' || userLabel.includes(term);
+                const matchesTeam = selectedTeamId === '0' || teamIds.includes(selectedTeamId);
+                option.classList.toggle('d-none', !(matchesSearch && matchesTeam));
+            });
+        };
+
+        const renderSelectedUsers = () => {
+            const selectedOptions = getSelectedOptions();
+            hiddenInputsContainer.innerHTML = '';
+            chipsContainer.innerHTML = '';
+            syncOptionCheckedState();
+
+            selectedOptions.forEach((option) => {
+                const checkbox = option.querySelector('.js-alert-user-checkbox');
+                if (!checkbox) {
+                    return;
+                }
+
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = inputName;
+                input.value = checkbox.value;
+                hiddenInputsContainer.appendChild(input);
+            });
+
+            countBadge.textContent = String(selectedOptions.length);
+            if (!selectedOptions.length) {
+                summary.textContent = 'Todos os colaboradores ativos';
+                return;
+            }
+
+            const selectedNames = selectedOptions
+                .map((option) => option.querySelector('.fw-semibold')?.textContent?.trim() || '')
+                .filter(Boolean);
+
+            summary.textContent = selectedNames.length <= 2
+                ? selectedNames.join(', ')
+                : `${selectedNames.length} colaboradores selecionados`;
+
+            selectedNames.slice(0, 2).forEach((name) => {
+                const chip = document.createElement('span');
+                chip.className = 'badge rounded-pill text-bg-light border text-dark';
+                chip.textContent = name;
+                chipsContainer.appendChild(chip);
+            });
+
+            if (selectedNames.length > 2) {
+                const extraChip = document.createElement('span');
+                extraChip.className = 'badge rounded-pill text-bg-secondary';
+                extraChip.textContent = `+${selectedNames.length - 2}`;
+                chipsContainer.appendChild(extraChip);
+            }
+        };
+
+        searchInput?.addEventListener('input', syncVisibleUsers);
+        teamFilter?.addEventListener('change', syncVisibleUsers);
+        selectAllButton?.addEventListener('click', () => {
+            getVisibleOptions().forEach((option) => {
+                const checkbox = option.querySelector('.js-alert-user-checkbox');
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+            });
+            renderSelectedUsers();
+        });
+        clearAllButton?.addEventListener('click', () => {
+            getCheckboxes().forEach((checkbox) => {
+                checkbox.checked = false;
+            });
+            renderSelectedUsers();
+        });
+        selectTeamButton?.addEventListener('click', () => {
+            const selectedTeamId = String(teamFilter?.value || '0');
+            getCheckboxes().forEach((checkbox) => {
+                checkbox.checked = false;
+            });
+            userOptions.forEach((option) => {
+                const checkbox = option.querySelector('.js-alert-user-checkbox');
+                if (!checkbox) {
+                    return;
+                }
+                const teamIds = (option.dataset.teamIds || '').split(',').filter(Boolean);
+                checkbox.checked = selectedTeamId === '0' || teamIds.includes(selectedTeamId);
+            });
+            renderSelectedUsers();
+            syncVisibleUsers();
+        });
+        getCheckboxes().forEach((checkbox) => checkbox.addEventListener('change', renderSelectedUsers));
+        applyButton?.addEventListener('click', () => {
+            renderSelectedUsers();
+            modal.hide();
+        });
+        modalElement.addEventListener('shown.bs.modal', () => {
+            syncVisibleUsers();
+            searchInput?.focus();
+        });
+
+        renderSelectedUsers();
+        syncVisibleUsers();
+    });
+}
+
+function initResultsPage() {
+    const resultsFilterForm = document.getElementById('resultsFilterForm');
+    if (!resultsFilterForm) {
         return;
     }
 

@@ -14,16 +14,16 @@ function parse_alert_selected_users($value): array
     $selected = [];
 
     foreach ($rawValues as $rawValue) {
-        $userId = (int) $rawValue;
-        if ($userId > 0) {
-            $selected[$userId] = $userId;
+        $parsedUserId = (int) $rawValue;
+        if ($parsedUserId > 0) {
+            $selected[$parsedUserId] = $parsedUserId;
         }
     }
 
     return array_values($selected);
 }
 
-function format_alert_selected_users_summary(array $selectedUsers, array $userLabelMap): string
+function format_alert_selected_users_summary(array $selectedUsers, array $userNameMap): string
 {
     if (!$selectedUsers) {
         return 'Todos os colaboradores ativos';
@@ -31,8 +31,8 @@ function format_alert_selected_users_summary(array $selectedUsers, array $userLa
 
     $names = [];
     foreach ($selectedUsers as $selectedUserId) {
-        if (isset($userLabelMap[$selectedUserId])) {
-            $names[] = $userLabelMap[$selectedUserId];
+        if (isset($userNameMap[$selectedUserId])) {
+            $names[] = $userNameMap[$selectedUserId];
         }
     }
 
@@ -45,6 +45,24 @@ function format_alert_selected_users_summary(array $selectedUsers, array $userLa
     }
 
     return count($names) . ' colaboradores selecionados';
+}
+
+function normalize_alert_schedule_frequency(string $value): string
+{
+    return in_array($value, ['weekly', 'monthly'], true) ? $value : 'weekly';
+}
+
+function normalize_alert_monthly_day($value): int
+{
+    $day = (int) $value;
+    if ($day < 1) {
+        return 1;
+    }
+    if ($day > 31) {
+        return 31;
+    }
+
+    return $day;
 }
 
 function render_alert_collaborator_picker(string $pickerId, array $users, array $teams, array $selectedUsers, string $inputName, string $buttonLabel = 'Selecionar colaboradores'): void
@@ -114,10 +132,11 @@ function render_alert_collaborator_picker(string $pickerId, array $users, array 
                             <?php foreach ($users as $u): ?>
                                 <?php $userLabel = (string) (($u['user_number'] ?: $u['id']) . ' - ' . $u['name']); ?>
                                 <?php $userLabelSearch = function_exists('mb_strtolower') ? mb_strtolower($userLabel) : strtolower($userLabel); ?>
-                                <label class="results-user-option border px-2 py-2 rounded js-alert-user-option" data-user-option data-user-id="<?= (int) $u['id'] ?>" data-user-label="<?= h($userLabelSearch) ?>" data-user-display-label="<?= h($userLabel) ?>" data-team-ids="<?= h(implode(',', array_map('intval', (array) ($u['team_ids'] ?? [])))) ?>">
+                                <label class="results-user-option border px-2 py-2 rounded js-alert-user-option" data-user-option data-user-id="<?= (int) $u['id'] ?>" data-user-label="<?= h($userLabelSearch) ?>" data-team-ids="<?= h(implode(',', array_map('intval', (array) ($u['team_ids'] ?? [])))) ?>">
                                     <input class="form-check-input results-user-checkbox js-alert-user-checkbox" type="checkbox" value="<?= (int) $u['id'] ?>" <?= in_array((int) $u['id'], $selectedUsers, true) ? 'checked' : '' ?>>
                                     <span class="results-user-meta flex-grow-1">
-                                        <span class="d-block fw-semibold js-alert-user-label"><?= h($userLabel) ?></span>
+                                        <span class="d-block fw-semibold"><?= h((string) $u['name']) ?></span>
+                                        <span class="d-block text-muted small"><?= h((string) ($u['user_number'] !== '' ? $u['user_number'] : $u['id'])) ?></span>
                                     </span>
                                 </label>
                             <?php endforeach; ?>
@@ -128,6 +147,41 @@ function render_alert_collaborator_picker(string $pickerId, array $users, array 
                         <button type="button" class="btn btn-dark js-alert-apply-users">Aplicar</button>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+    <?php
+}
+
+function render_alert_schedule_fields(array $weekdayLabels, string $prefix, string $scheduleFrequency, array $selectedWeekdays, int $monthlyDay): void
+{
+    ?>
+    <div class="alert-schedule-config border rounded p-3" data-alert-schedule-config>
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Periodicidade</label>
+                <select class="form-select js-alert-schedule-mode" name="schedule_frequency">
+                    <option value="weekly" <?= $scheduleFrequency === 'weekly' ? 'selected' : '' ?>>Semanal</option>
+                    <option value="monthly" <?= $scheduleFrequency === 'monthly' ? 'selected' : '' ?>>Mensal</option>
+                </select>
+            </div>
+            <div class="col-md-3 js-alert-monthly-day-wrap<?= $scheduleFrequency === 'monthly' ? '' : ' d-none' ?>">
+                <label class="form-label">Dia do mês</label>
+                <select class="form-select" name="monthly_day">
+                    <?php for ($day = 1; $day <= 31; $day++): ?>
+                        <option value="<?= $day ?>" <?= $monthlyDay === $day ? 'selected' : '' ?>><?= $day ?></option>
+                    <?php endfor; ?>
+                </select>
+                <div class="form-text">Se o mês não tiver esse dia, o envio corre no último dia do mês.</div>
+            </div>
+            <div class="col-md-6 js-alert-weekdays-wrap<?= $scheduleFrequency === 'weekly' ? '' : ' d-none' ?>">
+                <label class="form-label d-block">Dias da semana</label>
+                <?php foreach ($weekdayLabels as $value => $label): ?>
+                    <label class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" name="weekdays[]" value="<?= $value ?>" <?= in_array((string) $value, $selectedWeekdays, true) ? 'checked' : '' ?>>
+                        <span class="form-check-label"><?= $label ?></span>
+                    </label>
+                <?php endforeach; ?>
             </div>
         </div>
     </div>
@@ -162,11 +216,11 @@ foreach ($userTeamStmt->fetchAll(PDO::FETCH_ASSOC) as $membership) {
     $userTeamMap[$memberUserId][] = $memberTeamId;
 }
 
-$userLabelMap = [];
+$userNameMap = [];
 foreach ($users as &$listedUser) {
     $listedUserId = (int) ($listedUser['id'] ?? 0);
     $listedUser['team_ids'] = $userTeamMap[$listedUserId] ?? [];
-    $userLabelMap[$listedUserId] = (string) ((($listedUser['user_number'] ?? '') !== '' ? $listedUser['user_number'] : $listedUserId) . ' - ' . ($listedUser['name'] ?? ''));
+    $userNameMap[$listedUserId] = (string) ($listedUser['name'] ?? '');
 }
 unset($listedUser);
 
@@ -179,12 +233,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $type = trim((string) ($_POST['alert_type'] ?? 'absences_daily'));
         $recipient = trim((string) ($_POST['recipient_email'] ?? ''));
         $sendTime = trim((string) ($_POST['send_time'] ?? '08:00'));
+        $scheduleFrequency = normalize_alert_schedule_frequency((string) ($_POST['schedule_frequency'] ?? 'weekly'));
+        $monthlyDay = normalize_alert_monthly_day($_POST['monthly_day'] ?? 1);
         $weekdays = $_POST['weekdays'] ?? [];
         $selectedUserIds = parse_alert_selected_users($_POST['selected_user_ids'] ?? []);
         $isActive = (int) ($_POST['is_active'] ?? 0);
 
         $weekdays = is_array($weekdays) ? array_values(array_intersect(['1', '2', '3', '4', '5', '6', '7'], array_map('strval', $weekdays))) : [];
-        $weekdaysMask = count($weekdays) > 0 ? implode(',', $weekdays) : '1,2,3,4,5';
+        if ($scheduleFrequency === 'weekly' && count($weekdays) === 0) {
+            $weekdays = ['1', '2', '3', '4', '5'];
+        }
+
+        $weekdaysMask = implode(',', $weekdays);
         $selectedUsersMask = implode(',', $selectedUserIds);
 
         if ($name === '' || !filter_var($recipient, FILTER_VALIDATE_EMAIL) || !preg_match('/^\d{2}:\d{2}$/', $sendTime)) {
@@ -195,19 +255,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($action === 'create_alert') {
-                $stmt = $pdo->prepare('INSERT INTO hr_alerts(name, alert_type, recipient_email, send_time, weekdays_mask, selected_user_ids, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-                $stmt->execute([$name, $type, $recipient, $sendTime, $weekdaysMask, $selectedUsersMask, $isActive, $userId]);
+                $stmt = $pdo->prepare('INSERT INTO hr_alerts(name, alert_type, recipient_email, send_time, weekdays_mask, schedule_frequency, monthly_day, selected_user_ids, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                $stmt->execute([$name, $type, $recipient, $sendTime, $weekdaysMask, $scheduleFrequency, $monthlyDay, $selectedUsersMask, $isActive, $userId]);
                 $flashSuccess = 'Alerta criado com sucesso.';
             } else {
-                $stmt = $pdo->prepare('UPDATE hr_alerts SET name = ?, alert_type = ?, recipient_email = ?, send_time = ?, weekdays_mask = ?, selected_user_ids = ?, is_active = ? WHERE id = ?');
-                $stmt->execute([$name, $type, $recipient, $sendTime, $weekdaysMask, $selectedUsersMask, $isActive, $id]);
+                $stmt = $pdo->prepare('UPDATE hr_alerts SET name = ?, alert_type = ?, recipient_email = ?, send_time = ?, weekdays_mask = ?, schedule_frequency = ?, monthly_day = ?, selected_user_ids = ?, is_active = ? WHERE id = ?');
+                $stmt->execute([$name, $type, $recipient, $sendTime, $weekdaysMask, $scheduleFrequency, $monthlyDay, $selectedUsersMask, $isActive, $id]);
                 $flashSuccess = 'Alerta atualizado com sucesso.';
             }
         }
     }
 }
 
-$alerts = $pdo->query('SELECT id, name, alert_type, recipient_email, send_time, weekdays_mask, selected_user_ids, is_active, created_at FROM hr_alerts ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
+$alerts = $pdo->query('SELECT id, name, alert_type, recipient_email, send_time, weekdays_mask, schedule_frequency, monthly_day, selected_user_ids, is_active, created_at FROM hr_alerts ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
 
 $pageTitle = 'Alertas RH';
 require __DIR__ . '/partials/header.php';
@@ -220,7 +280,7 @@ require __DIR__ . '/partials/header.php';
 </style>
 <a href="hr.php" class="btn btn-link px-0">&larr; Voltar ao módulo RH</a>
 <h1 class="h3 mb-3">Alertas RH por e-mail</h1>
-<p class="text-muted">Exemplos suportados: ausências do dia para RH e mapa mensal de picagens enviado automaticamente aos colaboradores no 1.º dia de cada mês.</p>
+<p class="text-muted">Agora pode configurar alertas com execução semanal ou mensal. Para o mapa mensal de picagens, defina explicitamente o dia do mês em que pretende o envio.</p>
 
 <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
@@ -230,15 +290,16 @@ require __DIR__ . '/partials/header.php';
     <div class="card-body">
         <form method="post" class="row g-3">
             <input type="hidden" name="action" value="create_alert">
-            <div class="col-md-3"><label class="form-label">Nome interno</label><input class="form-control" name="name" placeholder="Resumo ausências 08:00" required></div>
-            <div class="col-md-3"><label class="form-label">Tipo</label><select class="form-select" name="alert_type"><?php foreach ($alertTypeOptions as $k => $label): ?><option value="<?= h($k) ?>"><?= h($label) ?></option><?php endforeach; ?></select></div>
+            <div class="col-md-3"><label class="form-label">Nome interno</label><input class="form-control" name="name" placeholder="Mapa mensal assiduidade" required></div>
+            <div class="col-md-3"><label class="form-label">Tipo</label><select class="form-select" name="alert_type"><?php foreach ($alertTypeOptions as $k => $label): ?><option value="<?= h($k) ?>" <?= $k === 'attendance_monthly_map' ? 'selected' : '' ?>><?= h($label) ?></option><?php endforeach; ?></select></div>
             <div class="col-md-3"><label class="form-label">E-mail destino</label><input class="form-control" type="email" name="recipient_email" placeholder="rh@empresa.pt" required></div>
             <div class="col-md-2"><label class="form-label">Hora envio</label><input class="form-control" type="time" name="send_time" value="08:00" required></div>
             <div class="col-md-1 d-flex align-items-end"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" checked><label class="form-check-label">Ativo</label></div></div>
             <div class="col-12">
-                <?php foreach ($weekdayLabels as $value => $label): ?>
-                    <label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="weekdays[]" value="<?= $value ?>" <?= (int) $value <= 5 ? 'checked' : '' ?>><span class="form-check-label"><?= $label ?></span></label>
-                <?php endforeach; ?>
+                <?php render_alert_schedule_fields($weekdayLabels, 'create', 'monthly', ['1', '2', '3', '4', '5'], 1); ?>
+            </div>
+            <div class="col-12">
+                <?php render_alert_collaborator_picker('alertCollaboratorsCreateModal', $users, $teams, [], 'selected_user_ids[]'); ?>
             </div>
             <div class="col-12">
                 <?php render_alert_collaborator_picker('alertCollaboratorsCreateModal', $users, $teams, [], 'selected_user_ids[]'); ?>
@@ -253,18 +314,23 @@ require __DIR__ . '/partials/header.php';
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-sm align-middle">
-                <thead><tr><th>Nome</th><th>Tipo</th><th>Destino</th><th>Hora</th><th>Dias</th><th>Colaboradores</th><th>Estado</th><th>Editar</th></tr></thead>
+                <thead><tr><th>Nome</th><th>Tipo</th><th>Destino</th><th>Hora</th><th>Agendamento</th><th>Colaboradores</th><th>Estado</th><th>Editar</th></tr></thead>
                 <tbody>
                     <?php foreach ($alerts as $alert): ?>
-                        <?php $mask = array_filter(explode(',', (string) $alert['weekdays_mask'])); ?>
+                        <?php $mask = array_filter(explode(',', (string) ($alert['weekdays_mask'] ?? ''))); ?>
                         <?php $selectedAlertUsers = parse_alert_selected_users((string) ($alert['selected_user_ids'] ?? '')); ?>
+                        <?php $scheduleFrequency = normalize_alert_schedule_frequency((string) ($alert['schedule_frequency'] ?? 'weekly')); ?>
+                        <?php $monthlyDay = normalize_alert_monthly_day($alert['monthly_day'] ?? 1); ?>
+                        <?php $scheduleSummary = $scheduleFrequency === 'monthly'
+                            ? 'Mensal · dia ' . $monthlyDay
+                            : 'Semanal · ' . implode(', ', array_map(static fn($d) => $weekdayLabels[$d] ?? $d, $mask)); ?>
                         <tr>
                             <td><?= h($alert['name']) ?></td>
                             <td><?= h($alertTypeOptions[$alert['alert_type']] ?? $alert['alert_type']) ?></td>
                             <td><?= h($alert['recipient_email']) ?></td>
                             <td><?= h((string) $alert['send_time']) ?></td>
-                            <td><?= h(implode(', ', array_map(static fn($d) => $weekdayLabels[$d] ?? $d, $mask))) ?></td>
-                            <td><?= h(format_alert_selected_users_summary($selectedAlertUsers, $userLabelMap)) ?></td>
+                            <td><?= h($scheduleSummary) ?></td>
+                            <td><?= h(format_alert_selected_users_summary($selectedAlertUsers, $userNameMap)) ?></td>
                             <td><?= (int) $alert['is_active'] === 1 ? '<span class="badge text-bg-success">Ativo</span>' : '<span class="badge text-bg-secondary">Inativo</span>' ?></td>
                             <td>
                                 <form method="post" class="row g-2">
@@ -275,11 +341,11 @@ require __DIR__ . '/partials/header.php';
                                     <div class="col-md-2"><input class="form-control form-control-sm" type="time" name="send_time" value="<?= h((string) $alert['send_time']) ?>" required></div>
                                     <div class="col-md-2"><select class="form-select form-select-sm" name="alert_type"><?php foreach ($alertTypeOptions as $k => $label): ?><option value="<?= h($k) ?>" <?= $alert['alert_type'] === $k ? 'selected' : '' ?>><?= h($label) ?></option><?php endforeach; ?></select></div>
                                     <div class="col-md-2 d-flex align-items-center gap-2 flex-wrap">
-                                        <?php foreach (['1', '2', '3', '4', '5'] as $weekdayValue): ?>
-                                            <input type="hidden" name="weekdays[]" value="<?= h($weekdayValue) ?>">
-                                        <?php endforeach; ?>
                                         <input type="hidden" name="is_active" value="<?= (int) $alert['is_active'] ?>">
                                         <button class="btn btn-sm btn-outline-secondary">Guardar</button>
+                                    </div>
+                                    <div class="col-12">
+                                        <?php render_alert_schedule_fields($weekdayLabels, 'edit' . (int) $alert['id'], $scheduleFrequency, array_map('strval', $mask), $monthlyDay); ?>
                                     </div>
                                     <div class="col-12">
                                         <?php render_alert_collaborator_picker('alertCollaboratorsEditModal' . (int) $alert['id'], $users, $teams, $selectedAlertUsers, 'selected_user_ids[]', 'Editar colaboradores'); ?>
