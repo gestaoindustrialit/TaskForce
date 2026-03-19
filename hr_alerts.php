@@ -69,36 +69,37 @@ function render_alert_collaborator_picker(string $pickerId, array $users, array 
 {
     ?>
     <div class="alert-collaborator-picker" data-hr-alert-picker data-input-name="<?= h($inputName) ?>">
-        <div class="row g-2 align-items-end">
-            <div class="col-lg-4">
+        <div class="alert-collaborator-toolbar">
+            <div class="alert-collaborator-field">
                 <label class="form-label">Equipa</label>
-                <select class="form-select js-alert-team-filter">
+                <select class="form-select form-select-sm js-alert-team-filter">
                     <option value="0">Todas</option>
                     <?php foreach ($teams as $team): ?>
                         <option value="<?= (int) $team['id'] ?>"><?= h((string) $team['name']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="col-lg-8">
+            <div class="alert-collaborator-field alert-collaborator-field-summary">
                 <label class="form-label">Colaboradores alvo</label>
                 <div class="alert-collaborator-meta border rounded p-2">
                     <div class="small text-muted js-alert-users-summary">Todos os colaboradores ativos</div>
                     <div class="results-selected-chips js-alert-users-chips mt-2"></div>
                 </div>
             </div>
+            <div class="alert-collaborator-field alert-collaborator-field-action">
+                <label class="form-label d-none d-lg-block">&nbsp;</label>
+                <button
+                    type="button"
+                    class="btn btn-outline-secondary btn-sm alert-collaborator-trigger d-flex justify-content-between align-items-center gap-2"
+                    data-bs-toggle="modal"
+                    data-bs-target="#<?= h($pickerId) ?>"
+                >
+                    <span><?= h($buttonLabel) ?></span>
+                    <span class="badge text-bg-dark js-alert-users-count">0</span>
+                </button>
+            </div>
         </div>
-        <div class="d-flex justify-content-between align-items-center gap-2 mt-2 flex-wrap">
-            <button
-                type="button"
-                class="btn btn-outline-secondary d-flex justify-content-between align-items-center gap-3"
-                data-bs-toggle="modal"
-                data-bs-target="#<?= h($pickerId) ?>"
-            >
-                <span><?= h($buttonLabel) ?></span>
-                <span class="badge text-bg-dark js-alert-users-count">0</span>
-            </button>
-            <div class="small text-muted">Se não selecionar ninguém, o alerta será enviado a todos os colaboradores elegíveis.</div>
-        </div>
+        <div class="small text-muted mt-2">Se não selecionar ninguém, o alerta será enviado a todos os colaboradores elegíveis.</div>
         <div class="d-none js-alert-user-hidden-inputs">
             <?php foreach ($selectedUsers as $selectedUserId): ?>
                 <input type="hidden" name="<?= h($inputName) ?>" value="<?= (int) $selectedUserId ?>">
@@ -157,31 +158,33 @@ function render_alert_schedule_fields(array $weekdayLabels, string $prefix, stri
 {
     ?>
     <div class="alert-schedule-config border rounded p-3" data-alert-schedule-config>
-        <div class="row g-3 align-items-end">
-            <div class="col-md-3">
+        <div class="alert-schedule-grid">
+            <div class="alert-schedule-field">
                 <label class="form-label">Periodicidade</label>
-                <select class="form-select js-alert-schedule-mode" name="schedule_frequency">
+                <select class="form-select form-select-sm js-alert-schedule-mode" name="schedule_frequency">
                     <option value="weekly" <?= $scheduleFrequency === 'weekly' ? 'selected' : '' ?>>Semanal</option>
                     <option value="monthly" <?= $scheduleFrequency === 'monthly' ? 'selected' : '' ?>>Mensal</option>
                 </select>
             </div>
-            <div class="col-md-3 js-alert-monthly-day-wrap<?= $scheduleFrequency === 'monthly' ? '' : ' d-none' ?>">
+            <div class="alert-schedule-field js-alert-monthly-day-wrap<?= $scheduleFrequency === 'monthly' ? '' : ' d-none' ?>">
                 <label class="form-label">Dia do mês</label>
-                <select class="form-select" name="monthly_day">
+                <select class="form-select form-select-sm" name="monthly_day">
                     <?php for ($day = 1; $day <= 31; $day++): ?>
                         <option value="<?= $day ?>" <?= $monthlyDay === $day ? 'selected' : '' ?>><?= $day ?></option>
                     <?php endfor; ?>
                 </select>
                 <div class="form-text">Se o mês não tiver esse dia, o envio corre no último dia do mês.</div>
             </div>
-            <div class="col-md-6 js-alert-weekdays-wrap<?= $scheduleFrequency === 'weekly' ? '' : ' d-none' ?>">
+            <div class="alert-schedule-field alert-schedule-field-days js-alert-weekdays-wrap<?= $scheduleFrequency === 'weekly' ? '' : ' d-none' ?>">
                 <label class="form-label d-block">Dias da semana</label>
-                <?php foreach ($weekdayLabels as $value => $label): ?>
-                    <label class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" name="weekdays[]" value="<?= $value ?>" <?= in_array((string) $value, $selectedWeekdays, true) ? 'checked' : '' ?>>
-                        <span class="form-check-label"><?= $label ?></span>
-                    </label>
-                <?php endforeach; ?>
+                <div class="alert-weekday-chips">
+                    <?php foreach ($weekdayLabels as $value => $label): ?>
+                        <label class="alert-weekday-chip">
+                            <input class="form-check-input" type="checkbox" name="weekdays[]" value="<?= $value ?>" <?= in_array((string) $value, $selectedWeekdays, true) ? 'checked' : '' ?>>
+                            <span><?= $label ?></span>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
             </div>
         </div>
     </div>
@@ -273,9 +276,111 @@ $pageTitle = 'Alertas RH';
 require __DIR__ . '/partials/header.php';
 ?>
 <style>
+    .alert-page-card {
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 18px;
+    }
+
+    .alert-form-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(260px, 1fr) minmax(120px, 140px) auto;
+        gap: 1rem;
+        align-items: end;
+    }
+
+    .alert-form-grid .form-control,
+    .alert-form-grid .form-select,
+    .alert-schedule-config .form-control,
+    .alert-schedule-config .form-select,
+    .alert-collaborator-picker .form-select {
+        min-height: 38px;
+    }
+
+    .alert-inline-switch {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 38px;
+        padding-bottom: .2rem;
+    }
+
+    .alert-schedule-config,
+    .alert-collaborator-picker {
+        background: linear-gradient(180deg, rgba(248, 250, 252, 0.8) 0%, #fff 100%);
+    }
+
+    .alert-schedule-grid {
+        display: grid;
+        grid-template-columns: minmax(180px, 220px) minmax(180px, 220px) minmax(0, 1fr);
+        gap: 1rem;
+        align-items: start;
+    }
+
+    .alert-collaborator-toolbar {
+        display: grid;
+        grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) auto;
+        gap: 1rem;
+        align-items: end;
+    }
+
     .alert-collaborator-meta {
-        min-height: 4.5rem;
+        min-height: 3.25rem;
         background: #fff;
+    }
+
+    .alert-collaborator-trigger {
+        white-space: nowrap;
+    }
+
+    .alert-weekday-chips,
+    .results-selected-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .45rem;
+    }
+
+    .alert-weekday-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        padding: .38rem .7rem;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        border-radius: 999px;
+        background: #fff;
+        font-size: .9rem;
+        line-height: 1;
+    }
+
+    .alert-weekday-chip .form-check-input {
+        margin: 0;
+    }
+
+    @media (max-width: 1199.98px) {
+        .alert-form-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .alert-form-grid > .alert-form-field-wide,
+        .alert-form-grid > .alert-form-block {
+            grid-column: 1 / -1;
+        }
+
+        .alert-inline-switch {
+            justify-content: flex-start;
+        }
+    }
+
+    @media (max-width: 991.98px) {
+        .alert-schedule-grid,
+        .alert-collaborator-toolbar {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 767.98px) {
+        .alert-form-grid {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 <a href="hr.php" class="btn btn-link px-0">&larr; Voltar ao módulo RH</a>
@@ -285,26 +390,38 @@ require __DIR__ . '/partials/header.php';
 <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
 
-<div class="card shadow-sm mb-4">
+<div class="card shadow-sm mb-4 alert-page-card">
     <div class="card-header bg-white"><h2 class="h6 mb-0">Novo alerta</h2></div>
     <div class="card-body">
-        <form method="post" class="row g-3">
+        <form method="post" class="alert-form-grid">
             <input type="hidden" name="action" value="create_alert">
-            <div class="col-md-3"><label class="form-label">Nome interno</label><input class="form-control" name="name" placeholder="Mapa mensal assiduidade" required></div>
-            <div class="col-md-3"><label class="form-label">Tipo</label><select class="form-select" name="alert_type"><?php foreach ($alertTypeOptions as $k => $label): ?><option value="<?= h($k) ?>" <?= $k === 'attendance_monthly_map' ? 'selected' : '' ?>><?= h($label) ?></option><?php endforeach; ?></select></div>
-            <div class="col-md-3"><label class="form-label">E-mail destino</label><input class="form-control" type="email" name="recipient_email" placeholder="rh@empresa.pt" required></div>
-            <div class="col-md-2"><label class="form-label">Hora envio</label><input class="form-control" type="time" name="send_time" value="08:00" required></div>
-            <div class="col-md-1 d-flex align-items-end"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" checked><label class="form-check-label">Ativo</label></div></div>
-            <div class="col-12">
+            <div>
+                <label class="form-label">Nome interno</label>
+                <input class="form-control" name="name" placeholder="Mapa mensal assiduidade" required>
+            </div>
+            <div>
+                <label class="form-label">Tipo</label>
+                <select class="form-select" name="alert_type"><?php foreach ($alertTypeOptions as $k => $label): ?><option value="<?= h($k) ?>" <?= $k === 'attendance_monthly_map' ? 'selected' : '' ?>><?= h($label) ?></option><?php endforeach; ?></select>
+            </div>
+            <div>
+                <label class="form-label">E-mail destino</label>
+                <input class="form-control" type="email" name="recipient_email" placeholder="rh@empresa.pt" required>
+            </div>
+            <div>
+                <label class="form-label">Hora envio</label>
+                <input class="form-control" type="time" name="send_time" value="08:00" required>
+            </div>
+            <div>
+                <label class="form-label d-none d-xl-block">&nbsp;</label>
+                <div class="form-check form-switch alert-inline-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" checked><label class="form-check-label ms-2">Ativo</label></div>
+            </div>
+            <div class="alert-form-block alert-form-field-wide">
                 <?php render_alert_schedule_fields($weekdayLabels, 'create', 'monthly', ['1', '2', '3', '4', '5'], 1); ?>
             </div>
-            <div class="col-12">
+            <div class="alert-form-block alert-form-field-wide">
                 <?php render_alert_collaborator_picker('alertCollaboratorsCreateModal', $users, $teams, [], 'selected_user_ids[]'); ?>
             </div>
-            <div class="col-12">
-                <?php render_alert_collaborator_picker('alertCollaboratorsCreateModal', $users, $teams, [], 'selected_user_ids[]'); ?>
-            </div>
-            <div class="col-12"><button class="btn btn-primary">Criar alerta</button></div>
+            <div class="alert-form-field-wide"><button class="btn btn-primary">Criar alerta</button></div>
         </form>
     </div>
 </div>
