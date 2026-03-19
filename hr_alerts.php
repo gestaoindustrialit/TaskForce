@@ -23,7 +23,7 @@ function parse_alert_selected_users($value): array
     return array_values($selected);
 }
 
-function format_alert_selected_users_summary(array $selectedUsers, array $userNameMap): string
+function format_alert_selected_users_summary(array $selectedUsers, array $userLabelMap): string
 {
     if (!$selectedUsers) {
         return 'Todos os colaboradores ativos';
@@ -31,8 +31,8 @@ function format_alert_selected_users_summary(array $selectedUsers, array $userNa
 
     $names = [];
     foreach ($selectedUsers as $selectedUserId) {
-        if (isset($userNameMap[$selectedUserId])) {
-            $names[] = $userNameMap[$selectedUserId];
+        if (isset($userLabelMap[$selectedUserId])) {
+            $names[] = $userLabelMap[$selectedUserId];
         }
     }
 
@@ -114,11 +114,10 @@ function render_alert_collaborator_picker(string $pickerId, array $users, array 
                             <?php foreach ($users as $u): ?>
                                 <?php $userLabel = (string) (($u['user_number'] ?: $u['id']) . ' - ' . $u['name']); ?>
                                 <?php $userLabelSearch = function_exists('mb_strtolower') ? mb_strtolower($userLabel) : strtolower($userLabel); ?>
-                                <label class="results-user-option border px-2 py-2 rounded js-alert-user-option" data-user-option data-user-id="<?= (int) $u['id'] ?>" data-user-label="<?= h($userLabelSearch) ?>" data-team-ids="<?= h(implode(',', array_map('intval', (array) ($u['team_ids'] ?? [])))) ?>">
+                                <label class="results-user-option border px-2 py-2 rounded js-alert-user-option" data-user-option data-user-id="<?= (int) $u['id'] ?>" data-user-label="<?= h($userLabelSearch) ?>" data-user-display-label="<?= h($userLabel) ?>" data-team-ids="<?= h(implode(',', array_map('intval', (array) ($u['team_ids'] ?? [])))) ?>">
                                     <input class="form-check-input results-user-checkbox js-alert-user-checkbox" type="checkbox" value="<?= (int) $u['id'] ?>" <?= in_array((int) $u['id'], $selectedUsers, true) ? 'checked' : '' ?>>
                                     <span class="results-user-meta flex-grow-1">
-                                        <span class="d-block fw-semibold"><?= h((string) $u['name']) ?></span>
-                                        <span class="d-block text-muted small"><?= h((string) ($u['user_number'] !== '' ? $u['user_number'] : $u['id'])) ?></span>
+                                        <span class="d-block fw-semibold js-alert-user-label"><?= h($userLabel) ?></span>
                                     </span>
                                 </label>
                             <?php endforeach; ?>
@@ -163,11 +162,11 @@ foreach ($userTeamStmt->fetchAll(PDO::FETCH_ASSOC) as $membership) {
     $userTeamMap[$memberUserId][] = $memberTeamId;
 }
 
-$userNameMap = [];
+$userLabelMap = [];
 foreach ($users as &$listedUser) {
     $listedUserId = (int) ($listedUser['id'] ?? 0);
     $listedUser['team_ids'] = $userTeamMap[$listedUserId] ?? [];
-    $userNameMap[$listedUserId] = (string) ($listedUser['name'] ?? '');
+    $userLabelMap[$listedUserId] = (string) ((($listedUser['user_number'] ?? '') !== '' ? $listedUser['user_number'] : $listedUserId) . ' - ' . ($listedUser['name'] ?? ''));
 }
 unset($listedUser);
 
@@ -265,7 +264,7 @@ require __DIR__ . '/partials/header.php';
                             <td><?= h($alert['recipient_email']) ?></td>
                             <td><?= h((string) $alert['send_time']) ?></td>
                             <td><?= h(implode(', ', array_map(static fn($d) => $weekdayLabels[$d] ?? $d, $mask))) ?></td>
-                            <td><?= h(format_alert_selected_users_summary($selectedAlertUsers, $userNameMap)) ?></td>
+                            <td><?= h(format_alert_selected_users_summary($selectedAlertUsers, $userLabelMap)) ?></td>
                             <td><?= (int) $alert['is_active'] === 1 ? '<span class="badge text-bg-success">Ativo</span>' : '<span class="badge text-bg-secondary">Inativo</span>' ?></td>
                             <td>
                                 <form method="post" class="row g-2">
