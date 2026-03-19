@@ -559,4 +559,62 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 </div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+            <div>
+                <h2 class="h5 mb-1">Ajuste em bulk</h2>
+                <p class="text-muted mb-0">Importe um ficheiro Excel com várias linhas para aplicar créditos ou débitos a vários colaboradores de uma só vez.</p>
+            </div>
+            <a class="btn btn-outline-secondary" href="hr_bank.php?download=bulk-template"><i class="bi bi-download"></i> Download template Excel</a>
+        </div>
+        <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+            <input type="hidden" name="action" value="bulk_adjust_balance">
+            <div class="col-lg-8">
+                <label class="form-label">Ficheiro Excel</label>
+                <input class="form-control" type="file" name="bulk_file" accept=".xlsx,.xls,.xml,.csv" required>
+                <div class="form-text">Template esperado com as colunas: <code>email</code>, <code>adjustment_type</code>, <code>delta_hms</code>, <code>action_date</code> e <code>reason</code>.</div>
+            </div>
+            <div class="col-lg-4 d-grid">
+                <button class="btn btn-primary">Importar ajustes</button>
+            </div>
+        </form>
+
+        <?php if ($bulkImportSummary): ?>
+            <div class="mt-4">
+                <?php if (!empty($bulkImportSummary['errors'])): ?>
+                    <div class="alert alert-warning mb-3">
+                        <strong>Foram encontrados erros:</strong>
+                        <ul class="mb-0 mt-2">
+                            <?php foreach ($bulkImportSummary['errors'] as $error): ?>
+                                <li><?= h($error) ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                <?php endif; ?>
+                <?php if (!empty($bulkImportSummary['processed'])): ?>
+                    <h3 class="h6">Pré-visualização das linhas processadas</h3>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead><tr><th>Colaborador</th><th>Email</th><th>Tipo</th><th>Delta</th><th>Data da ação</th></tr></thead>
+                            <tbody>
+                            <?php foreach ($bulkImportSummary['processed'] as $processedRow): ?>
+                                <tr>
+                                    <td><?= h($processedRow['name']) ?></td>
+                                    <td><?= h($processedRow['email']) ?></td>
+                                    <td><?= h($processedRow['type']) ?></td>
+                                    <td><?= h($processedRow['delta']) ?></td>
+                                    <td><?= h($processedRow['action_date']) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+</div>
+
 <?php require __DIR__ . '/partials/footer.php'; ?>
