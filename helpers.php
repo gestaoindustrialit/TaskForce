@@ -388,7 +388,7 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     $reportMonthLabel = ucfirst(strftime('%B de %Y', $periodStart->getTimestamp()));
 
     $scheduleStmt = $pdo->prepare(
-        'SELECT s.name, s.start_time, s.end_time, s.break_minutes, s.weekdays_mask
+        'SELECT s.name, s.start_time, s.end_time, s.second_start_time, s.second_end_time, s.break_minutes, s.weekdays_mask
          FROM hr_schedules s
          INNER JOIN users u ON u.schedule_id = s.id
          WHERE u.id = ?

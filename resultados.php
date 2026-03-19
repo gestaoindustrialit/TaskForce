@@ -793,7 +793,7 @@ require __DIR__ . '/partials/header.php';
                         <?php if ($canValidateResults): ?>
                             <td class="text-end">
                                 <?php if ($row['status'] === 'Validado'): ?>
-                                    <span class="text-success small"><i class="bi bi-check-circle-fill me-1"></i>Validado</span>
+                                    <div class="d-inline-flex gap-1"><span class="text-success small"><i class="bi bi-check-circle-fill me-1"></i>Validado</span><button class="btn btn-outline-primary btn-sm js-results-enable-edit" type="button"><i class="bi bi-pencil me-1"></i>Voltar a editar</button></div>
                                 <?php else: ?>
                                     <button class="btn btn-outline-success btn-sm" type="submit" form="<?= h($rowFormId) ?>">Validar</button>
                                     <form method="post" id="<?= h($rowFormId) ?>" class="d-none">
@@ -814,3 +814,5 @@ require __DIR__ . '/partials/header.php';
 <?php endif; ?>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>
+
+<script>document.querySelectorAll('.js-results-enable-edit').forEach((button)=>{button.addEventListener('click',()=>{const row=button.closest('tr'); if(!row) return; row.querySelectorAll('.results-entry-input,.results-bh-input,.results-bh-reason').forEach((input)=>{input.disabled=false; input.removeAttribute('readonly');});});});</script>
