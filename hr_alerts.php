@@ -433,10 +433,10 @@ require __DIR__ . '/partials/header.php';
             <div class="col-12">
                 <?php render_alert_schedule_fields($weekdayLabels, 'create', 'monthly', ['1', '2', '3', '4', '5'], 1); ?>
             </div>
-            <div class="col-12">
+            <div class="alert-form-block alert-form-field-wide">
                 <?php render_alert_collaborator_picker('alertCollaboratorsCreateModal', $users, $teams, [], 'selected_user_ids[]'); ?>
             </div>
-            <div class="col-12"><button class="btn btn-primary">Criar alerta</button></div>
+            <div class="alert-form-field-wide"><button class="btn btn-primary">Criar alerta</button></div>
         </form>
     </div>
 </div>
