@@ -571,90 +571,41 @@ require __DIR__ . '/partials/header.php';
     .results-table .badge {
         font-size: 0.77rem;
     }
-
-    .results-collaborator-meta {
-        min-height: 3.25rem;
-        margin-bottom: 0.5rem;
-    }
-
-    .results-users-summary {
-        display: block;
-        min-height: 1.25rem;
-        margin-bottom: 0.35rem;
-    }
-
-    .results-selected-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.35rem;
-        min-height: 1.5rem;
-        align-content: flex-start;
-    }
-
-    .results-users-modal-list {
-        max-height: 24rem;
-        overflow-y: auto;
-        background: #fff;
-    }
-
-    .results-user-option {
-        cursor: pointer;
-        display: flex;
-        align-items: flex-start;
-        gap: 0.75rem;
-        margin: 0;
-        padding-left: 0.75rem;
-    }
-
-    .results-user-option:hover {
-        background: rgba(15, 23, 42, 0.04);
-    }
-
-    .results-user-option.is-selected {
-        background: rgba(13, 110, 253, 0.08);
-        border-color: rgba(13, 110, 253, 0.2);
-    }
-
-    .results-user-option .results-user-checkbox {
-        margin: 0.2rem 0 0;
-        flex: 0 0 auto;
-    }
-
-    .results-user-option .results-user-meta {
-        min-width: 0;
-    }
 </style>
 <h1 class="h3 mb-3">Resultados de picagens</h1>
 <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
-<form method="get" class="card card-body shadow-sm mb-3" id="resultsFilterForm">
+<form method="get" class="card card-body shadow-sm mb-3" id="resultsFilterForm" data-user-picker-modal-target="#resultsCollaboratorsModal" data-user-picker-team-filter=".js-results-team-filter" data-user-picker-input-name="user_ids[]" data-user-picker-all-label="Todos" data-user-picker-selected-suffix="selecionados">
     <div class="row g-2 align-items-end">
         <div class="col-md-2"><label class="form-label">Início</label><input class="form-control" type="date" name="start_date" value="<?= h($startDate) ?>"></div>
         <div class="col-md-2"><label class="form-label">Fim</label><input class="form-control" type="date" name="end_date" value="<?= h($endDate) ?>"></div>
-        <div class="col-md-3"><label class="form-label">Equipa</label><select class="form-select js-results-team-filter" name="team_id"><option value="0">Todas</option><?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>" <?= (int) $team['id'] === $teamId ? 'selected' : '' ?>><?= h((string) $team['name']) ?></option><?php endforeach; ?></select></div>
-        <div class="col-md-4">
-            <label class="form-label">Colaboradores</label>
-            <div class="results-collaborator-meta">
-                <div class="form-text mt-0 js-results-users-summary results-users-summary">Todos</div>
-                <div class="results-selected-chips js-results-users-chips"></div>
+        <?php if ($canViewAllResults): ?>
+            <div class="col-md-3"><label class="form-label">Equipa</label><select class="form-select js-results-team-filter" name="team_id"><option value="0">Todas</option><?php foreach ($teams as $team): ?><option value="<?= (int) $team['id'] ?>" <?= (int) $team['id'] === $teamId ? 'selected' : '' ?>><?= h((string) $team['name']) ?></option><?php endforeach; ?></select></div>
+            <div class="col-md-4 user-picker-root">
+                <label class="form-label">Colaboradores</label>
+                <div class="user-picker-meta">
+                    <div class="form-text mt-0 js-user-picker-summary user-picker-summary">Todos</div>
+                    <div class="user-picker-chips js-user-picker-chips"></div>
+                </div>
+                <button
+                    type="button"
+                    class="btn btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
+                    data-bs-toggle="modal"
+                    data-bs-target="#resultsCollaboratorsModal"
+                >
+                    <span class="text-start">Selecionar colaboradores</span>
+                    <span class="badge text-bg-dark js-user-picker-count">0</span>
+                </button>
+                <div class="d-none js-user-picker-hidden-inputs">
+                    <?php foreach ($selectedUsers as $selectedUserId): ?>
+                        <input type="hidden" name="user_ids[]" value="<?= (int) $selectedUserId ?>">
+                    <?php endforeach; ?>
+                </div>
             </div>
-            <button
-                type="button"
-                class="btn btn-outline-secondary w-100 d-flex justify-content-between align-items-center results-collaborator-trigger"
-                data-bs-toggle="modal"
-                data-bs-target="#resultsCollaboratorsModal"
-                <?= $canViewAllResults ? '' : 'disabled' ?>
-            >
-                <span class="text-start">Selecionar colaboradores</span>
-                <span class="badge text-bg-dark js-results-users-count">0</span>
-            </button>
-            <div class="d-none js-results-user-hidden-inputs">
-                <?php foreach ($selectedUsers as $selectedUserId): ?>
-                    <input type="hidden" name="user_ids[]" value="<?= (int) $selectedUserId ?>">
-                <?php endforeach; ?>
-            </div>
-        </div>
-        <div class="col-md-1 d-grid"><button class="btn btn-dark">Filtrar</button></div>
+            <div class="col-md-1 d-grid"><button class="btn btn-dark">Filtrar</button></div>
+        <?php else: ?>
+            <div class="col-md-2 d-grid"><button class="btn btn-dark">Filtrar</button></div>
+        <?php endif; ?>
     </div>
 </form>
 
@@ -672,24 +623,24 @@ require __DIR__ . '/partials/header.php';
                 <div class="modal-body">
                     <div class="row g-2 align-items-center mb-3">
                         <div class="col-md-6">
-                            <input type="search" class="form-control js-results-user-search" placeholder="Pesquisar colaborador">
+                            <input type="search" class="form-control js-user-picker-search" placeholder="Pesquisar colaborador">
                         </div>
                         <div class="col-md-6">
                             <div class="d-flex flex-wrap gap-2 justify-content-md-end">
-                                <button type="button" class="btn btn-outline-secondary btn-sm js-results-select-all">Selecionar todos</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm js-results-clear-all">Limpar</button>
-                                <button type="button" class="btn btn-outline-primary btn-sm js-results-select-team">Só da equipa escolhida</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm js-user-picker-select-all">Selecionar todos</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm js-user-picker-clear-all">Limpar</button>
+                                <button type="button" class="btn btn-outline-primary btn-sm js-user-picker-select-team">Só da equipa escolhida</button>
                             </div>
                         </div>
                     </div>
-                    <div class="results-users-modal-list border rounded p-2">
+                    <div class="user-picker-modal-list border rounded p-2">
                         <?php foreach ($users as $u): ?>
                             <?php $userLabel = (string) (($u['user_number'] ?: $u['id']) . ' - ' . $u['name']); ?>
                             <?php $userLabelSearch = function_exists('mb_strtolower') ? mb_strtolower($userLabel) : strtolower($userLabel); ?>
-                            <label class="results-user-option border px-2 py-2 rounded js-results-user-option" data-user-option data-user-id="<?= (int) $u['id'] ?>" data-user-label="<?= h($userLabelSearch) ?>" data-team-ids="<?= h(implode(',', array_map('intval', (array) ($u['team_ids'] ?? [])))) ?>">
-                                <input class="form-check-input results-user-checkbox js-results-user-checkbox" type="checkbox" value="<?= (int) $u['id'] ?>" <?= in_array((int) $u['id'], $selectedUsers, true) ? 'checked' : '' ?>>
-                                <span class="results-user-meta flex-grow-1">
-                                    <span class="d-block fw-semibold"><?= h((string) $u['name']) ?></span>
+                            <label class="user-picker-option border px-2 py-2 rounded js-user-picker-option" data-user-option data-user-id="<?= (int) $u['id'] ?>" data-user-label="<?= h($userLabelSearch) ?>" data-team-ids="<?= h(implode(',', array_map('intval', (array) ($u['team_ids'] ?? [])))) ?>">
+                                <input class="form-check-input user-picker-checkbox js-user-picker-checkbox" type="checkbox" value="<?= (int) $u['id'] ?>" <?= in_array((int) $u['id'], $selectedUsers, true) ? 'checked' : '' ?>>
+                                <span class="user-picker-meta-label flex-grow-1">
+                                    <span class="d-block fw-semibold js-user-picker-name"><?= h((string) $u['name']) ?></span>
                                     <span class="d-block text-muted small"><?= h((string) ($u['user_number'] !== '' ? $u['user_number'] : $u['id'])) ?></span>
                                 </span>
                             </label>
@@ -698,14 +649,55 @@ require __DIR__ . '/partials/header.php';
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="button" class="btn btn-dark js-results-apply-users">Aplicar</button>
+                    <button type="button" class="btn btn-dark js-user-picker-apply">Aplicar</button>
                 </div>
             </div>
         </div>
     </div>
 <?php endif; ?>
 
-<?php if ($canValidateResults && $startDate === $endDate): ?>
+<?php if (!$canViewAllResults): ?>
+    <div class="card shadow-sm mb-3">
+        <div class="card-header bg-white border-0 pb-0">
+            <h2 class="h5 mb-1">As minhas picagens</h2>
+            <p class="text-muted small mb-0">Consulta detalhada de todas as tuas picagens no intervalo selecionado.</p>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Hora</th>
+                            <th>Tipo</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (!$entries): ?>
+                            <tr><td colspan="4" class="text-muted">Sem picagens no intervalo.</td></tr>
+                        <?php else: ?>
+                            <?php foreach ($entries as $entry): ?>
+                                <tr>
+                                    <td><?= h(format_date_pt(date('Y-m-d', strtotime((string) $entry['occurred_at'])))) ?></td>
+                                    <td><?= h(date('H:i', strtotime((string) $entry['occurred_at']))) ?></td>
+                                    <td><?= h((string) ucfirst((string) $entry['entry_type'])) ?></td>
+                                    <td>
+                                        <span class="badge <?= !empty($entry['validated_at']) ? 'text-bg-success' : 'text-bg-warning' ?>">
+                                            <?= !empty($entry['validated_at']) ? 'Validado' : 'Em curso' ?>
+                                        </span>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
+
+<?php if ($canViewAllResults && $canValidateResults && $startDate === $endDate): ?>
     <form method="post" class="mb-3">
         <input type="hidden" name="action" value="validate_day">
         <input type="hidden" name="validate_date" value="<?= h($startDate) ?>">
@@ -713,6 +705,7 @@ require __DIR__ . '/partials/header.php';
     </form>
 <?php endif; ?>
 
+<?php if ($canViewAllResults): ?>
 <div class="card shadow-sm">
     <div class="card-body">
         <div class="table-responsive">
@@ -807,4 +800,6 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 </div>
+<?php endif; ?>
+
 <?php require __DIR__ . '/partials/footer.php'; ?>
