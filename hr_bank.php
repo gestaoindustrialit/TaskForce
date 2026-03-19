@@ -10,10 +10,19 @@ if (!can_access_hr_module($pdo, $userId)) {
 
 function parse_hms_to_seconds(string $value): ?int
 {
-    if (!preg_match('/^(-)?(\d{1,3}):(\d{2}):(\d{2})$/', trim($value), $matches)) {
+    $value = trim($value);
+    if (preg_match('/^(-)?(\d{1,3}):(\d{2})$/', $value, $matches)) {
+        $signal = $matches[1] === '-' ? -1 : 1;
+        $hours = (int) $matches[2];
+        $minutes = (int) $matches[3];
+        if ($minutes > 59) {
+            return null;
+        }
+        return $signal * (($hours * 3600) + ($minutes * 60));
+    }
+    if (!preg_match('/^(-)?(\d{1,3}):(\d{2}):(\d{2})$/', $value, $matches)) {
         return null;
     }
-
     $signal = $matches[1] === '-' ? -1 : 1;
     $hours = (int) $matches[2];
     $minutes = (int) $matches[3];
@@ -21,7 +30,6 @@ function parse_hms_to_seconds(string $value): ?int
     if ($minutes > 59 || $seconds > 59) {
         return null;
     }
-
     return $signal * (($hours * 3600) + ($minutes * 60) + $seconds);
 }
 
@@ -207,10 +215,10 @@ function map_adjustment_rows(array $rawRows): array
         }
     }
 
-    $requiredHeaders = ['email', 'adjustment_type', 'delta_hms', 'action_date', 'reason'];
+    $requiredHeaders = ['user_number', 'adjustment_type', 'delta_hms', 'action_date', 'reason'];
     foreach ($requiredHeaders as $requiredHeader) {
         if (!array_key_exists($requiredHeader, $headerMap)) {
-            throw new RuntimeException('O template deve conter as colunas: email, adjustment_type, delta_hms, action_date e reason.');
+            throw new RuntimeException('O template deve conter as colunas: user_number, adjustment_type, delta_hms, action_date e reason.');
         }
     }
 
@@ -266,23 +274,23 @@ function output_excel_template(): void
  <Worksheet ss:Name="AjustesBancoHoras">
   <Table>
    <Row>
-    <Cell><Data ss:Type="String">email</Data></Cell>
+    <Cell><Data ss:Type="String">user_number</Data></Cell>
     <Cell><Data ss:Type="String">adjustment_type</Data></Cell>
     <Cell><Data ss:Type="String">delta_hms</Data></Cell>
     <Cell><Data ss:Type="String">action_date</Data></Cell>
     <Cell><Data ss:Type="String">reason</Data></Cell>
    </Row>
    <Row>
-    <Cell><Data ss:Type="String">colaborador@empresa.pt</Data></Cell>
+    <Cell><Data ss:Type="String">1001</Data></Cell>
     <Cell><Data ss:Type="String">credito</Data></Cell>
-    <Cell><Data ss:Type="String">01:30:00</Data></Cell>
+    <Cell><Data ss:Type="String">01:30</Data></Cell>
     <Cell><Data ss:Type="String">2026-03-19</Data></Cell>
     <Cell><Data ss:Type="String">Acerto payroll</Data></Cell>
    </Row>
    <Row>
-    <Cell><Data ss:Type="String">colaborador2@empresa.pt</Data></Cell>
+    <Cell><Data ss:Type="String">1002</Data></Cell>
     <Cell><Data ss:Type="String">debito</Data></Cell>
-    <Cell><Data ss:Type="String">00:45:00</Data></Cell>
+    <Cell><Data ss:Type="String">00:45</Data></Cell>
     <Cell><Data ss:Type="String">2026-03-19</Data></Cell>
     <Cell><Data ss:Type="String">Regularização manual</Data></Cell>
    </Row>
@@ -305,7 +313,7 @@ $flashSuccess = null;
 $flashError = null;
 $bulkImportSummary = null;
 
-$users = $pdo->query('SELECT id, name, email FROM users WHERE is_active = 1 ORDER BY name COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
+$users = $pdo->query('SELECT id, name, email, user_number FROM users WHERE is_active = 1 ORDER BY name COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
 $selectedUserId = (int) ($_GET['user_id'] ?? ($users ? (int) $users[0]['id'] : 0));
 $userOptionsById = [];
 foreach ($users as $userRow) {
@@ -330,7 +338,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!in_array($adjustmentType, ['credito', 'debito'], true)) {
             $flashError = 'Selecione se o ajuste é crédito ou débito.';
         } elseif ($durationSeconds === null || $durationSeconds === 0) {
-            $flashError = 'Indique o ajuste no formato hh:mm:ss.';
+            $flashError = 'Indique o ajuste no formato hh:mm.';
         } elseif ($reason === '') {
             $flashError = 'Indique o motivo do ajuste.';
         } elseif ($actionDate === '' || !DateTimeImmutable::createFromFormat('Y-m-d', $actionDate)) {
@@ -351,24 +359,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('O ficheiro não contém linhas de importação para processar.');
             }
 
-            $emailToUserStmt = $pdo->query('SELECT id, email, name FROM users WHERE is_active = 1 AND email <> ""');
-            $usersByEmail = [];
-            foreach ($emailToUserStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $usersByEmail[mb_strtolower(trim((string) $row['email']), 'UTF-8')] = $row;
+            $userNumberStmt = $pdo->query('SELECT id, user_number, name FROM users WHERE is_active = 1 AND TRIM(COALESCE(user_number, "")) <> ""');
+            $usersByNumber = [];
+            foreach ($userNumberStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $usersByNumber[trim((string) $row['user_number'])] = $row;
             }
 
             $processed = [];
             $errors = [];
             $pdo->beginTransaction();
             foreach ($rows as $row) {
-                $emailKey = mb_strtolower($row['email'], 'UTF-8');
+                $userNumberKey = trim((string) $row['user_number']);
                 $adjustmentType = $row['adjustment_type'];
                 $durationSeconds = parse_hms_to_seconds($row['delta_hms']);
                 $actionDate = $row['action_date'];
                 $reason = $row['reason'];
 
-                if (!isset($usersByEmail[$emailKey])) {
-                    $errors[] = 'Linha ' . $row['_row_number'] . ': colaborador não encontrado para o email ' . $row['email'] . '.';
+                if (!isset($usersByNumber[$userNumberKey])) {
+                    $errors[] = 'Linha ' . $row['_row_number'] . ': colaborador não encontrado para o nº ' . $row['user_number'] . '.';
                     continue;
                 }
                 if (!in_array($adjustmentType, ['credito', 'debito'], true)) {
@@ -376,7 +384,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     continue;
                 }
                 if ($durationSeconds === null || $durationSeconds === 0) {
-                    $errors[] = 'Linha ' . $row['_row_number'] . ': delta_hms deve estar em hh:mm:ss.';
+                    $errors[] = 'Linha ' . $row['_row_number'] . ': delta_hms deve estar em hh:mm.';
                     continue;
                 }
                 if ($reason === '') {
@@ -389,11 +397,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $signedSeconds = $adjustmentType === 'debito' ? -abs($durationSeconds) : abs($durationSeconds);
-                $targetUser = $usersByEmail[$emailKey];
+                $targetUser = $usersByNumber[$userNumberKey];
                 apply_hour_bank_adjustment($pdo, (int) $targetUser['id'], $adjustmentType, $signedSeconds, $reason, $actionDate, $userId);
                 $processed[] = [
                     'name' => (string) $targetUser['name'],
-                    'email' => (string) $targetUser['email'],
+                    'user_number' => (string) $targetUser['user_number'],
                     'delta' => format_seconds_hms($signedSeconds),
                     'type' => $adjustmentType,
                     'action_date' => $actionDate,
@@ -409,9 +417,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $flashSuccess = 'Importação concluída com sucesso.';
                 $bulkImportSummary = ['processed' => $processed, 'errors' => []];
                 if ($processed !== []) {
-                    $firstImportedEmail = mb_strtolower((string) $processed[0]['email'], 'UTF-8');
-                    if (isset($usersByEmail[$firstImportedEmail])) {
-                        $selectedUserId = (int) $usersByEmail[$firstImportedEmail]['id'];
+                    $firstImportedUserNumber = trim((string) $processed[0]['user_number']);
+                    if (isset($usersByNumber[$firstImportedUserNumber])) {
+                        $selectedUserId = (int) $usersByNumber[$firstImportedUserNumber]['id'];
                     }
                 }
             }
@@ -483,7 +491,7 @@ require __DIR__ . '/partials/header.php';
             <input type="hidden" name="action" value="adjust_balance">
             <input type="hidden" name="user_id" value="<?= (int) $selectedUserId ?>">
             <div class="col-md-3"><label class="form-label">Tipo</label><select class="form-select" name="adjustment_type" required><option value="">Selecione</option><option value="credito">Crédito</option><option value="debito">Débito</option></select></div>
-            <div class="col-md-3"><label class="form-label">Ajuste (hh:mm:ss)</label><input class="form-control" name="delta_hms" placeholder="01:30:00" required></div>
+            <div class="col-md-3"><label class="form-label">Ajuste (hh:mm)</label><input class="form-control" name="delta_hms" placeholder="01:30" required></div>
             <div class="col-md-2"><label class="form-label">Data da ação</label><input class="form-control" type="date" name="action_date" value="<?= h(date('Y-m-d')) ?>" required></div>
             <div class="col-md-3"><label class="form-label">Motivo</label><input class="form-control" name="reason" placeholder="Ex: Ajuste payroll" required></div>
             <div class="col-md-1 d-grid"><button class="btn btn-dark">Aplicar</button></div>
@@ -505,7 +513,7 @@ require __DIR__ . '/partials/header.php';
             <div class="col-lg-8">
                 <label class="form-label">Ficheiro Excel</label>
                 <input class="form-control" type="file" name="bulk_file" accept=".xlsx,.xls,.xml,.csv" required>
-                <div class="form-text">Template esperado com as colunas: <code>email</code>, <code>adjustment_type</code>, <code>delta_hms</code>, <code>action_date</code> e <code>reason</code>.</div>
+                <div class="form-text">Template esperado com as colunas: <code>user_number</code>, <code>adjustment_type</code>, <code>delta_hms</code>, <code>action_date</code> e <code>reason</code>.</div>
             </div>
             <div class="col-lg-4 d-grid">
                 <button class="btn btn-primary">Importar ajustes</button>
@@ -528,12 +536,12 @@ require __DIR__ . '/partials/header.php';
                     <h3 class="h6">Pré-visualização das linhas processadas</h3>
                     <div class="table-responsive">
                         <table class="table table-sm align-middle mb-0">
-                            <thead><tr><th>Colaborador</th><th>Email</th><th>Tipo</th><th>Delta</th><th>Data da ação</th></tr></thead>
+                            <thead><tr><th>Colaborador</th><th>Nº colaborador</th><th>Tipo</th><th>Delta</th><th>Data da ação</th></tr></thead>
                             <tbody>
                             <?php foreach ($bulkImportSummary['processed'] as $processedRow): ?>
                                 <tr>
                                     <td><?= h($processedRow['name']) ?></td>
-                                    <td><?= h($processedRow['email']) ?></td>
+                                    <td><?= h($processedRow['user_number']) ?></td>
                                     <td><?= h($processedRow['type']) ?></td>
                                     <td><?= h($processedRow['delta']) ?></td>
                                     <td><?= h($processedRow['action_date']) ?></td>
