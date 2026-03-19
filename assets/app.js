@@ -256,6 +256,19 @@ function initResultsPage() {
         return `${prefix}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     };
 
+    const getTodayLocalDate = () => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
+    const getCurrentLocalSeconds = () => {
+        const now = new Date();
+        return (now.getHours() * 3600) + (now.getMinutes() * 60) + now.getSeconds();
+    };
+
     const updateBhInputState = (input, bhSeconds) => {
         input.classList.remove('text-success', 'text-danger', 'text-muted');
         if (bhSeconds > 0) {
@@ -310,6 +323,14 @@ function initResultsPage() {
                 openSeconds = null;
             }
         });
+
+        const rowWorkDate = row.dataset.workDate || '';
+        if (openSeconds !== null && rowWorkDate === getTodayLocalDate()) {
+            const currentLocalSeconds = getCurrentLocalSeconds();
+            if (currentLocalSeconds > openSeconds) {
+                effectiveSeconds += currentLocalSeconds - openSeconds;
+            }
+        }
 
         effectiveCell.dataset.effectiveSeconds = String(effectiveSeconds);
         effectiveCell.textContent = formatHHMM(effectiveSeconds);
@@ -395,6 +416,26 @@ function initResultsPage() {
             }
         });
     });
+
+    const refreshRowsWithOpenEntries = () => {
+        document.querySelectorAll('.js-results-row').forEach((row) => {
+            const entryInputsInRow = Array.from(row.querySelectorAll('.js-entry-time'));
+            const validEntries = entryInputsInRow
+                .map((input) => ({
+                    slotIndex: Number(input.dataset.slotIndex || '0'),
+                    time: (input.value || '').trim()
+                }))
+                .filter((entry) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(entry.time))
+                .sort((a, b) => a.slotIndex - b.slotIndex);
+
+            if (validEntries.length && validEntries.length % 2 === 1) {
+                recalculateRow(row);
+            }
+        });
+    };
+
+    refreshRowsWithOpenEntries();
+    window.setInterval(refreshRowsWithOpenEntries, 60000);
 }
 
 initResultsPage();
