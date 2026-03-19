@@ -34,10 +34,33 @@ function is_hr_alert_due_today(array $alert, DateTimeImmutable $now): bool
     return in_array($weekday, $days, true);
 }
 
+function fetch_alert_recipient_users(PDO $pdo, array $selectedUserIds): array
+{
+    $sql = 'SELECT id, name, email, user_number, department
+            FROM users
+            WHERE is_active = 1
+              AND email_notifications_active = 1
+              AND pin_only_login = 0
+              AND TRIM(email) <> ""';
+    $params = [];
+
+    if ($selectedUserIds) {
+        $placeholders = implode(',', array_fill(0, count($selectedUserIds), '?'));
+        $sql .= ' AND id IN (' . $placeholders . ')';
+        $params = $selectedUserIds;
+    }
+
+    $sql .= ' ORDER BY name COLLATE NOCASE ASC';
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
 $now = new DateTimeImmutable('now');
 $currentTime = $now->format('H:i');
 $today = $now->format('Y-m-d');
-$isFirstDayOfMonth = $now->format('d') === '01';
 
 $stmt = $pdo->prepare('SELECT id, name, alert_type, recipient_email, send_time, weekdays_mask, schedule_frequency, monthly_day, selected_user_ids FROM hr_alerts WHERE is_active = 1 AND send_time = ?');
 $stmt->execute([$currentTime]);
@@ -49,57 +72,13 @@ foreach ($alerts as $alert) {
         continue;
     }
 
-    if ($alert['alert_type'] === 'attendance_monthly_map') {
-        $selectedUserIds = array_values(array_filter(array_map('intval', explode(',', (string) ($alert['selected_user_ids'] ?? '')))));
-        $userSql = 'SELECT id, name, email, user_number, department
-             FROM users
-             WHERE is_active = 1
-               AND email_notifications_active = 1
-               AND pin_only_login = 0
-               AND TRIM(email) <> ""';
-        $userParams = [];
-        if ($selectedUserIds) {
-            $placeholders = implode(',', array_fill(0, count($selectedUserIds), '?'));
-            $userSql .= ' AND id IN (' . $placeholders . ')';
-            $userParams = $selectedUserIds;
-        }
-        $userSql .= ' ORDER BY name COLLATE NOCASE ASC';
-        $usersStmt = $pdo->prepare($userSql);
-        $usersStmt->execute($userParams);
-        $users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
-
-        foreach ($users as $user) {
-            $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
-            deliver_report((string) $user['email'], (string) $report['subject'], (string) $report['body']);
-        }
-
-        $processedAlerts++;
+    $selectedUserIds = array_values(array_filter(array_map('intval', explode(',', (string) ($alert['selected_user_ids'] ?? '')))));
+    $users = fetch_alert_recipient_users($pdo, $selectedUserIds);
+    if (!$users) {
         continue;
     }
 
     if ($alert['alert_type'] === 'attendance_monthly_map') {
-        if (!$isFirstDayOfMonth) {
-            continue;
-        }
-
-        $selectedUserIds = array_values(array_filter(array_map('intval', explode(',', (string) ($alert['selected_user_ids'] ?? '')))));
-        $userSql = 'SELECT id, name, email, user_number, department
-             FROM users
-             WHERE is_active = 1
-               AND email_notifications_active = 1
-               AND pin_only_login = 0
-               AND TRIM(email) <> ""';
-        $userParams = [];
-        if ($selectedUserIds) {
-            $placeholders = implode(',', array_fill(0, count($selectedUserIds), '?'));
-            $userSql .= ' AND id IN (' . $placeholders . ')';
-            $userParams = $selectedUserIds;
-        }
-        $userSql .= ' ORDER BY name COLLATE NOCASE ASC';
-        $usersStmt = $pdo->prepare($userSql);
-        $usersStmt->execute($userParams);
-        $users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
-
         foreach ($users as $user) {
             $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
             deliver_report((string) $user['email'], (string) $report['subject'], (string) $report['body']);
@@ -136,11 +115,18 @@ foreach ($alerts as $alert) {
     }
 
     $headers = 'From: no-reply@taskforce.local';
-    $sent = @mail((string) $alert['recipient_email'], $subject, $body, $headers);
+    foreach ($users as $user) {
+        $recipientEmail = (string) ($user['email'] ?? '');
+        if ($recipientEmail === '') {
+            continue;
+        }
 
-    if (!$sent) {
-        $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' para ' . $alert['recipient_email'] . PHP_EOL . $subject . PHP_EOL . $body . PHP_EOL;
-        @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+        $sent = @mail($recipientEmail, $subject, $body, $headers);
+
+        if (!$sent) {
+            $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' para ' . $recipientEmail . PHP_EOL . $subject . PHP_EOL . $body . PHP_EOL;
+            @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+        }
     }
 
     $processedAlerts++;
