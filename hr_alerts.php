@@ -358,6 +358,26 @@ require __DIR__ . '/partials/header.php';
     .alert-collaborator-meta {
         min-height: 3.25rem;
         background: #fff;
+        font-size: .9rem;
+        line-height: 1;
+    }
+
+    .alert-weekday-chip .form-check-input {
+        margin: 0;
+    }
+
+    @media (max-width: 991.98px) {
+        .alert-schedule-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 767.98px) {
+        .alert-collaborator-field-team,
+        .alert-collaborator-field-summary,
+        .alert-collaborator-field-action {
+            flex: 1 1 100%;
+        }
     }
 
     .alert-collaborator-trigger {
@@ -428,6 +448,9 @@ require __DIR__ . '/partials/header.php';
             <div class="col-xl-2 col-md-6">
                 <label class="form-label d-none d-md-block">&nbsp;</label>
                 <div class="form-check form-switch alert-inline-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" checked><label class="form-check-label ms-2">Ativo</label></div>
+            </div>
+            <div class="col-12">
+                <?php render_alert_schedule_fields($weekdayLabels, 'create', 'monthly', ['1', '2', '3', '4', '5'], 1); ?>
             </div>
             <div class="col-12">
                 <?php render_alert_schedule_fields($weekdayLabels, 'create', 'monthly', ['1', '2', '3', '4', '5'], 1); ?>
