@@ -2,6 +2,18 @@
 require_once __DIR__ . '/helpers.php';
 require_login();
 
+if (!function_exists('format_user_picker_label')) {
+    function format_user_picker_label(array $user): string
+    {
+        $userId = (int) ($user['id'] ?? 0);
+        $userNumber = trim((string) ($user['user_number'] ?? ''));
+        $userName = trim((string) ($user['name'] ?? ''));
+        $labelNumber = $userNumber !== '' ? $userNumber : (string) $userId;
+
+        return trim($labelNumber . ' - ' . $userName, ' -');
+    }
+}
+
 $userId = (int) $_SESSION['user_id'];
 if (!can_access_hr_module($pdo, $userId)) {
     http_response_code(403);
