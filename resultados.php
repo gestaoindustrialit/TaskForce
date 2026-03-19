@@ -635,7 +635,7 @@ require __DIR__ . '/partials/header.php';
                     </div>
                     <div class="user-picker-modal-list border rounded p-2">
                         <?php foreach ($users as $u): ?>
-                            <?php $userLabel = (string) (($u['user_number'] ?: $u['id']) . ' - ' . $u['name']); ?>
+                            <?php $userLabel = format_user_picker_label($u); ?>
                             <?php $userLabelSearch = function_exists('mb_strtolower') ? mb_strtolower($userLabel) : strtolower($userLabel); ?>
                             <label class="user-picker-option border px-2 py-2 rounded js-user-picker-option" data-user-option data-user-id="<?= (int) $u['id'] ?>" data-user-label="<?= h($userLabelSearch) ?>" data-user-display-label="<?= h($userLabel) ?>" data-team-ids="<?= h(implode(',', array_map('intval', (array) ($u['team_ids'] ?? [])))) ?>">
                                 <input class="form-check-input user-picker-checkbox js-user-picker-checkbox" type="checkbox" value="<?= (int) $u['id'] ?>" <?= in_array((int) $u['id'], $selectedUsers, true) ? 'checked' : '' ?>>

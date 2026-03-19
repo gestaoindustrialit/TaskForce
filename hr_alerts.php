@@ -23,7 +23,7 @@ function parse_alert_selected_users($value): array
     return array_values($selected);
 }
 
-function format_alert_selected_users_summary(array $selectedUsers, array $userNameMap): string
+function format_alert_selected_users_summary(array $selectedUsers, array $userLabelMap): string
 {
     if (!$selectedUsers) {
         return 'Todos os colaboradores ativos';
@@ -31,8 +31,8 @@ function format_alert_selected_users_summary(array $selectedUsers, array $userNa
 
     $names = [];
     foreach ($selectedUsers as $selectedUserId) {
-        if (isset($userNameMap[$selectedUserId])) {
-            $names[] = $userNameMap[$selectedUserId];
+        if (isset($userLabelMap[$selectedUserId])) {
+            $names[] = $userLabelMap[$selectedUserId];
         }
     }
 
@@ -155,13 +155,12 @@ function render_alert_collaborator_picker(string $pickerId, array $users, array 
                         </div>
                         <div class="results-users-modal-list border rounded p-2">
                             <?php foreach ($users as $u): ?>
-                                <?php $userLabel = (string) (($u['user_number'] ?: $u['id']) . ' - ' . $u['name']); ?>
+                                <?php $userLabel = format_user_picker_label($u); ?>
                                 <?php $userLabelSearch = function_exists('mb_strtolower') ? mb_strtolower($userLabel) : strtolower($userLabel); ?>
-                                <label class="results-user-option border px-2 py-2 rounded js-alert-user-option" data-user-option data-user-id="<?= (int) $u['id'] ?>" data-user-label="<?= h($userLabelSearch) ?>" data-team-ids="<?= h(implode(',', array_map('intval', (array) ($u['team_ids'] ?? [])))) ?>">
+                                <label class="results-user-option border px-2 py-2 rounded js-alert-user-option" data-user-option data-user-id="<?= (int) $u['id'] ?>" data-user-label="<?= h($userLabelSearch) ?>" data-user-display-label="<?= h($userLabel) ?>" data-team-ids="<?= h(implode(',', array_map('intval', (array) ($u['team_ids'] ?? [])))) ?>">
                                     <input class="form-check-input results-user-checkbox js-alert-user-checkbox" type="checkbox" value="<?= (int) $u['id'] ?>" <?= in_array((int) $u['id'], $selectedUsers, true) ? 'checked' : '' ?>>
                                     <span class="results-user-meta flex-grow-1">
-                                        <span class="d-block fw-semibold"><?= h((string) $u['name']) ?></span>
-                                        <span class="d-block text-muted small"><?= h((string) ($u['user_number'] !== '' ? $u['user_number'] : $u['id'])) ?></span>
+                                        <span class="d-block fw-semibold js-alert-user-label"><?= h($userLabel) ?></span>
                                     </span>
                                 </label>
                             <?php endforeach; ?>
@@ -243,11 +242,11 @@ foreach ($userTeamStmt->fetchAll(PDO::FETCH_ASSOC) as $membership) {
     $userTeamMap[$memberUserId][] = $memberTeamId;
 }
 
-$userNameMap = [];
+$userLabelMap = [];
 foreach ($users as &$listedUser) {
     $listedUserId = (int) ($listedUser['id'] ?? 0);
     $listedUser['team_ids'] = $userTeamMap[$listedUserId] ?? [];
-    $userNameMap[$listedUserId] = (string) ($listedUser['name'] ?? '');
+    $userLabelMap[$listedUserId] = format_user_picker_label($listedUser);
 }
 unset($listedUser);
 
@@ -359,6 +358,26 @@ require __DIR__ . '/partials/header.php';
     .alert-collaborator-meta {
         min-height: 3.25rem;
         background: #fff;
+        font-size: .9rem;
+        line-height: 1;
+    }
+
+    .alert-weekday-chip .form-check-input {
+        margin: 0;
+    }
+
+    @media (max-width: 991.98px) {
+        .alert-schedule-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 767.98px) {
+        .alert-collaborator-field-team,
+        .alert-collaborator-field-summary,
+        .alert-collaborator-field-action {
+            flex: 1 1 100%;
+        }
     }
 
     .alert-collaborator-trigger {
@@ -434,9 +453,12 @@ require __DIR__ . '/partials/header.php';
                 <?php render_alert_schedule_fields($weekdayLabels, 'create', 'monthly', ['1', '2', '3', '4', '5'], 1); ?>
             </div>
             <div class="col-12">
+                <?php render_alert_schedule_fields($weekdayLabels, 'create', 'monthly', ['1', '2', '3', '4', '5'], 1); ?>
+            </div>
+            <div class="alert-form-block alert-form-field-wide">
                 <?php render_alert_collaborator_picker('alertCollaboratorsCreateModal', $users, $teams, [], 'selected_user_ids[]'); ?>
             </div>
-            <div class="col-12"><button class="btn btn-primary">Criar alerta</button></div>
+            <div class="alert-form-field-wide"><button class="btn btn-primary">Criar alerta</button></div>
         </form>
     </div>
 </div>
@@ -460,8 +482,8 @@ require __DIR__ . '/partials/header.php';
                             <td><?= h($alert['name']) ?></td>
                             <td><?= h($alertTypeOptions[$alert['alert_type']] ?? $alert['alert_type']) ?></td>
                             <td><?= h((string) $alert['send_time']) ?></td>
-                            <td><?= h($scheduleSummary) ?></td>
-                            <td><?= h(format_alert_selected_users_summary($selectedAlertUsers, $userNameMap)) ?></td>
+                            <td><?= h(implode(', ', array_map(static fn($d) => $weekdayLabels[$d] ?? $d, $mask))) ?></td>
+                            <td><?= h(format_alert_selected_users_summary($selectedAlertUsers, $userLabelMap)) ?></td>
                             <td><?= (int) $alert['is_active'] === 1 ? '<span class="badge text-bg-success">Ativo</span>' : '<span class="badge text-bg-secondary">Inativo</span>' ?></td>
                             <td>
                                 <form method="post" class="row g-2">
