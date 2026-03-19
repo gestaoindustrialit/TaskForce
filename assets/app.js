@@ -181,25 +181,28 @@ function initHrAlertsPage() {
                 return;
             }
 
-            const selectedNames = selectedOptions
-                .map((option) => option.querySelector('.fw-semibold')?.textContent?.trim() || '')
+            const selectedLabels = selectedOptions
+                .map((option) => option.dataset.userDisplayLabel
+                    || option.querySelector('.js-alert-user-label')?.textContent?.trim()
+                    || option.querySelector('.fw-semibold')?.textContent?.trim()
+                    || '')
                 .filter(Boolean);
 
-            summary.textContent = selectedNames.length <= 2
-                ? selectedNames.join(', ')
-                : `${selectedNames.length} colaboradores selecionados`;
+            summary.textContent = selectedLabels.length <= 2
+                ? selectedLabels.join(', ')
+                : `${selectedLabels.length} colaboradores selecionados`;
 
-            selectedNames.slice(0, 2).forEach((name) => {
+            selectedLabels.slice(0, 2).forEach((label) => {
                 const chip = document.createElement('span');
                 chip.className = 'badge rounded-pill text-bg-light border text-dark';
-                chip.textContent = name;
+                chip.textContent = label;
                 chipsContainer.appendChild(chip);
             });
 
-            if (selectedNames.length > 2) {
+            if (selectedLabels.length > 2) {
                 const extraChip = document.createElement('span');
                 extraChip.className = 'badge rounded-pill text-bg-secondary';
-                extraChip.textContent = `+${selectedNames.length - 2}`;
+                extraChip.textContent = `+${selectedLabels.length - 2}`;
                 chipsContainer.appendChild(extraChip);
             }
         };
@@ -252,9 +255,8 @@ function initHrAlertsPage() {
     });
 }
 
-function initResultsPage() {
-    const resultsFilterForm = document.getElementById('resultsFilterForm');
-    if (!resultsFilterForm) {
+function initUserPicker(root) {
+    if (!root || root.dataset.userPickerInitialized === '1' || !window.bootstrap?.Modal) {
         return;
     }
 
@@ -292,6 +294,11 @@ function initResultsPage() {
         const checkbox = option.querySelector('.js-user-picker-checkbox');
         return checkbox && checkbox.checked;
     });
+
+    const getOptionDisplayLabel = (option) => option.dataset.userDisplayLabel
+        || option.querySelector('.js-user-picker-label')?.textContent?.trim()
+        || option.querySelector('.js-user-picker-name')?.textContent?.trim()
+        || '';
 
     const syncOptionCheckedState = () => {
         userOptions.forEach((option) => {
@@ -338,30 +345,27 @@ function initResultsPage() {
             return;
         }
 
-        if (selectedOptions.length <= 2) {
-            summary.textContent = selectedOptions
-                .map((option) => option.querySelector('.js-user-picker-name')?.textContent?.trim() || '')
-                .filter(Boolean)
-                .join(', ');
-        } else {
-            summary.textContent = `${selectedOptions.length} ${summarySelectedSuffix}`;
-        }
-
-        const chipNames = selectedOptions
-            .map((option) => option.querySelector('.js-user-picker-name')?.textContent?.trim() || '')
+        const selectedLabels = selectedOptions
+            .map((option) => getOptionDisplayLabel(option))
             .filter(Boolean);
 
-        chipNames.slice(0, 2).forEach((name) => {
+        if (selectedLabels.length <= 2) {
+            summary.textContent = selectedLabels.join(', ');
+        } else {
+            summary.textContent = `${selectedLabels.length} ${summarySelectedSuffix}`;
+        }
+
+        selectedLabels.slice(0, 2).forEach((label) => {
             const chip = document.createElement('span');
             chip.className = 'badge rounded-pill text-bg-light border text-dark';
-            chip.textContent = name;
+            chip.textContent = label;
             chipsContainer.appendChild(chip);
         });
 
-        if (chipNames.length > 2) {
+        if (selectedLabels.length > 2) {
             const extraChip = document.createElement('span');
             extraChip.className = 'badge rounded-pill text-bg-secondary';
-            extraChip.textContent = `+${chipNames.length - 2}`;
+            extraChip.textContent = `+${selectedLabels.length - 2}`;
             chipsContainer.appendChild(extraChip);
         }
     };
