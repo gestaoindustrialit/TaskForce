@@ -98,6 +98,22 @@ document.querySelectorAll('.js-collapse-toggle').forEach((button) => {
 
 
 function initHrAlertsPage() {
+    const scheduleConfigs = Array.from(document.querySelectorAll('[data-alert-schedule-config]'));
+    scheduleConfigs.forEach((config) => {
+        const modeSelect = config.querySelector('.js-alert-schedule-mode');
+        const weeklyWrap = config.querySelector('.js-alert-weekdays-wrap');
+        const monthlyWrap = config.querySelector('.js-alert-monthly-day-wrap');
+
+        const syncMode = () => {
+            const mode = modeSelect?.value || 'weekly';
+            weeklyWrap?.classList.toggle('d-none', mode !== 'weekly');
+            monthlyWrap?.classList.toggle('d-none', mode !== 'monthly');
+        };
+
+        modeSelect?.addEventListener('change', syncMode);
+        syncMode();
+    });
+
     const pickerRoots = Array.from(document.querySelectorAll('[data-hr-alert-picker]'));
     if (!pickerRoots.length || !window.bootstrap?.Modal) {
         return;
