@@ -192,7 +192,7 @@ function render_alert_collaborator_picker(string $pickerId, array $users, array 
 function render_alert_schedule_fields(array $weekdayLabels, string $prefix, string $scheduleFrequency, array $selectedWeekdays, int $monthlyDay): void
 {
     ?>
-    <div class="alert-schedule-config border rounded p-3" data-alert-schedule-config>
+    <div class="alert-schedule-config" data-alert-schedule-config>
         <div class="alert-schedule-grid">
             <div class="alert-schedule-field">
                 <label class="form-label">Periodicidade</label>
@@ -332,39 +332,41 @@ require __DIR__ . '/partials/header.php';
         min-height: 38px;
     }
 
-    .alert-schedule-config,
-    .alert-collaborator-picker {
+    .alert-config-panel {
+        display: grid;
+        gap: 1rem;
         background: linear-gradient(180deg, rgba(248, 250, 252, 0.8) 0%, #fff 100%);
     }
 
-    .alert-schedule-grid {
-        display: grid;
-        grid-template-columns: minmax(180px, 220px) minmax(180px, 220px) minmax(0, 1fr);
-        gap: 1rem;
-        align-items: start;
-    }
-
-    .alert-collaborator-toolbar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 1rem;
-        align-items: end;
-    }
-
+    .alert-schedule-config,
+    .alert-collaborator-picker,
+    .alert-schedule-field,
     .alert-collaborator-field {
         min-width: 0;
     }
 
-    .alert-collaborator-field-team {
-        flex: 0 0 220px;
+    .alert-schedule-grid,
+    .alert-collaborator-toolbar {
+        display: grid;
+        gap: 1rem;
+        align-items: start;
+        grid-template-columns: minmax(180px, 220px) minmax(180px, 220px) minmax(180px, 220px) minmax(260px, 1fr);
     }
 
-    .alert-collaborator-field-summary {
-        flex: 1 1 320px;
+    .alert-schedule-field-days {
+        grid-column: 1 / -1;
     }
 
     .alert-collaborator-field-action {
-        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+    }
+
+    .alert-collaborator-trigger {
+        width: 100%;
+        min-height: 38px;
+        white-space: nowrap;
     }
 
     .alert-collaborator-meta {
@@ -374,28 +376,6 @@ require __DIR__ . '/partials/header.php';
         line-height: 1;
     }
 
-    .alert-weekday-chip .form-check-input {
-        margin: 0;
-    }
-
-    @media (max-width: 991.98px) {
-        .alert-schedule-grid {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    @media (max-width: 767.98px) {
-        .alert-collaborator-field-team,
-        .alert-collaborator-field-summary,
-        .alert-collaborator-field-action {
-            flex: 1 1 100%;
-        }
-    }
-
-    .alert-collaborator-trigger {
-        white-space: nowrap;
-    }
-
     .alert-weekday-chips,
     .results-selected-chips {
         display: flex;
@@ -420,57 +400,13 @@ require __DIR__ . '/partials/header.php';
     }
 
     @media (max-width: 991.98px) {
-        .alert-schedule-grid {
+        .alert-schedule-grid,
+        .alert-collaborator-toolbar {
             grid-template-columns: 1fr;
         }
-    }
 
-    @media (max-width: 767.98px) {
-        .alert-collaborator-field-team,
-        .alert-collaborator-field-summary,
-        .alert-collaborator-field-action {
-            flex: 1 1 100%;
-        }
-    }
-
-    .alert-collaborator-trigger {
-        white-space: nowrap;
-    }
-
-    .alert-weekday-chips,
-    .results-selected-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .45rem;
-    }
-
-    .alert-weekday-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        padding: .38rem .7rem;
-        border: 1px solid rgba(148, 163, 184, 0.4);
-        border-radius: 999px;
-        background: #fff;
-        font-size: .9rem;
-        line-height: 1;
-    }
-
-    .alert-weekday-chip .form-check-input {
-        margin: 0;
-    }
-
-    @media (max-width: 991.98px) {
-        .alert-schedule-grid {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    @media (max-width: 767.98px) {
-        .alert-collaborator-field-team,
-        .alert-collaborator-field-summary,
-        .alert-collaborator-field-action {
-            flex: 1 1 100%;
+        .alert-schedule-field-days {
+            grid-column: auto;
         }
     }
 </style>
@@ -503,10 +439,10 @@ require __DIR__ . '/partials/header.php';
                 <div class="form-check form-switch alert-inline-switch"><input class="form-check-input" type="checkbox" name="is_active" value="1" checked><label class="form-check-label ms-2">Ativo</label></div>
             </div>
             <div class="col-12">
-                <?php render_alert_schedule_fields($weekdayLabels, 'create', 'monthly', ['1', '2', '3', '4', '5'], 1); ?>
-            </div>
-            <div class="alert-form-block alert-form-field-wide">
-                <?php render_alert_collaborator_picker('alertCollaboratorsCreateModal', $users, $teams, [], 'selected_user_ids[]'); ?>
+                <div class="alert-config-panel border rounded p-3">
+                    <?php render_alert_schedule_fields($weekdayLabels, 'create', 'monthly', ['1', '2', '3', '4', '5'], 1); ?>
+                    <?php render_alert_collaborator_picker('alertCollaboratorsCreateModal', $users, $teams, [], 'selected_user_ids[]'); ?>
+                </div>
             </div>
             <div class="alert-form-field-wide"><button class="btn btn-primary">Criar alerta</button></div>
         </form>
@@ -547,10 +483,10 @@ require __DIR__ . '/partials/header.php';
                                         <button class="btn btn-sm btn-outline-secondary">Guardar</button>
                                     </div>
                                     <div class="col-12">
-                                        <?php render_alert_schedule_fields($weekdayLabels, 'edit' . (int) $alert['id'], $scheduleFrequency, array_map('strval', $mask), $monthlyDay); ?>
-                                    </div>
-                                    <div class="col-12">
-                                        <?php render_alert_collaborator_picker('alertCollaboratorsEditModal' . (int) $alert['id'], $users, $teams, $selectedAlertUsers, 'selected_user_ids[]', 'Editar colaboradores'); ?>
+                                        <div class="alert-config-panel border rounded p-3">
+                                            <?php render_alert_schedule_fields($weekdayLabels, 'edit' . (int) $alert['id'], $scheduleFrequency, array_map('strval', $mask), $monthlyDay); ?>
+                                            <?php render_alert_collaborator_picker('alertCollaboratorsEditModal' . (int) $alert['id'], $users, $teams, $selectedAlertUsers, 'selected_user_ids[]', 'Editar colaboradores'); ?>
+                                        </div>
                                     </div>
                                 </form>
                             </td>
