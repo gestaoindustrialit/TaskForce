@@ -347,6 +347,262 @@ function deliver_report(string $email, string $subject, string $body): bool
     return $sent;
 }
 
+function taskforce_weekday_label_pt(int $weekday): string
+{
+    return match ($weekday) {
+        1 => 'seg',
+        2 => 'ter',
+        3 => 'qua',
+        4 => 'qui',
+        5 => 'sex',
+        6 => 'sáb',
+        7 => 'dom',
+        default => '',
+    };
+}
+
+function taskforce_format_minutes_signed(int $minutes): string
+{
+    $prefix = $minutes < 0 ? '-' : '';
+    $absMinutes = abs($minutes);
+    return sprintf('%s%02d:%02d', $prefix, intdiv($absMinutes, 60), $absMinutes % 60);
+}
+
+function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, DateTimeImmutable $referenceDate): array
+{
+    $periodStart = $referenceDate->modify('first day of previous month')->setTime(0, 0, 0);
+    $periodEnd = $referenceDate->modify('last day of previous month')->setTime(23, 59, 59);
+    $periodStartDate = $periodStart->format('Y-m-d');
+    $periodEndDate = $periodEnd->format('Y-m-d');
+    $reportMonthLabel = ucfirst(strftime('%B de %Y', $periodStart->getTimestamp()));
+
+    $scheduleStmt = $pdo->prepare(
+        'SELECT s.name, s.start_time, s.end_time, s.break_minutes, s.weekdays_mask
+         FROM hr_schedules s
+         INNER JOIN users u ON u.schedule_id = s.id
+         WHERE u.id = ?
+         LIMIT 1'
+    );
+    $scheduleStmt->execute([(int) ($user['id'] ?? 0)]);
+    $schedule = $scheduleStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    $entryStmt = $pdo->prepare(
+        'SELECT id, entry_type, occurred_at, validated_at
+         FROM shopfloor_time_entries
+         WHERE user_id = ?
+           AND occurred_at BETWEEN ? AND ?
+         ORDER BY occurred_at ASC'
+    );
+    $entryStmt->execute([(int) ($user['id'] ?? 0), $periodStartDate . ' 00:00:00', $periodEndDate . ' 23:59:59']);
+    $entries = $entryStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $entriesByDate = [];
+    foreach ($entries as $entry) {
+        $workDate = date('Y-m-d', strtotime((string) ($entry['occurred_at'] ?? '')));
+        if (!isset($entriesByDate[$workDate])) {
+            $entriesByDate[$workDate] = [];
+        }
+        $entriesByDate[$workDate][] = $entry;
+    }
+
+    $overrideStmt = $pdo->prepare(
+        'SELECT work_date, bh_minutes, reason
+         FROM shopfloor_bh_overrides
+         WHERE user_id = ?
+           AND work_date BETWEEN ? AND ?'
+    );
+    $overrideStmt->execute([(int) ($user['id'] ?? 0), $periodStartDate, $periodEndDate]);
+    $overrideMap = [];
+    foreach ($overrideStmt->fetchAll(PDO::FETCH_ASSOC) as $overrideRow) {
+        $overrideMap[(string) $overrideRow['work_date']] = $overrideRow;
+    }
+
+    $vacationStmt = $pdo->prepare(
+        'SELECT start_date, end_date, status, notes
+         FROM hr_vacation_events
+         WHERE user_id = ?
+           AND end_date >= ?
+           AND start_date <= ?'
+    );
+    $vacationStmt->execute([(int) ($user['id'] ?? 0), $periodStartDate, $periodEndDate]);
+    $vacations = $vacationStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $holidayStmt = $pdo->prepare(
+        'SELECT title, event_type, start_date, end_date
+         FROM hr_calendar_events
+         WHERE end_date >= ?
+           AND start_date <= ?'
+    );
+    $holidayStmt->execute([$periodStartDate, $periodEndDate]);
+    $calendarEvents = $holidayStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $vacationBalanceStmt = $pdo->prepare('SELECT assigned_days FROM hr_vacation_balances WHERE user_id = ? AND year = ? LIMIT 1');
+    $vacationBalanceStmt->execute([(int) ($user['id'] ?? 0), (int) $periodStart->format('Y')]);
+    $assignedVacationDays = (float) ($vacationBalanceStmt->fetchColumn() ?: 0);
+
+    $approvedVacationDays = 0.0;
+    $period = new DatePeriod($periodStart, new DateInterval('P1D'), $periodEnd->modify('+1 day'));
+    $rows = [];
+    $totalWorkedMinutes = 0;
+    $totalBhMinutes = 0;
+    $daysWithEntries = 0;
+    $daysValidated = 0;
+
+    foreach ($period as $day) {
+        $date = $day->format('Y-m-d');
+        $weekday = (int) $day->format('N');
+        $weekdayLabel = taskforce_weekday_label_pt($weekday);
+        $dayEntries = $entriesByDate[$date] ?? [];
+        $times = array_map(static fn(array $entry): string => date('H:i', strtotime((string) ($entry['occurred_at'] ?? ''))), $dayEntries);
+
+        $effectiveMinutes = 0;
+        $openIn = null;
+        foreach ($dayEntries as $entry) {
+            $entryType = (string) ($entry['entry_type'] ?? '');
+            $timestamp = strtotime((string) ($entry['occurred_at'] ?? ''));
+            if ($timestamp === false) {
+                continue;
+            }
+            if ($entryType === 'entrada') {
+                $openIn = $timestamp;
+            } elseif ($entryType === 'saida' && $openIn !== null && $timestamp > $openIn) {
+                $effectiveMinutes += (int) round(($timestamp - $openIn) / 60);
+                $openIn = null;
+            }
+        }
+
+        $scheduleApplies = $schedule !== null && in_array((string) $weekday, array_filter(explode(',', (string) ($schedule['weekdays_mask'] ?? ''))), true);
+        $targetMinutes = 0;
+        if ($scheduleApplies) {
+            [$startHour, $startMinute] = array_map('intval', explode(':', (string) $schedule['start_time']));
+            [$endHour, $endMinute] = array_map('intval', explode(':', (string) $schedule['end_time']));
+            $targetMinutes = (($endHour * 60) + $endMinute) - (($startHour * 60) + $startMinute) - (int) ($schedule['break_minutes'] ?? 0);
+            if ($targetMinutes < 0) {
+                $targetMinutes = 0;
+            }
+        }
+
+        $justification = '';
+        $typeLabel = count($dayEntries) >= 4 ? 'Normal' : (count($dayEntries) > 0 ? 'Parcial' : 'Folga');
+
+        foreach ($calendarEvents as $event) {
+            if ($date >= (string) $event['start_date'] && $date <= (string) $event['end_date']) {
+                $justification = (string) ($event['event_type'] ?: 'Calendário') . ': ' . (string) $event['title'];
+                $typeLabel = 'Feriado';
+                break;
+            }
+        }
+
+        foreach ($vacations as $vacation) {
+            if ($date >= (string) $vacation['start_date'] && $date <= (string) $vacation['end_date']) {
+                $note = trim((string) ($vacation['notes'] ?? ''));
+                $justification = (string) $vacation['status'] . ($note !== '' ? ' · ' . $note : '');
+                $typeLabel = 'Férias';
+                if ((string) ($vacation['status'] ?? '') === 'Aprovado' && $weekday <= 5) {
+                    $approvedVacationDays += 1.0;
+                }
+                break;
+            }
+        }
+
+        if (!$scheduleApplies && !$dayEntries && $justification === '') {
+            $typeLabel = 'Folga';
+        }
+
+        $isValidated = !empty($dayEntries) && count(array_filter($dayEntries, static fn(array $entry): bool => !empty($entry['validated_at']))) === count($dayEntries);
+        if ($isValidated) {
+            $daysValidated++;
+        }
+        if ($dayEntries) {
+            $daysWithEntries++;
+        }
+
+        $bhMinutes = 0;
+        if (isset($overrideMap[$date])) {
+            $bhMinutes = (int) ($overrideMap[$date]['bh_minutes'] ?? 0);
+            if ($justification === '' && !empty($overrideMap[$date]['reason'])) {
+                $justification = 'Ajuste BH: ' . (string) $overrideMap[$date]['reason'];
+            }
+        } elseif ($scheduleApplies || $dayEntries) {
+            $bhMinutes = $effectiveMinutes - $targetMinutes;
+        }
+
+        $totalWorkedMinutes += $effectiveMinutes;
+        $totalBhMinutes += $bhMinutes;
+
+        $row = [
+            'date' => $day->format('d/m/Y'),
+            'weekday' => $weekdayLabel,
+            'type' => $typeLabel,
+            'slots' => array_pad($times, 8, '--:--'),
+            'bh' => taskforce_format_minutes_signed($bhMinutes),
+            'justification' => $justification !== '' ? $justification : ($isValidated ? 'Validado' : ''),
+        ];
+        $rows[] = $row;
+    }
+
+    $usedVacationDays = $approvedVacationDays;
+    $vacationBalance = max(0, $assignedVacationDays - $usedVacationDays);
+
+    $companyName = app_setting($pdo, 'company_name', 'TaskForce');
+    $companyAddress = app_setting($pdo, 'company_address', '');
+    $companyPhone = app_setting($pdo, 'company_phone', '');
+    $companyEmail = app_setting($pdo, 'company_email', '');
+
+    $lines = [];
+    $lines[] = $companyName;
+    if ($companyAddress !== '') {
+        $lines[] = $companyAddress;
+    }
+    if ($companyPhone !== '' || $companyEmail !== '') {
+        $lines[] = trim(($companyPhone !== '' ? 'Telefone: ' . $companyPhone : '') . ($companyPhone !== '' && $companyEmail !== '' ? ' · ' : '') . ($companyEmail !== '' ? 'Email: ' . $companyEmail : ''));
+    }
+    $lines[] = str_repeat('=', 72);
+    $lines[] = 'Mapa mensal de picagens';
+    $lines[] = 'Período: ' . $periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y');
+    $lines[] = 'Colaborador: ' . (string) ($user['name'] ?? '');
+    $lines[] = 'Número: ' . ((string) ($user['user_number'] ?? '') !== '' ? (string) $user['user_number'] : '—');
+    $lines[] = 'Departamento: ' . ((string) ($user['department'] ?? '') !== '' ? (string) $user['department'] : '—');
+    $lines[] = 'Horário: ' . ($schedule ? ((string) $schedule['name'] . ' (' . (string) $schedule['start_time'] . '-' . (string) $schedule['end_time'] . ')') : 'Não configurado');
+    $lines[] = 'Mês de referência: ' . $reportMonthLabel;
+    $lines[] = str_repeat('-', 72);
+    $lines[] = sprintf('%-11s %-3s %-9s %-47s %-6s %s', 'Data', 'Dia', 'Tipo', 'Picagens', 'BH', 'Justificação');
+    $lines[] = str_repeat('-', 72);
+
+    foreach ($rows as $row) {
+        $slotsText = implode(' ', $row['slots']);
+        $lines[] = sprintf(
+            '%-11s %-3s %-9s %-47s %-6s %s',
+            $row['date'],
+            $row['weekday'],
+            substr((string) $row['type'], 0, 9),
+            substr($slotsText, 0, 47),
+            $row['bh'],
+            $row['justification']
+        );
+    }
+
+    $lines[] = str_repeat('-', 72);
+    $lines[] = 'Resumo mensal';
+    $lines[] = '- Dias com picagens: ' . $daysWithEntries;
+    $lines[] = '- Dias totalmente validados: ' . $daysValidated;
+    $lines[] = '- Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes);
+    $lines[] = '- Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes);
+    $lines[] = '- Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias';
+    $lines[] = '';
+    $lines[] = 'Notas:';
+    $lines[] = '- Este relatório é informativo e reflete os registos validados/guardados no TaskForce.';
+    $lines[] = '- Caso identifique alguma divergência, contacte RH para análise/retificação.';
+
+    return [
+        'subject' => '[TaskForce RH] Mapa mensal de picagens - ' . (string) ($user['name'] ?? '') . ' - ' . $periodStart->format('m/Y'),
+        'body' => implode(PHP_EOL, $lines),
+        'period_start' => $periodStartDate,
+        'period_end' => $periodEndDate,
+        'report_month_label' => $reportMonthLabel,
+    ];
+}
+
 function app_setting(PDO $pdo, string $settingKey, ?string $default = null): ?string
 {
     $stmt = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?');

@@ -330,12 +330,26 @@ $pdo->exec(
         recipient_email TEXT NOT NULL,
         send_time TEXT NOT NULL,
         weekdays_mask TEXT NOT NULL DEFAULT "1,2,3,4,5",
+        schedule_frequency TEXT NOT NULL DEFAULT "weekly",
+        monthly_day INTEGER NOT NULL DEFAULT 1,
+        selected_user_ids TEXT NOT NULL DEFAULT "",
         is_active INTEGER NOT NULL DEFAULT 1,
         created_by INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
     )'
 );
+
+$hrAlertColumns = $pdo->query('PRAGMA table_info(hr_alerts)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('schedule_frequency', $hrAlertColumns, true)) {
+    $pdo->exec('ALTER TABLE hr_alerts ADD COLUMN schedule_frequency TEXT NOT NULL DEFAULT "weekly"');
+}
+if (!in_array('monthly_day', $hrAlertColumns, true)) {
+    $pdo->exec('ALTER TABLE hr_alerts ADD COLUMN monthly_day INTEGER NOT NULL DEFAULT 1');
+}
+if (!in_array('selected_user_ids', $hrAlertColumns, true)) {
+    $pdo->exec('ALTER TABLE hr_alerts ADD COLUMN selected_user_ids TEXT NOT NULL DEFAULT ""');
+}
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS shopfloor_hour_banks (
