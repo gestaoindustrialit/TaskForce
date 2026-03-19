@@ -258,152 +258,168 @@ function initResultsPage() {
         return;
     }
 
-    const hiddenInputsContainer = resultsFilterForm.querySelector('.js-results-user-hidden-inputs');
-    const teamFilter = resultsFilterForm.querySelector('.js-results-team-filter');
-    const summary = resultsFilterForm.querySelector('.js-results-users-summary');
-    const countBadge = resultsFilterForm.querySelector('.js-results-users-count');
-    const chipsContainer = resultsFilterForm.querySelector('.js-results-users-chips');
-    const modalElement = document.getElementById('resultsCollaboratorsModal');
+    root.dataset.userPickerInitialized = '1';
 
-    if (hiddenInputsContainer && summary && countBadge && chipsContainer && modalElement && window.bootstrap?.Modal) {
-        const modal = window.bootstrap.Modal.getOrCreateInstance(modalElement);
-        const searchInput = modalElement.querySelector('.js-results-user-search');
-        const userOptions = Array.from(modalElement.querySelectorAll('[data-user-option]'));
-        const applyButton = modalElement.querySelector('.js-results-apply-users');
-        const selectAllButton = modalElement.querySelector('.js-results-select-all');
-        const clearAllButton = modalElement.querySelector('.js-results-clear-all');
-        const selectTeamButton = modalElement.querySelector('.js-results-select-team');
+    const hiddenInputsContainer = root.querySelector('.js-user-picker-hidden-inputs');
+    const summary = root.querySelector('.js-user-picker-summary');
+    const countBadge = root.querySelector('.js-user-picker-count');
+    const chipsContainer = root.querySelector('.js-user-picker-chips');
+    const modalSelector = root.dataset.userPickerModalTarget || '';
+    const modalElement = modalSelector ? document.querySelector(modalSelector) : null;
 
-        const getCheckboxes = () => userOptions
-            .map((option) => option.querySelector('.js-results-user-checkbox'))
-            .filter(Boolean);
+    if (!hiddenInputsContainer || !summary || !countBadge || !chipsContainer || !modalElement) {
+        return;
+    }
 
-        const getVisibleOptions = () => userOptions.filter((option) => !option.classList.contains('d-none'));
-        const getSelectedOptions = () => userOptions.filter((option) => {
-            const checkbox = option.querySelector('.js-results-user-checkbox');
-            return checkbox && checkbox.checked;
+    const modal = window.bootstrap.Modal.getOrCreateInstance(modalElement);
+    const searchInput = modalElement.querySelector('.js-user-picker-search');
+    const userOptions = Array.from(modalElement.querySelectorAll('[data-user-option]'));
+    const applyButton = modalElement.querySelector('.js-user-picker-apply');
+    const selectAllButton = modalElement.querySelector('.js-user-picker-select-all');
+    const clearAllButton = modalElement.querySelector('.js-user-picker-clear-all');
+    const selectTeamButton = modalElement.querySelector('.js-user-picker-select-team');
+    const teamFilterSelector = root.dataset.userPickerTeamFilter || '';
+    const teamFilter = teamFilterSelector ? document.querySelector(teamFilterSelector) : null;
+    const summaryAllLabel = root.dataset.userPickerAllLabel || 'Todos';
+    const summarySelectedSuffix = root.dataset.userPickerSelectedSuffix || 'selecionados';
+
+    const getCheckboxes = () => userOptions
+        .map((option) => option.querySelector('.js-user-picker-checkbox'))
+        .filter(Boolean);
+
+    const getVisibleOptions = () => userOptions.filter((option) => !option.classList.contains('d-none'));
+    const getSelectedOptions = () => userOptions.filter((option) => {
+        const checkbox = option.querySelector('.js-user-picker-checkbox');
+        return checkbox && checkbox.checked;
+    });
+
+    const syncOptionCheckedState = () => {
+        userOptions.forEach((option) => {
+            const checkbox = option.querySelector('.js-user-picker-checkbox');
+            option.classList.toggle('is-selected', Boolean(checkbox?.checked));
         });
+    };
 
-        const syncOptionCheckedState = () => {
-            userOptions.forEach((option) => {
-                const checkbox = option.querySelector('.js-results-user-checkbox');
-                option.classList.toggle('is-selected', Boolean(checkbox?.checked));
-            });
-        };
+    const syncVisibleUsers = () => {
+        const term = (searchInput?.value || '').trim().toLowerCase();
+        const selectedTeamId = String(teamFilter?.value || '0');
 
-        const syncVisibleUsers = () => {
-            const term = (searchInput?.value || '').trim().toLowerCase();
-            const selectedTeamId = String(teamFilter?.value || '0');
+        userOptions.forEach((option) => {
+            const userLabel = option.dataset.userLabel || '';
+            const teamIds = (option.dataset.teamIds || '').split(',').filter(Boolean);
+            const matchesSearch = term === '' || userLabel.includes(term);
+            const matchesTeam = !teamFilter || selectedTeamId === '0' || teamIds.includes(selectedTeamId);
+            option.classList.toggle('d-none', !(matchesSearch && matchesTeam));
+        });
+    };
 
-            userOptions.forEach((option) => {
-                const userLabel = option.dataset.userLabel || '';
-                const teamIds = (option.dataset.teamIds || '').split(',').filter(Boolean);
-                const matchesSearch = term === '' || userLabel.includes(term);
-                const matchesTeam = selectedTeamId === '0' || teamIds.includes(selectedTeamId);
-                option.classList.toggle('d-none', !(matchesSearch && matchesTeam));
-            });
-        };
+    const renderSelectedUsers = () => {
+        const selectedOptions = getSelectedOptions();
+        hiddenInputsContainer.innerHTML = '';
+        chipsContainer.innerHTML = '';
+        syncOptionCheckedState();
 
-        const renderSelectedUsers = () => {
-            const selectedOptions = getSelectedOptions();
-            hiddenInputsContainer.innerHTML = '';
-            chipsContainer.innerHTML = '';
-            syncOptionCheckedState();
-
-            selectedOptions.forEach((option) => {
-                const checkbox = option.querySelector('.js-results-user-checkbox');
-                if (!checkbox) {
-                    return;
-                }
-
-                const input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = 'user_ids[]';
-                input.value = checkbox.value;
-                hiddenInputsContainer.appendChild(input);
-            });
-
-            countBadge.textContent = String(selectedOptions.length);
-            if (!selectedOptions.length) {
-                summary.textContent = 'Todos';
+        selectedOptions.forEach((option) => {
+            const checkbox = option.querySelector('.js-user-picker-checkbox');
+            if (!checkbox) {
                 return;
             }
 
-            if (selectedOptions.length <= 2) {
-                summary.textContent = selectedOptions
-                    .map((option) => option.querySelector('.fw-semibold')?.textContent?.trim() || '')
-                    .filter(Boolean)
-                    .join(', ');
-            } else {
-                summary.textContent = `${selectedOptions.length} selecionados`;
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = root.dataset.userPickerInputName || 'user_ids[]';
+            input.value = checkbox.value;
+            hiddenInputsContainer.appendChild(input);
+        });
+
+        countBadge.textContent = String(selectedOptions.length);
+        if (!selectedOptions.length) {
+            summary.textContent = summaryAllLabel;
+            return;
+        }
+
+        if (selectedOptions.length <= 2) {
+            summary.textContent = selectedOptions
+                .map((option) => option.querySelector('.js-user-picker-name')?.textContent?.trim() || '')
+                .filter(Boolean)
+                .join(', ');
+        } else {
+            summary.textContent = `${selectedOptions.length} ${summarySelectedSuffix}`;
+        }
+
+        const chipNames = selectedOptions
+            .map((option) => option.querySelector('.js-user-picker-name')?.textContent?.trim() || '')
+            .filter(Boolean);
+
+        chipNames.slice(0, 2).forEach((name) => {
+            const chip = document.createElement('span');
+            chip.className = 'badge rounded-pill text-bg-light border text-dark';
+            chip.textContent = name;
+            chipsContainer.appendChild(chip);
+        });
+
+        if (chipNames.length > 2) {
+            const extraChip = document.createElement('span');
+            extraChip.className = 'badge rounded-pill text-bg-secondary';
+            extraChip.textContent = `+${chipNames.length - 2}`;
+            chipsContainer.appendChild(extraChip);
+        }
+    };
+
+    searchInput?.addEventListener('input', syncVisibleUsers);
+    teamFilter?.addEventListener('change', syncVisibleUsers);
+    selectAllButton?.addEventListener('click', () => {
+        getVisibleOptions().forEach((option) => {
+            const checkbox = option.querySelector('.js-user-picker-checkbox');
+            if (checkbox) {
+                checkbox.checked = true;
             }
-
-            const chipNames = selectedOptions
-                .map((option) => option.querySelector('.fw-semibold')?.textContent?.trim() || '')
-                .filter(Boolean);
-
-            chipNames.slice(0, 2).forEach((name) => {
-                const chip = document.createElement('span');
-                chip.className = 'badge rounded-pill text-bg-light border text-dark';
-                chip.textContent = name;
-                chipsContainer.appendChild(chip);
-            });
-
-            if (chipNames.length > 2) {
-                const extraChip = document.createElement('span');
-                extraChip.className = 'badge rounded-pill text-bg-secondary';
-                extraChip.textContent = `+${chipNames.length - 2}`;
-                chipsContainer.appendChild(extraChip);
+        });
+        renderSelectedUsers();
+    });
+    clearAllButton?.addEventListener('click', () => {
+        getCheckboxes().forEach((checkbox) => {
+            checkbox.checked = false;
+        });
+        renderSelectedUsers();
+    });
+    selectTeamButton?.addEventListener('click', () => {
+        const selectedTeamId = String(teamFilter?.value || '0');
+        getCheckboxes().forEach((checkbox) => {
+            checkbox.checked = false;
+        });
+        userOptions.forEach((option) => {
+            const checkbox = option.querySelector('.js-user-picker-checkbox');
+            if (!checkbox) {
+                return;
             }
-        };
-
-        searchInput?.addEventListener('input', syncVisibleUsers);
-        teamFilter?.addEventListener('change', syncVisibleUsers);
-        selectAllButton?.addEventListener('click', () => {
-            getVisibleOptions().forEach((option) => {
-                const checkbox = option.querySelector('.js-results-user-checkbox');
-                if (checkbox) {
-                    checkbox.checked = true;
-                }
-            });
-            renderSelectedUsers();
+            const teamIds = (option.dataset.teamIds || '').split(',').filter(Boolean);
+            checkbox.checked = !teamFilter || selectedTeamId === '0' || teamIds.includes(selectedTeamId);
         });
-        clearAllButton?.addEventListener('click', () => {
-            getCheckboxes().forEach((checkbox) => {
-                checkbox.checked = false;
-            });
-            renderSelectedUsers();
-        });
-        selectTeamButton?.addEventListener('click', () => {
-            const selectedTeamId = String(teamFilter?.value || '0');
-            getCheckboxes().forEach((checkbox) => {
-                checkbox.checked = false;
-            });
-            userOptions.forEach((option) => {
-                const checkbox = option.querySelector('.js-results-user-checkbox');
-                if (!checkbox) {
-                    return;
-                }
-                const teamIds = (option.dataset.teamIds || '').split(',').filter(Boolean);
-                checkbox.checked = selectedTeamId === '0' || teamIds.includes(selectedTeamId);
-            });
-            renderSelectedUsers();
-            syncVisibleUsers();
-        });
-        getCheckboxes().forEach((checkbox) => checkbox.addEventListener('change', renderSelectedUsers));
-        applyButton?.addEventListener('click', () => {
-            renderSelectedUsers();
-            modal.hide();
-        });
-        modalElement.addEventListener('shown.bs.modal', () => {
-            syncVisibleUsers();
-            searchInput?.focus();
-        });
-
         renderSelectedUsers();
         syncVisibleUsers();
+    });
+    getCheckboxes().forEach((checkbox) => checkbox.addEventListener('change', renderSelectedUsers));
+    applyButton?.addEventListener('click', () => {
+        renderSelectedUsers();
+        modal.hide();
+    });
+    modalElement.addEventListener('shown.bs.modal', () => {
+        syncVisibleUsers();
+        searchInput?.focus();
+    });
+
+    renderSelectedUsers();
+    syncVisibleUsers();
+}
+
+function initResultsPage() {
+    const resultsFilterForm = document.getElementById('resultsFilterForm');
+    if (!resultsFilterForm) {
+        return;
     }
 
+    initUserPicker(resultsFilterForm);
     const formatHHMM = (totalSeconds, signed = false) => {
         const absoluteSeconds = Math.abs(totalSeconds);
         const hours = Math.floor(absoluteSeconds / 3600);
@@ -594,5 +610,6 @@ function initResultsPage() {
     window.setInterval(refreshRowsWithOpenEntries, 60000);
 }
 
+document.querySelectorAll('[data-user-picker-modal-target]').forEach((root) => initUserPicker(root));
 initResultsPage();
 initHrAlertsPage();

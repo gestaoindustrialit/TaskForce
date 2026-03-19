@@ -814,21 +814,74 @@ require __DIR__ . '/partials/header.php';
 
                 <?php if ($isAdmin || $isRh): ?>
                     <h3 class="h6">Publicar comunicado</h3>
-                    <form method="post" class="vstack gap-2 mb-4">
+                    <form method="post" class="vstack gap-2 mb-4" data-user-picker-modal-target="#shopfloorAnnouncementUsersModal" data-user-picker-input-name="target_user_ids[]" data-user-picker-all-label="Todos os utilizadores Shopfloor" data-user-picker-selected-suffix="utilizadores selecionados">
                         <input type="hidden" name="action" value="publish_announcement">
                         <input type="text" name="title" class="form-control" placeholder="Título" required>
                         <textarea name="body" class="form-control" rows="3" placeholder="Mensagem" required></textarea>
                         <div>
                             <label class="form-label mb-1">Direcionado a utilizadores (opcional)</label>
-                            <select name="target_user_ids[]" class="form-select" multiple size="5">
-                                <?php foreach ($announcementTargetUsers as $targetUser): ?>
-                                    <option value="<?= (int) $targetUser['id'] ?>"><?= h((string) $targetUser['name']) ?> (<?= h((string) $targetUser['username']) ?>)</option>
-                                <?php endforeach; ?>
-                            </select>
+                            <div class="user-picker-meta">
+                                <div class="form-text mt-0 js-user-picker-summary user-picker-summary">Todos os utilizadores Shopfloor</div>
+                                <div class="user-picker-chips js-user-picker-chips"></div>
+                            </div>
+                            <button
+                                type="button"
+                                class="btn btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
+                                data-bs-toggle="modal"
+                                data-bs-target="#shopfloorAnnouncementUsersModal"
+                            >
+                                <span class="text-start">Selecionar utilizadores</span>
+                                <span class="badge text-bg-dark js-user-picker-count">0</span>
+                            </button>
+                            <div class="d-none js-user-picker-hidden-inputs"></div>
                             <div class="form-text">Se não selecionar ninguém, o comunicado fica visível para todos os utilizadores do Shopfloor.</div>
                         </div>
                         <button type="submit" class="btn btn-outline-primary">Publicar</button>
                     </form>
+
+                    <div class="modal fade" id="shopfloorAnnouncementUsersModal" tabindex="-1" aria-labelledby="shopfloorAnnouncementUsersModalLabel" aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-scrollable modal-lg">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <div>
+                                        <h3 class="modal-title fs-5" id="shopfloorAnnouncementUsersModalLabel">Escolher utilizadores</h3>
+                                        <p class="text-muted small mb-0">Pesquise e selecione vários utilizadores para direcionar o comunicado.</p>
+                                    </div>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="row g-2 align-items-center mb-3">
+                                        <div class="col-md-8">
+                                            <input type="search" class="form-control js-user-picker-search" placeholder="Pesquisar utilizador">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="d-flex flex-wrap gap-2 justify-content-md-end">
+                                                <button type="button" class="btn btn-outline-secondary btn-sm js-user-picker-select-all">Selecionar todos</button>
+                                                <button type="button" class="btn btn-outline-secondary btn-sm js-user-picker-clear-all">Limpar</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="user-picker-modal-list border rounded p-2">
+                                        <?php foreach ($announcementTargetUsers as $targetUser): ?>
+                                            <?php $targetLabel = (string) ($targetUser['name'] . ' ' . $targetUser['username']); ?>
+                                            <?php $targetLabelSearch = function_exists('mb_strtolower') ? mb_strtolower($targetLabel) : strtolower($targetLabel); ?>
+                                            <label class="user-picker-option border px-2 py-2 rounded" data-user-option data-user-id="<?= (int) $targetUser['id'] ?>" data-user-label="<?= h($targetLabelSearch) ?>">
+                                                <input class="form-check-input user-picker-checkbox js-user-picker-checkbox" type="checkbox" value="<?= (int) $targetUser['id'] ?>">
+                                                <span class="user-picker-meta-label flex-grow-1">
+                                                    <span class="d-block fw-semibold js-user-picker-name"><?= h((string) $targetUser['name']) ?></span>
+                                                    <span class="d-block text-muted small"><?= h((string) $targetUser['username']) ?></span>
+                                                </span>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                    <button type="button" class="btn btn-dark js-user-picker-apply">Aplicar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                     <h3 class="h6">Gerir comunicados</h3>
                     <ul class="list-group list-group-flush">
