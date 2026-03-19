@@ -281,6 +281,17 @@ function string_contains(string $haystack, string $needle): bool
     return $needle == '' || strpos($haystack, $needle) !== false;
 }
 
+
+function format_user_picker_label(array $user): string
+{
+    $userId = (int) ($user['id'] ?? 0);
+    $userNumber = trim((string) ($user['user_number'] ?? ''));
+    $userName = trim((string) ($user['name'] ?? ''));
+    $labelNumber = $userNumber !== '' ? $userNumber : (string) $userId;
+
+    return trim($labelNumber . ' - ' . $userName, ' -');
+}
+
 function h(?string $value): string
 {
     $text = (string) $value;
