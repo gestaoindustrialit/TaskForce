@@ -277,11 +277,22 @@ $pdo->exec(
         name TEXT NOT NULL UNIQUE,
         start_time TEXT NOT NULL,
         end_time TEXT NOT NULL,
+        second_start_time TEXT,
+        second_end_time TEXT,
         break_minutes INTEGER NOT NULL DEFAULT 0,
         weekdays_mask TEXT NOT NULL DEFAULT "1,2,3,4,5",
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )'
 );
+
+$hrSchedulesColumnsStmt = $pdo->query('PRAGMA table_info(hr_schedules)');
+$hrSchedulesColumns = array_column($hrSchedulesColumnsStmt->fetchAll(PDO::FETCH_ASSOC), 'name');
+if (!in_array('second_start_time', $hrSchedulesColumns, true)) {
+    $pdo->exec('ALTER TABLE hr_schedules ADD COLUMN second_start_time TEXT');
+}
+if (!in_array('second_end_time', $hrSchedulesColumns, true)) {
+    $pdo->exec('ALTER TABLE hr_schedules ADD COLUMN second_end_time TEXT');
+}
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS hr_vacation_events (
@@ -557,6 +568,13 @@ if (!in_array('end_time', $absenceRequestColumns, true)) {
 if (!in_array('duration_type', $absenceRequestColumns, true)) {
     try {
         $pdo->exec("ALTER TABLE shopfloor_absence_requests ADD COLUMN duration_type TEXT NOT NULL DEFAULT 'Completa'");
+    } catch (PDOException $e) {
+        // Mantém compatibilidade com instalações que já tenham migração parcial.
+    }
+}
+if (!in_array('duration_hours', $absenceRequestColumns, true)) {
+    try {
+        $pdo->exec('ALTER TABLE shopfloor_absence_requests ADD COLUMN duration_hours TEXT');
     } catch (PDOException $e) {
         // Mantém compatibilidade com instalações que já tenham migração parcial.
     }
