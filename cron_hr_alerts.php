@@ -5,14 +5,48 @@ $now = new DateTimeImmutable('now');
 $currentTime = $now->format('H:i');
 $weekday = (string) ((int) $now->format('N'));
 $today = $now->format('Y-m-d');
+$isFirstDayOfMonth = $now->format('d') === '01';
 
-$stmt = $pdo->prepare('SELECT id, name, alert_type, recipient_email, send_time, weekdays_mask FROM hr_alerts WHERE is_active = 1 AND send_time = ?');
+$stmt = $pdo->prepare('SELECT id, name, alert_type, recipient_email, send_time, weekdays_mask, selected_user_ids FROM hr_alerts WHERE is_active = 1 AND send_time = ?');
 $stmt->execute([$currentTime]);
 $alerts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$processedAlerts = 0;
 
 foreach ($alerts as $alert) {
     $days = array_filter(explode(',', (string) $alert['weekdays_mask']));
     if (!in_array($weekday, $days, true)) {
+        continue;
+    }
+
+    if ($alert['alert_type'] === 'attendance_monthly_map') {
+        if (!$isFirstDayOfMonth) {
+            continue;
+        }
+
+        $selectedUserIds = array_values(array_filter(array_map('intval', explode(',', (string) ($alert['selected_user_ids'] ?? '')))));
+        $userSql = 'SELECT id, name, email, user_number, department
+             FROM users
+             WHERE is_active = 1
+               AND email_notifications_active = 1
+               AND pin_only_login = 0
+               AND TRIM(email) <> ""';
+        $userParams = [];
+        if ($selectedUserIds) {
+            $placeholders = implode(',', array_fill(0, count($selectedUserIds), '?'));
+            $userSql .= ' AND id IN (' . $placeholders . ')';
+            $userParams = $selectedUserIds;
+        }
+        $userSql .= ' ORDER BY name COLLATE NOCASE ASC';
+        $usersStmt = $pdo->prepare($userSql);
+        $usersStmt->execute($userParams);
+        $users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($users as $user) {
+            $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
+            deliver_report((string) $user['email'], (string) $report['subject'], (string) $report['body']);
+        }
+
+        $processedAlerts++;
         continue;
     }
 
@@ -49,6 +83,8 @@ foreach ($alerts as $alert) {
         $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' para ' . $alert['recipient_email'] . PHP_EOL . $subject . PHP_EOL . $body . PHP_EOL;
         @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
     }
+
+    $processedAlerts++;
 }
 
-echo 'Alertas RH processados: ' . count($alerts) . PHP_EOL;
+echo 'Alertas RH processados: ' . $processedAlerts . PHP_EOL;
