@@ -225,7 +225,7 @@ function initHrAlertsPage() {
 
         searchInput?.addEventListener('input', syncVisibleUsers);
         teamFilter?.addEventListener('change', syncVisibleUsers);
-        selectAllButton?.addEventListener('click', () => {
+        const handleSelectAll = () => {
             getVisibleOptions().forEach((option) => {
                 const checkbox = option.querySelector('.js-alert-user-checkbox');
                 if (checkbox) {
@@ -233,14 +233,16 @@ function initHrAlertsPage() {
                 }
             });
             renderSelectedUsers();
-        });
-        clearAllButton?.addEventListener('click', () => {
+        };
+
+        const handleClearAll = () => {
             getCheckboxes().forEach((checkbox) => {
                 checkbox.checked = false;
             });
             renderSelectedUsers();
-        });
-        selectTeamButton?.addEventListener('click', () => {
+        };
+
+        const handleSelectTeam = () => {
             const selectedTeamId = String(teamFilter?.value || '0');
             getCheckboxes().forEach((checkbox) => {
                 checkbox.checked = false;
@@ -255,11 +257,33 @@ function initHrAlertsPage() {
             });
             renderSelectedUsers();
             syncVisibleUsers();
-        });
-        getCheckboxes().forEach((checkbox) => checkbox.addEventListener('change', renderSelectedUsers));
-        applyButton?.addEventListener('click', () => {
+        };
+
+        const handleApply = () => {
             renderSelectedUsers();
             modal.hide();
+        };
+
+        selectAllButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handleSelectAll();
+        });
+        clearAllButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handleClearAll();
+        });
+        selectTeamButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handleSelectTeam();
+        });
+        getCheckboxes().forEach((checkbox) => checkbox.addEventListener('change', renderSelectedUsers));
+        applyButton?.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handleApply();
         });
         modalElement.addEventListener('shown.bs.modal', () => {
             syncVisibleUsers();
@@ -388,7 +412,7 @@ function initUserPicker(root) {
 
     searchInput?.addEventListener('input', syncVisibleUsers);
     teamFilter?.addEventListener('change', syncVisibleUsers);
-    selectAllButton?.addEventListener('click', () => {
+    const handleSelectAll = () => {
         getVisibleOptions().forEach((option) => {
             const checkbox = option.querySelector('.js-user-picker-checkbox');
             if (checkbox) {
@@ -396,14 +420,16 @@ function initUserPicker(root) {
             }
         });
         renderSelectedUsers();
-    });
-    clearAllButton?.addEventListener('click', () => {
+    };
+
+    const handleClearAll = () => {
         getCheckboxes().forEach((checkbox) => {
             checkbox.checked = false;
         });
         renderSelectedUsers();
-    });
-    selectTeamButton?.addEventListener('click', () => {
+    };
+
+    const handleSelectTeam = () => {
         const selectedTeamId = String(teamFilter?.value || '0');
         getCheckboxes().forEach((checkbox) => {
             checkbox.checked = false;
@@ -418,11 +444,33 @@ function initUserPicker(root) {
         });
         renderSelectedUsers();
         syncVisibleUsers();
-    });
-    getCheckboxes().forEach((checkbox) => checkbox.addEventListener('change', renderSelectedUsers));
-    applyButton?.addEventListener('click', () => {
+    };
+
+    const handleApply = () => {
         renderSelectedUsers();
         modal.hide();
+    };
+
+    selectAllButton?.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handleSelectAll();
+    });
+    clearAllButton?.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handleClearAll();
+    });
+    selectTeamButton?.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handleSelectTeam();
+    });
+    getCheckboxes().forEach((checkbox) => checkbox.addEventListener('change', renderSelectedUsers));
+    applyButton?.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handleApply();
     });
     modalElement.addEventListener('shown.bs.modal', () => {
         syncVisibleUsers();
