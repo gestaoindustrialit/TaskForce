@@ -19,11 +19,22 @@ $allowedReasonTypes = ['Ausência', 'Atraso', 'Outro'];
 $editingReasonId = (int) ($_GET['edit_id'] ?? 0);
 $editingReason = null;
 if ($editingReasonId > 0) {
-    $editStmt = $pdo->prepare('SELECT id, reason_type, code, label, color FROM shopfloor_absence_reasons WHERE id = ? LIMIT 1');
+    $editStmt = $pdo->prepare('SELECT id, reason_type, reason_code, sage_code, label, color, show_in_shopfloor FROM shopfloor_absence_reasons WHERE id = ? LIMIT 1');
     $editStmt->execute([$editingReasonId]);
     $editingReason = $editStmt->fetch(PDO::FETCH_ASSOC) ?: null;
     if (!$editingReason) {
         $editingReasonId = 0;
+    }
+}
+
+if (!function_exists('reason_sort_link')) {
+    function reason_sort_link(string $column, string $label, string $currentSort, string $currentDirection): string
+    {
+        $isCurrent = $column === $currentSort;
+        $nextDirection = $isCurrent && $currentDirection === 'ASC' ? 'desc' : 'asc';
+        $arrow = $isCurrent ? ($currentDirection === 'ASC' ? '↑' : '↓') : '↕';
+
+        return '<a class="text-decoration-none text-reset d-inline-flex align-items-center gap-1" href="?sort=' . urlencode($column) . '&direction=' . urlencode($nextDirection) . '">' . h($label) . '<span class="small text-muted">' . $arrow . '</span></a>';
     }
 }
 
@@ -33,7 +44,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!in_array($reasonType, $allowedReasonTypes, true)) {
         $reasonType = 'Ausência';
     }
-    $code = strtoupper(trim((string) ($_POST['code'] ?? '')));
+    $reasonCode = strtoupper(trim((string) ($_POST['reason_code'] ?? '')));
+    $sageCode = strtoupper(trim((string) ($_POST['sage_code'] ?? '')));
     $label = trim((string) ($_POST['label'] ?? ''));
     $color = trim((string) ($_POST['color'] ?? '#2563eb'));
     if (!preg_match('/^#[0-9a-fA-F]{6}$/', $color)) {
@@ -43,30 +55,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create_reason' || $action === 'update_reason') {
         if ($label === '') {
             $flashError = 'Indique a descrição do motivo.';
-        } elseif ($code === '') {
+        } elseif ($reasonCode === '') {
+            $flashError = 'Indique o código do motivo.';
+        } elseif ($sageCode === '') {
             $flashError = 'Indique o código SAGE do motivo.';
         } else {
             try {
                 if ($action === 'create_reason') {
-                    $stmt = $pdo->prepare('INSERT INTO shopfloor_absence_reasons(reason_type, code, label, color, is_active, created_by) VALUES (?, ?, ?, ?, 1, ?)');
-                    $stmt->execute([$reasonType, $code, $label, $color, $userId]);
-                    log_app_event($pdo, $userId, 'shopfloor.absence_reason.create', 'Motivo de ausência criado.', ['reason_type' => $reasonType, 'code' => $code, 'label' => $label, 'color' => $color]);
+                    $stmt = $pdo->prepare('INSERT INTO shopfloor_absence_reasons(reason_type, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, 1, ?)');
+                    $stmt->execute([$reasonType, $reasonCode, $sageCode, $label, $color, $userId]);
+                    log_app_event($pdo, $userId, 'shopfloor.absence_reason.create', 'Motivo de ausência criado.', ['reason_type' => $reasonType, 'reason_code' => $reasonCode, 'sage_code' => $sageCode, 'label' => $label, 'color' => $color]);
                     $flashSuccess = 'Motivo criado com sucesso.';
                 } else {
                     $reasonId = (int) ($_POST['reason_id'] ?? 0);
                     if ($reasonId <= 0) {
                         $flashError = 'Motivo inválido para edição.';
                     } else {
-                        $stmt = $pdo->prepare('UPDATE shopfloor_absence_reasons SET reason_type = ?, code = ?, label = ?, color = ? WHERE id = ?');
-                        $stmt->execute([$reasonType, $code, $label, $color, $reasonId]);
-                        log_app_event($pdo, $userId, 'shopfloor.absence_reason.update', 'Motivo de ausência editado.', ['reason_id' => $reasonId, 'reason_type' => $reasonType, 'code' => $code, 'label' => $label, 'color' => $color]);
+                        $stmt = $pdo->prepare('UPDATE shopfloor_absence_reasons SET reason_type = ?, reason_code = ?, sage_code = ?, label = ?, color = ? WHERE id = ?');
+                        $stmt->execute([$reasonType, $reasonCode, $sageCode, $label, $color, $reasonId]);
+                        log_app_event($pdo, $userId, 'shopfloor.absence_reason.update', 'Motivo de ausência editado.', ['reason_id' => $reasonId, 'reason_type' => $reasonType, 'reason_code' => $reasonCode, 'sage_code' => $sageCode, 'label' => $label, 'color' => $color]);
                         $flashSuccess = 'Motivo atualizado com sucesso.';
                         $editingReasonId = 0;
                         $editingReason = null;
                     }
                 }
             } catch (PDOException $exception) {
-                $flashError = 'Não foi possível guardar o motivo (código ou descrição já existem).';
+                $flashError = 'Não foi possível guardar o motivo (o código do motivo ou a descrição já existem).';
             }
         }
     }
@@ -81,6 +95,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$newState, $reasonId]);
             log_app_event($pdo, $userId, 'shopfloor.absence_reason.toggle', 'Estado do motivo de ausência alterado.', ['reason_id' => $reasonId, 'is_active' => $newState]);
             $flashSuccess = 'Estado do motivo atualizado.';
+        }
+    }
+
+    if ($action === 'toggle_shopfloor_visibility') {
+        $reasonId = (int) ($_POST['reason_id'] ?? 0);
+        $showInShopfloor = (int) ($_POST['show_in_shopfloor'] ?? 0) === 1 ? 1 : 0;
+        if ($reasonId <= 0) {
+            $flashError = 'Motivo inválido.';
+        } else {
+            $stmt = $pdo->prepare('UPDATE shopfloor_absence_reasons SET show_in_shopfloor = ? WHERE id = ?');
+            $stmt->execute([$showInShopfloor, $reasonId]);
+            log_app_event($pdo, $userId, 'shopfloor.absence_reason.shopfloor_visibility', 'Visibilidade do motivo no Shopfloor alterada.', ['reason_id' => $reasonId, 'show_in_shopfloor' => $showInShopfloor]);
+            $flashSuccess = 'Visibilidade do motivo no Shopfloor atualizada.';
         }
     }
 
@@ -101,7 +128,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$reasons = $pdo->query('SELECT id, reason_type, code, label, color, is_active, created_at FROM shopfloor_absence_reasons ORDER BY is_active DESC, label COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
+$allowedSortFields = [
+    'reason_type' => 'reason_type',
+    'reason_code' => 'reason_code',
+    'sage_code' => 'sage_code',
+    'label' => 'label',
+    'created_at' => 'created_at',
+    'is_active' => 'is_active'
+];
+$sort = (string) ($_GET['sort'] ?? 'label');
+if (!array_key_exists($sort, $allowedSortFields)) {
+    $sort = 'label';
+}
+$direction = strtolower((string) ($_GET['direction'] ?? 'asc')) === 'desc' ? 'DESC' : 'ASC';
+$orderBy = $allowedSortFields[$sort];
+$reasons = $pdo->query('SELECT id, reason_type, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_at FROM shopfloor_absence_reasons ORDER BY is_active DESC, ' . $orderBy . ' COLLATE NOCASE ' . $direction . ', label COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
 
 $pageTitle = 'Motivos de ausência';
 require __DIR__ . '/partials/header.php';
@@ -123,7 +164,7 @@ require __DIR__ . '/partials/header.php';
             <?php if ($editingReason): ?>
                 <input type="hidden" name="reason_id" value="<?= (int) $editingReason['id'] ?>">
             <?php endif; ?>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label">Tipo</label>
                 <select name="reason_type" class="form-select" required>
                     <?php foreach ($allowedReasonTypes as $type): ?>
@@ -132,10 +173,14 @@ require __DIR__ . '/partials/header.php';
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label">Código (SAGE)</label>
-                <input type="text" name="code" class="form-control" placeholder="Ex: 100" value="<?= h((string) ($editingReason['code'] ?? '')) ?>" required>
+                <label class="form-label">Código do motivo</label>
+                <input type="text" name="reason_code" class="form-control" placeholder="Ex: MOT-010" value="<?= h((string) ($editingReason['reason_code'] ?? '')) ?>" required>
             </div>
-            <div class="col-md-5">
+            <div class="col-md-2">
+                <label class="form-label">Código SAGE</label>
+                <input type="text" name="sage_code" class="form-control" placeholder="Ex: 100" value="<?= h((string) ($editingReason['sage_code'] ?? '')) ?>" required>
+            </div>
+            <div class="col-md-4">
                 <label class="form-label">Descrição</label>
                 <input type="text" name="label" class="form-control" placeholder="Ex: Falta sem perda de remuneração" value="<?= h((string) ($editingReason['label'] ?? '')) ?>" required>
             </div>
@@ -159,12 +204,14 @@ require __DIR__ . '/partials/header.php';
             <table class="table table-sm align-middle mb-0">
                 <thead>
                 <tr>
-                    <th>Tipo</th>
-                    <th>Código</th>
-                    <th>Motivo</th>
+                    <th><?= reason_sort_link('reason_type', 'Tipo', $sort, $direction) ?></th>
+                    <th><?= reason_sort_link('reason_code', 'Cód. motivo', $sort, $direction) ?></th>
+                    <th><?= reason_sort_link('sage_code', 'Cód. SAGE', $sort, $direction) ?></th>
+                    <th><?= reason_sort_link('label', 'Motivo', $sort, $direction) ?></th>
                     <th>Cor</th>
-                    <th>Criado em</th>
-                    <th>Estado</th>
+                    <th>Shopfloor</th>
+                    <th><?= reason_sort_link('created_at', 'Criado em', $sort, $direction) ?></th>
+                    <th><?= reason_sort_link('is_active', 'Estado', $sort, $direction) ?></th>
                     <th class="text-end">Ação</th>
                 </tr>
                 </thead>
@@ -172,11 +219,22 @@ require __DIR__ . '/partials/header.php';
                 <?php if ($reasons): foreach ($reasons as $reason): ?>
                     <tr>
                         <td><?= h((string) ($reason['reason_type'] ?? 'Ausência')) ?></td>
-                        <td><span class="badge text-bg-light border"><?= h((string) $reason['code']) ?></span></td>
+                        <td><span class="badge text-bg-light border"><?= h((string) $reason['reason_code']) ?></span></td>
+                        <td><span class="badge text-bg-light border"><?= h((string) $reason['sage_code']) ?></span></td>
                         <td class="fw-semibold"><?= h((string) $reason['label']) ?></td>
                         <td>
                             <span class="d-inline-block rounded border" style="width:20px;height:20px;background:<?= h((string) $reason['color']) ?>;"></span>
                             <span class="small text-muted ms-1"><?= h((string) $reason['color']) ?></span>
+                        </td>
+                        <td>
+                            <form method="post" class="d-inline">
+                                <input type="hidden" name="action" value="toggle_shopfloor_visibility">
+                                <input type="hidden" name="reason_id" value="<?= (int) $reason['id'] ?>">
+                                <input type="hidden" name="show_in_shopfloor" value="<?= (int) ($reason['show_in_shopfloor'] ?? 1) === 1 ? 0 : 1 ?>">
+                                <button type="submit" class="btn btn-sm <?= (int) ($reason['show_in_shopfloor'] ?? 1) === 1 ? 'btn-outline-secondary' : 'btn-outline-warning' ?>">
+                                    <?= (int) ($reason['show_in_shopfloor'] ?? 1) === 1 ? 'Visível' : 'Oculto' ?>
+                                </button>
+                            </form>
                         </td>
                         <td><?= h((string) $reason['created_at']) ?></td>
                         <td>
@@ -210,7 +268,7 @@ require __DIR__ . '/partials/header.php';
                         </td>
                     </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="7" class="text-muted">Sem motivos registados.</td></tr>
+                    <tr><td colspan="9" class="text-muted">Sem motivos registados.</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>

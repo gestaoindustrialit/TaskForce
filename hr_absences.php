@@ -36,7 +36,7 @@ if (!function_exists('format_absence_employee_label')) {
 }
 
 $users = $pdo->query('SELECT id, name, user_number FROM users WHERE is_active = 1 AND pin_only_login = 0 AND TRIM(COALESCE(name, "")) <> "" ORDER BY name COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
-$reasons = $pdo->query('SELECT reason_type, code, label FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY reason_type COLLATE NOCASE ASC, label COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
+$reasons = $pdo->query('SELECT reason_type, reason_code, sage_code, label FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY reason_type COLLATE NOCASE ASC, label COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
@@ -52,12 +52,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $label = '';
             foreach ($reasons as $reason) {
-                if ((string) $reason['code'] === $reasonCode) {
+                if ((string) $reason['reason_code'] === $reasonCode) {
                     $label = (string) $reason['label'];
                     break;
                 }
             }
-            $reasonText = $label !== '' ? $reasonCode . ' - ' . $label : $reasonCode;
+            $sageCode = '';
+            foreach ($reasons as $reason) {
+                if ((string) $reason['reason_code'] === $reasonCode) {
+                    $sageCode = (string) ($reason['sage_code'] ?? '');
+                    break;
+                }
+            }
+            $reasonText = $label !== '' ? $reasonCode . ' · ' . $sageCode . ' - ' . $label : $reasonCode;
             $stmt = $pdo->prepare('INSERT INTO shopfloor_absence_requests(user_id, request_type, start_date, end_date, reason, details, status) VALUES (?, "Dias inteiros", ?, ?, ?, ?, "Pendente Nível 1")');
             $stmt->execute([$targetUserId, $startDate, $endDate, $reasonText, $notes]);
             $flashSuccess = 'Pedido submetido para aprovação N1.';
@@ -115,7 +122,7 @@ require __DIR__ . '/partials/header.php';
             <div class="col-md-3"><label class="form-label">Colaborador</label><select class="form-select" name="user_id" required><?php foreach ($users as $u): ?><option value="<?= (int) $u['id'] ?>"><?= h(format_absence_employee_label($u)) ?></option><?php endforeach; ?></select></div>
             <div class="col-md-3"><label class="form-label">Início</label><input class="form-control" type="date" name="start_date" required></div>
             <div class="col-md-3"><label class="form-label">Fim</label><input class="form-control" type="date" name="end_date" required></div>
-            <div class="col-md-3"><label class="form-label">Motivo</label><select class="form-select" name="reason_code" required><option value="">Selecione</option><?php foreach ($reasons as $r): ?><option value="<?= h((string) $r['code']) ?>"><?= h(trim((string) ($r['reason_type'] ?? 'Ausência')) . ' · ' . (string) $r['code'] . ' - ' . (string) $r['label']) ?></option><?php endforeach; ?></select></div>
+            <div class="col-md-3"><label class="form-label">Motivo</label><select class="form-select" name="reason_code" required><option value="">Selecione</option><?php foreach ($reasons as $r): ?><option value="<?= h((string) $r['reason_code']) ?>"><?= h(trim((string) ($r['reason_type'] ?? 'Ausência')) . ' · ' . (string) $r['reason_code'] . ' · ' . (string) $r['sage_code'] . ' - ' . (string) $r['label']) ?></option><?php endforeach; ?></select></div>
             <div class="col-12"><label class="form-label">Justificação / Observações</label><input class="form-control" name="notes" placeholder="Visível em todas as etapas"></div>
             <div class="col-md-3 d-grid"><button class="btn btn-dark">Submeter pedido</button></div>
         </form>

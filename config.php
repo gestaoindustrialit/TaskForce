@@ -480,8 +480,11 @@ $pdo->exec(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         reason_type TEXT NOT NULL DEFAULT "Ausência",
         code TEXT,
+        reason_code TEXT,
+        sage_code TEXT,
         label TEXT NOT NULL UNIQUE,
         color TEXT NOT NULL DEFAULT "#2563eb",
+        show_in_shopfloor INTEGER NOT NULL DEFAULT 1,
         is_active INTEGER NOT NULL DEFAULT 1,
         created_by INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -493,31 +496,45 @@ $absenceReasonColumns = $pdo->query('PRAGMA table_info(shopfloor_absence_reasons
 if (!in_array('code', $absenceReasonColumns, true)) {
     $pdo->exec('ALTER TABLE shopfloor_absence_reasons ADD COLUMN code TEXT');
 }
+if (!in_array('reason_code', $absenceReasonColumns, true)) {
+    $pdo->exec('ALTER TABLE shopfloor_absence_reasons ADD COLUMN reason_code TEXT');
+}
+if (!in_array('sage_code', $absenceReasonColumns, true)) {
+    $pdo->exec('ALTER TABLE shopfloor_absence_reasons ADD COLUMN sage_code TEXT');
+}
 if (!in_array('color', $absenceReasonColumns, true)) {
     $pdo->exec("ALTER TABLE shopfloor_absence_reasons ADD COLUMN color TEXT NOT NULL DEFAULT '#2563eb'");
 }
 if (!in_array('reason_type', $absenceReasonColumns, true)) {
     $pdo->exec("ALTER TABLE shopfloor_absence_reasons ADD COLUMN reason_type TEXT NOT NULL DEFAULT 'Ausência'");
 }
+if (!in_array('show_in_shopfloor', $absenceReasonColumns, true)) {
+    $pdo->exec('ALTER TABLE shopfloor_absence_reasons ADD COLUMN show_in_shopfloor INTEGER NOT NULL DEFAULT 1');
+}
 
-$pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_reasons_code ON shopfloor_absence_reasons(code)');
 $pdo->exec("UPDATE shopfloor_absence_reasons SET color = '#2563eb' WHERE color IS NULL OR TRIM(color) = ''");
 $pdo->exec("UPDATE shopfloor_absence_reasons SET reason_type = 'Ausência' WHERE reason_type IS NULL OR TRIM(reason_type) = ''");
-$missingAbsenceReasonCodes = $pdo->query("SELECT id FROM shopfloor_absence_reasons WHERE code IS NULL OR TRIM(code) = '' ORDER BY id ASC")->fetchAll(PDO::FETCH_COLUMN);
+$pdo->exec('UPDATE shopfloor_absence_reasons SET reason_code = COALESCE(NULLIF(TRIM(reason_code), ""), NULLIF(TRIM(code), ""))');
+$pdo->exec('UPDATE shopfloor_absence_reasons SET sage_code = COALESCE(NULLIF(TRIM(sage_code), ""), NULLIF(TRIM(code), ""), NULLIF(TRIM(reason_code), ""))');
+$pdo->exec('UPDATE shopfloor_absence_reasons SET show_in_shopfloor = 1 WHERE show_in_shopfloor IS NULL');
+$missingAbsenceReasonCodes = $pdo->query("SELECT id FROM shopfloor_absence_reasons WHERE reason_code IS NULL OR TRIM(reason_code) = '' ORDER BY id ASC")->fetchAll(PDO::FETCH_COLUMN);
 if ($missingAbsenceReasonCodes) {
-    $absenceReasonCodeUpdateStmt = $pdo->prepare('UPDATE shopfloor_absence_reasons SET code = ? WHERE id = ?');
+    $absenceReasonCodeUpdateStmt = $pdo->prepare('UPDATE shopfloor_absence_reasons SET reason_code = ? WHERE id = ?');
     foreach ($missingAbsenceReasonCodes as $absenceReasonId) {
         $absenceReasonCodeUpdateStmt->execute([sprintf('MOT-%03d', (int) $absenceReasonId), (int) $absenceReasonId]);
     }
 }
+$pdo->exec('UPDATE shopfloor_absence_reasons SET sage_code = reason_code WHERE sage_code IS NULL OR TRIM(sage_code) = ""');
+$pdo->exec('DROP INDEX IF EXISTS idx_shopfloor_absence_reasons_code');
+$pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_reasons_reason_code ON shopfloor_absence_reasons(reason_code)');
 
-$defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(reason_type, code, label, color, is_active, created_by) VALUES (?, ?, ?, ?, 1, NULL)');
+$defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(reason_type, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, 1, NULL)');
 foreach ([
-    ['Ausência', 'MOT-001', 'Falta sem perda de remuneração', '#0d6efd'],
-    ['Ausência', 'MOT-002', 'Consulta médica', '#198754'],
-    ['Ausência', 'MOT-003', 'Acompanhamento familiar', '#fd7e14'],
-    ['Ausência', 'MOT-004', 'Formação externa', '#6f42c1'],
-    ['Ausência', 'MOT-005', 'Outro motivo justificado', '#6c757d']
+    ['Ausência', 'MOT-001', '001', 'Falta sem perda de remuneração', '#0d6efd'],
+    ['Ausência', 'MOT-002', '002', 'Consulta médica', '#198754'],
+    ['Ausência', 'MOT-003', '003', 'Acompanhamento familiar', '#fd7e14'],
+    ['Ausência', 'MOT-004', '004', 'Formação externa', '#6f42c1'],
+    ['Ausência', 'MOT-005', '005', 'Outro motivo justificado', '#6c757d']
 ] as $defaultAbsenceReason) {
     $defaultAbsenceReasonStmt->execute($defaultAbsenceReason);
 }
