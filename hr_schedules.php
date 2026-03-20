@@ -49,6 +49,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $flashError = 'Não foi possível guardar horário (nome duplicado).';
             }
         }
+    } elseif ($action === 'delete_schedule') {
+        $id = (int) ($_POST['schedule_id'] ?? 0);
+
+        if ($id <= 0) {
+            $flashError = 'Horário inválido.';
+        } else {
+            $assignedUsersStmt = $pdo->prepare('SELECT COUNT(*) FROM users WHERE schedule_id = ?');
+            $assignedUsersStmt->execute([$id]);
+            $assignedUsersCount = (int) $assignedUsersStmt->fetchColumn();
+
+            if ($assignedUsersCount > 0) {
+                $flashError = 'Não é possível eliminar um horário associado a utilizadores.';
+            } else {
+                $deleteStmt = $pdo->prepare('DELETE FROM hr_schedules WHERE id = ?');
+                $deleteStmt->execute([$id]);
+                $flashSuccess = 'Horário eliminado com sucesso.';
+            }
+        }
     }
 }
 
@@ -108,6 +126,11 @@ require __DIR__ . '/partials/header.php';
                                 <div class="col-md-2"><input class="form-control form-control-sm" type="time" name="second_start_time" value="<?= h((string) ($schedule['second_start_time'] ?? '')) ?>" required></div>
                                 <div class="col-md-2"><input class="form-control form-control-sm" type="time" name="second_end_time" value="<?= h((string) ($schedule['second_end_time'] ?? '')) ?>" required></div>
                                 <div class="col-md-2"><button class="btn btn-sm btn-outline-secondary w-100">Guardar</button></div>
+                            </form>
+                            <form method="post" class="mt-2" onsubmit="return confirm('Eliminar este horário?');">
+                                <input type="hidden" name="action" value="delete_schedule">
+                                <input type="hidden" name="schedule_id" value="<?= (int) $schedule['id'] ?>">
+                                <button class="btn btn-sm btn-outline-danger w-100">Eliminar</button>
                             </form>
                         </td>
                     </tr>
