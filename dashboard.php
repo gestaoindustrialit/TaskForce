@@ -1269,6 +1269,16 @@ require __DIR__ . '/partials/header.php';
     </div>
 </div>
 
+<div class="card shadow-sm soft-card mt-4">
+    <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center gap-3">
+        <div>
+            <h2 class="h5 mb-1">Relatório diário</h2>
+            <p class="small text-muted mb-0">Acesso rápido ao preenchimento e envio do relatório diário do colaborador.</p>
+        </div>
+        <a class="btn btn-outline-primary btn-sm" href="daily_report.php">Abrir relatório</a>
+    </div>
+</div>
+
 <div class="modal fade" id="ticketModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <form method="post" enctype="multipart/form-data" class="modal-content">
