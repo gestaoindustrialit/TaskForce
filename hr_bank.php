@@ -463,7 +463,7 @@ require __DIR__ . '/partials/header.php';
                 <label for="selected-user-id" class="form-label">Colaborador selecionado</label>
                 <select class="form-select" id="selected-user-id" name="user_id" onchange="this.form.submit()">
                     <?php foreach ($users as $u): ?>
-                        <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= h((string) $u['name']) ?><?= !empty($u['email']) ? ' · ' . h((string) $u['email']) : '' ?></option>
+                        <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= !empty($u['user_number']) ? h((string) $u['user_number']) . ' - ' : '' ?><?= h((string) $u['name']) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <div class="form-text">Ao trocar o colaborador, o saldo atual, o formulário e o histórico passam a referir-se ao utilizador selecionado.</div>
@@ -487,14 +487,32 @@ require __DIR__ . '/partials/header.php';
         <?php if ($selectedUser): ?>
             <p class="text-muted small mb-3">O ajuste manual será aplicado a <strong><?= h((string) $selectedUser['name']) ?></strong><?= !empty($selectedUser['email']) ? ' (' . h((string) $selectedUser['email']) . ')' : '' ?>.</p>
         <?php endif; ?>
-        <form method="post" class="row g-2 align-items-end">
+        <form method="post" class="row g-3 align-items-end">
             <input type="hidden" name="action" value="adjust_balance">
             <input type="hidden" name="user_id" value="<?= (int) $selectedUserId ?>">
-            <div class="col-md-3"><label class="form-label">Tipo</label><select class="form-select" name="adjustment_type" required><option value="">Selecione</option><option value="credito">Crédito</option><option value="debito">Débito</option></select></div>
-            <div class="col-md-3"><label class="form-label">Ajuste (hh:mm)</label><input class="form-control" name="delta_hms" placeholder="01:30" required></div>
-            <div class="col-md-2"><label class="form-label">Data da ação</label><input class="form-control" type="date" name="action_date" value="<?= h(date('Y-m-d')) ?>" required></div>
-            <div class="col-md-3"><label class="form-label">Motivo</label><input class="form-control" name="reason" placeholder="Ex: Ajuste payroll" required></div>
-            <div class="col-md-1 d-grid"><button class="btn btn-dark">Aplicar</button></div>
+            <div class="col-12 col-lg-3">
+                <label class="form-label">Tipo</label>
+                <select class="form-select" name="adjustment_type" required>
+                    <option value="">Selecione</option>
+                    <option value="credito">Crédito</option>
+                    <option value="debito">Débito</option>
+                </select>
+            </div>
+            <div class="col-12 col-lg-3">
+                <label class="form-label">Ajuste (hh:mm)</label>
+                <input class="form-control" name="delta_hms" placeholder="01:30" required>
+            </div>
+            <div class="col-12 col-lg-2">
+                <label class="form-label">Data da ação</label>
+                <input class="form-control" type="date" name="action_date" value="<?= h(date('Y-m-d')) ?>" required>
+            </div>
+            <div class="col-12 col-lg-3">
+                <label class="form-label">Motivo</label>
+                <input class="form-control" name="reason" placeholder="Ex: Ajuste payroll" required>
+            </div>
+            <div class="col-12 col-lg-1 d-grid">
+                <button class="btn btn-dark">Aplicar</button>
+            </div>
         </form>
     </div>
 </div>
@@ -568,61 +586,5 @@ require __DIR__ . '/partials/header.php';
     </div>
 </div>
 
-<div class="card shadow-sm mb-3">
-    <div class="card-body">
-        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
-            <div>
-                <h2 class="h5 mb-1">Ajuste em bulk</h2>
-                <p class="text-muted mb-0">Importe um ficheiro Excel com várias linhas para aplicar créditos ou débitos a vários colaboradores de uma só vez.</p>
-            </div>
-            <a class="btn btn-outline-secondary" href="hr_bank.php?download=bulk-template"><i class="bi bi-download"></i> Download template Excel</a>
-        </div>
-        <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
-            <input type="hidden" name="action" value="bulk_adjust_balance">
-            <div class="col-lg-8">
-                <label class="form-label">Ficheiro Excel</label>
-                <input class="form-control" type="file" name="bulk_file" accept=".xlsx,.xls,.xml,.csv" required>
-                <div class="form-text">Template esperado com as colunas: <code>email</code>, <code>adjustment_type</code>, <code>delta_hms</code>, <code>action_date</code> e <code>reason</code>.</div>
-            </div>
-            <div class="col-lg-4 d-grid">
-                <button class="btn btn-primary">Importar ajustes</button>
-            </div>
-        </form>
-
-        <?php if ($bulkImportSummary): ?>
-            <div class="mt-4">
-                <?php if (!empty($bulkImportSummary['errors'])): ?>
-                    <div class="alert alert-warning mb-3">
-                        <strong>Foram encontrados erros:</strong>
-                        <ul class="mb-0 mt-2">
-                            <?php foreach ($bulkImportSummary['errors'] as $error): ?>
-                                <li><?= h($error) ?></li>
-                            <?php endforeach; ?>
-                        </ul>
-                    </div>
-                <?php endif; ?>
-                <?php if (!empty($bulkImportSummary['processed'])): ?>
-                    <h3 class="h6">Pré-visualização das linhas processadas</h3>
-                    <div class="table-responsive">
-                        <table class="table table-sm align-middle mb-0">
-                            <thead><tr><th>Colaborador</th><th>Email</th><th>Tipo</th><th>Delta</th><th>Data da ação</th></tr></thead>
-                            <tbody>
-                            <?php foreach ($bulkImportSummary['processed'] as $processedRow): ?>
-                                <tr>
-                                    <td><?= h($processedRow['name']) ?></td>
-                                    <td><?= h($processedRow['email']) ?></td>
-                                    <td><?= h($processedRow['type']) ?></td>
-                                    <td><?= h($processedRow['delta']) ?></td>
-                                    <td><?= h($processedRow['action_date']) ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php endif; ?>
-            </div>
-        <?php endif; ?>
-    </div>
-</div>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>
