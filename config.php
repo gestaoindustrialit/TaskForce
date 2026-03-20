@@ -545,11 +545,7 @@ if ($missingAbsenceReasonCodes) {
     }
 }
 $pdo->exec('UPDATE shopfloor_absence_reasons SET sage_code = reason_code WHERE sage_code IS NULL OR TRIM(sage_code) = ""');
-$legacyAbsenceReasonCodeIndexExists = taskforce_sqlite_index_exists($pdo, 'idx_shopfloor_absence_reasons_code');
 $absenceReasonCodeIndexExists = taskforce_sqlite_index_exists($pdo, 'idx_shopfloor_absence_reasons_reason_code');
-if ($legacyAbsenceReasonCodeIndexExists && !$absenceReasonCodeIndexExists) {
-    $pdo->exec('DROP INDEX idx_shopfloor_absence_reasons_code');
-}
 if (!$absenceReasonCodeIndexExists) {
     $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_reasons_reason_code ON shopfloor_absence_reasons(reason_code)');
 }
