@@ -76,7 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $startDate = trim((string) ($_POST['start_date'] ?? ''));
         $endDate = trim((string) ($_POST['end_date'] ?? ''));
         $status = trim((string) ($_POST['status'] ?? 'Pendente'));
-        $notes = trim((string) ($_POST['notes'] ?? ''));
+        $notes = '';
         $totalDays = business_days_between($startDate, $endDate);
 
         if ($targetUserId <= 0 || $startDate === '' || $endDate === '' || $startDate > $endDate) {
@@ -119,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$users = $pdo->query('SELECT id, name FROM users WHERE is_active = 1 ORDER BY name COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
+$users = $pdo->query('SELECT id, name, user_number FROM users WHERE is_active = 1 ORDER BY name COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
 if ($selectedUserId <= 0 && $users) {
     $selectedUserId = (int) $users[0]['id'];
 }
@@ -181,12 +181,40 @@ require __DIR__ . '/partials/header.php';
 <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
 
+<style>
+    .vacation-form-row {
+        flex-wrap: nowrap;
+    }
+
+    .vacation-form-row > [class*='col-'] {
+        flex-shrink: 0;
+    }
+
+    .vacation-active-check {
+        min-height: 100%;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding-top: 2rem;
+    }
+
+    @media (max-width: 991.98px) {
+        .vacation-form-row {
+            flex-wrap: wrap;
+        }
+
+        .vacation-active-check {
+            padding-top: 0;
+        }
+    }
+</style>
+
 <form method="get" class="row g-3 align-items-end mb-3">
     <div class="col-md-3">
         <label class="form-label">Colaborador</label>
         <select class="form-select" name="user_id">
             <?php foreach ($users as $u): ?>
-                <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= (int) $u['id'] ?> - <?= h($u['name']) ?></option>
+                <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= h(trim((string) ($u['user_number'] ?? '')) !== '' ? trim((string) $u['user_number']) : (string) $u['id']) ?> - <?= h($u['name']) ?></option>
             <?php endforeach; ?>
         </select>
     </div>
@@ -208,21 +236,26 @@ require __DIR__ . '/partials/header.php';
 <div class="card shadow-sm mb-4">
     <div class="card-header bg-white"><h2 class="h5 mb-0">Saldo anual</h2></div>
     <div class="card-body">
-        <form method="post" class="row g-3 align-items-end">
+        <form method="post" class="row g-3 align-items-end flex-nowrap vacation-form-row">
             <input type="hidden" name="action" value="save_balance">
-            <div class="col-md-4">
+            <div class="col-lg-4 col-md-12">
                 <label class="form-label">Colaborador</label>
                 <select class="form-select" name="user_id" required>
                     <?php foreach ($users as $u): ?>
-                        <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= (int) $u['id'] ?> - <?= h($u['name']) ?></option>
+                        <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= h(trim((string) ($u['user_number'] ?? '')) !== '' ? trim((string) $u['user_number']) : (string) $u['id']) ?> - <?= h($u['name']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="col-md-2"><label class="form-label">Ano</label><input class="form-control" type="number" name="year" min="2000" max="2100" value="<?= (int) $selectedYear ?>" required></div>
-            <div class="col-md-3"><label class="form-label">Dias atribuídos</label><input class="form-control" type="number" step="0.5" min="0" name="assigned_days" value="<?= h((string) $balance['assigned_days']) ?>" required></div>
-                        <div class="col-md-2 form-check mt-4 ms-2"><input class="form-check-input" type="checkbox" id="is_active" name="is_active" <?= (int) ($balance['is_active'] ?? 0) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="is_active">Ativo</label></div>
-            <div class="col-md-3 d-grid"><button class="btn btn-dark">Guardar saldo</button></div>
-            <div class="col-md-2 d-grid">
+            <div class="col-lg-2 col-md-12"><label class="form-label">Ano</label><input class="form-control" type="number" name="year" min="2000" max="2100" value="<?= (int) $selectedYear ?>" required></div>
+            <div class="col-lg-3 col-md-12"><label class="form-label">Dias atribuídos</label><input class="form-control" type="number" step="0.5" min="0" name="assigned_days" value="<?= h((string) $balance['assigned_days']) ?>" required></div>
+            <div class="col-lg-auto col-md-12">
+                <div class="form-check vacation-active-check">
+                    <input class="form-check-input" type="checkbox" id="is_active" name="is_active" <?= (int) ($balance['is_active'] ?? 0) === 1 ? 'checked' : '' ?>>
+                    <label class="form-check-label" for="is_active">Ativo</label>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-12 d-grid"><button class="btn btn-dark">Guardar saldo</button></div>
+            <div class="col-lg-2 col-md-12 d-grid">
                 <a class="btn btn-outline-secondary" href="?user_id=<?= (int) $selectedUserId ?>&year=<?= (int) $selectedYear ?>&action=export_payroll">Export payroll pronto</a>
             </div>
         </form>
@@ -232,22 +265,21 @@ require __DIR__ . '/partials/header.php';
 <div class="card shadow-sm mb-4">
     <div class="card-header bg-white"><h2 class="h5 mb-0">Novo pedido de férias</h2></div>
     <div class="card-body">
-        <form method="post" class="row g-3">
+        <form method="post" class="row g-3 align-items-end flex-nowrap vacation-form-row">
             <input type="hidden" name="action" value="create_vacation">
-            <div class="col-md-4">
+            <div class="col-lg-4 col-md-12">
                 <label class="form-label">Colaborador</label>
                 <select class="form-select" name="user_id" required>
                     <?php foreach ($users as $u): ?>
-                        <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= (int) $u['id'] ?> - <?= h($u['name']) ?></option>
+                        <option value="<?= (int) $u['id'] ?>" <?= (int) $u['id'] === $selectedUserId ? 'selected' : '' ?>><?= h(trim((string) ($u['user_number'] ?? '')) !== '' ? trim((string) $u['user_number']) : (string) $u['id']) ?> - <?= h($u['name']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="col-md-2"><label class="form-label">Ano</label><input class="form-control" type="number" name="year" min="2000" max="2100" value="<?= (int) $selectedYear ?>" required></div>
-            <div class="col-md-3"><label class="form-label">Início</label><input class="form-control" type="date" name="start_date" required></div>
-            <div class="col-md-3"><label class="form-label">Fim</label><input class="form-control" type="date" name="end_date" required></div>
-            <div class="col-md-2"><label class="form-label">Estado</label><select class="form-select" name="status"><?php foreach ($statusOptions as $status): ?><option value="<?= h($status) ?>" <?= $status === 'Pendente' ? 'selected' : '' ?>><?= h($status) ?></option><?php endforeach; ?></select></div>
-            <div class="col-md-4"><label class="form-label">Justificação</label><input class="form-control" type="text" name="notes" placeholder="Notas adicionais"></div>
-            <div class="col-md-3 d-grid align-self-end"><button class="btn btn-dark">Submeter pedido</button></div>
+            <div class="col-lg-2 col-md-12"><label class="form-label">Ano</label><input class="form-control" type="number" name="year" min="2000" max="2100" value="<?= (int) $selectedYear ?>" required></div>
+            <div class="col-lg-3 col-md-12"><label class="form-label">Início</label><input class="form-control" type="date" name="start_date" required></div>
+            <div class="col-lg-3 col-md-12"><label class="form-label">Fim</label><input class="form-control" type="date" name="end_date" required></div>
+            <div class="col-lg-2 col-md-12"><label class="form-label">Estado</label><select class="form-select" name="status"><?php foreach ($statusOptions as $status): ?><option value="<?= h($status) ?>" <?= $status === 'Pendente' ? 'selected' : '' ?>><?= h($status) ?></option><?php endforeach; ?></select></div>
+            <div class="col-lg-3 col-md-12 d-grid"><button class="btn btn-dark">Submeter pedido</button></div>
         </form>
     </div>
 </div>
