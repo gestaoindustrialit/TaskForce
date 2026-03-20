@@ -53,6 +53,16 @@ if (!function_exists('taskforce_render_internal_error')) {
     }
 }
 
+if (!function_exists('taskforce_sqlite_index_exists')) {
+    function taskforce_sqlite_index_exists(PDO $pdo, string $indexName): bool
+    {
+        $statement = $pdo->prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ? LIMIT 1");
+        $statement->execute([$indexName]);
+
+        return (bool) $statement->fetchColumn();
+    }
+}
+
 if (!defined('TASKFORCE_ERROR_HANDLERS_REGISTERED')) {
     define('TASKFORCE_ERROR_HANDLERS_REGISTERED', true);
 
@@ -113,7 +123,10 @@ if (!extension_loaded('pdo_sqlite')) {
 try {
     $pdo = new PDO('sqlite:' . $dbFile);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->setAttribute(PDO::ATTR_TIMEOUT, 5);
     $pdo->exec('PRAGMA foreign_keys = ON');
+    $pdo->exec('PRAGMA busy_timeout = 5000');
+    $pdo->exec('PRAGMA journal_mode = WAL');
 } catch (Throwable $exception) {
     error_log('[TaskForce] Falha ao iniciar base de dados SQLite: ' . $exception->getMessage());
     http_response_code(500);
@@ -532,8 +545,14 @@ if ($missingAbsenceReasonCodes) {
     }
 }
 $pdo->exec('UPDATE shopfloor_absence_reasons SET sage_code = reason_code WHERE sage_code IS NULL OR TRIM(sage_code) = ""');
-$pdo->exec('DROP INDEX IF EXISTS idx_shopfloor_absence_reasons_code');
-$pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_reasons_reason_code ON shopfloor_absence_reasons(reason_code)');
+$legacyAbsenceReasonCodeIndexExists = taskforce_sqlite_index_exists($pdo, 'idx_shopfloor_absence_reasons_code');
+$absenceReasonCodeIndexExists = taskforce_sqlite_index_exists($pdo, 'idx_shopfloor_absence_reasons_reason_code');
+if ($legacyAbsenceReasonCodeIndexExists && !$absenceReasonCodeIndexExists) {
+    $pdo->exec('DROP INDEX idx_shopfloor_absence_reasons_code');
+}
+if (!$absenceReasonCodeIndexExists) {
+    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_reasons_reason_code ON shopfloor_absence_reasons(reason_code)');
+}
 
 $defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(reason_type, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, 1, NULL)');
 foreach ([
