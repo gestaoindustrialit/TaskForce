@@ -34,6 +34,22 @@ function is_hr_alert_due_today(array $alert, DateTimeImmutable $now): bool
     return in_array($weekday, $days, true);
 }
 
+function has_hr_alert_been_sent_today(array $alert, DateTimeImmutable $now): bool
+{
+    $lastSentAt = trim((string) ($alert['last_sent_at'] ?? ''));
+    if ($lastSentAt === '') {
+        return false;
+    }
+
+    try {
+        $lastSent = new DateTimeImmutable($lastSentAt);
+    } catch (Exception $exception) {
+        return false;
+    }
+
+    return $lastSent->format('Y-m-d') === $now->format('Y-m-d');
+}
+
 function fetch_alert_recipient_users(PDO $pdo, array $selectedUserIds): array
 {
     $sql = 'SELECT id, name, email, user_number, department
@@ -62,13 +78,14 @@ $now = new DateTimeImmutable('now');
 $currentTime = $now->format('H:i');
 $today = $now->format('Y-m-d');
 
-$stmt = $pdo->prepare('SELECT id, name, alert_type, recipient_email, send_time, weekdays_mask, schedule_frequency, monthly_day, selected_user_ids FROM hr_alerts WHERE is_active = 1 AND send_time = ?');
+$stmt = $pdo->prepare('SELECT id, name, alert_type, recipient_email, send_time, weekdays_mask, schedule_frequency, monthly_day, selected_user_ids, last_sent_at FROM hr_alerts WHERE is_active = 1 AND send_time <= ?');
 $stmt->execute([$currentTime]);
 $alerts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $processedAlerts = 0;
+$markSentStmt = $pdo->prepare('UPDATE hr_alerts SET last_sent_at = ? WHERE id = ?');
 
 foreach ($alerts as $alert) {
-    if (!is_hr_alert_due_today($alert, $now)) {
+    if (!is_hr_alert_due_today($alert, $now) || has_hr_alert_been_sent_today($alert, $now)) {
         continue;
     }
 
@@ -129,6 +146,7 @@ foreach ($alerts as $alert) {
         }
     }
 
+    $markSentStmt->execute([$now->format('Y-m-d H:i:s'), (int) $alert['id']]);
     $processedAlerts++;
 }
 
