@@ -127,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             try {
-                $stmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, pin_code_hash, pin_code, pin_only_login, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                $stmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, pin_code_hash, pin_code, pin_only_login, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
                 $stmt->execute([
                     $name,
                     $username,
@@ -168,6 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } elseif (stripos($e->getMessage(), 'users.username') !== false) {
                     $flashError = build_user_conflict_message('username', $username, find_user_conflict($pdo, 'username', $username));
                 } else {
+                    error_log('[TaskForce][users.php] Erro ao criar utilizador: ' . $e->getMessage());
                     $flashError = 'Não foi possível criar utilizador. Verifique os dados e tente novamente.';
                 }
             }
@@ -252,6 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } elseif (stripos($e->getMessage(), 'users.username') !== false) {
                     $flashError = build_user_conflict_message('username', $username, find_user_conflict($pdo, 'username', $username, $targetUserId));
                 } else {
+                    error_log('[TaskForce][users.php] Erro ao atualizar utilizador #' . $targetUserId . ': ' . $e->getMessage());
                     $flashError = 'Não foi possível atualizar utilizador. Verifique os dados e tente novamente.';
                 }
             }
