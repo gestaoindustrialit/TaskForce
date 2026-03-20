@@ -24,6 +24,43 @@ foreach ($departmentOptions as $departmentOption) {
 $flashSuccess = null;
 $flashError = null;
 
+function find_user_conflict(PDO $pdo, string $field, string $value, ?int $excludeUserId = null): ?array
+{
+    $normalizedValue = trim($value);
+    if ($normalizedValue === '' || !in_array($field, ['email', 'username'], true)) {
+        return null;
+    }
+
+    $sql = 'SELECT id, name, username, email FROM users WHERE LOWER(TRIM(' . $field . ')) = LOWER(TRIM(?))';
+    $params = [$normalizedValue];
+    if ($excludeUserId !== null && $excludeUserId > 0) {
+        $sql .= ' AND id <> ?';
+        $params[] = $excludeUserId;
+    }
+    $sql .= ' LIMIT 1';
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row ?: null;
+}
+
+function build_user_conflict_message(string $field, string $value, ?array $existingUser = null): string
+{
+    $label = $field === 'email' ? 'email' : 'utilizador';
+    $message = 'Não foi possível guardar o utilizador: o ' . $label . ' “' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '” já está em uso';
+
+    if ($existingUser) {
+        $existingName = trim((string) ($existingUser['name'] ?? ''));
+        if ($existingName !== '') {
+            $message .= ' por ' . htmlspecialchars($existingName, ENT_QUOTES, 'UTF-8');
+        }
+    }
+
+    return $message . '.';
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
 
@@ -70,6 +107,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flashError = 'O PIN deve ter exatamente 6 dígitos.';
         } elseif ($pinOnlyLogin === 1 && $pinCode === '') {
             $flashError = 'Defina um PIN de 6 dígitos para login apenas com PIN.';
+        } elseif ($existingEmailUser = find_user_conflict($pdo, 'email', $email)) {
+            $flashError = build_user_conflict_message('email', $email, $existingEmailUser);
+        } elseif ($existingUsernameUser = find_user_conflict($pdo, 'username', $username)) {
+            $flashError = build_user_conflict_message('username', $username, $existingUsernameUser);
         } else {
             if (!in_array($accessProfile, $accessProfileOptions, true)) {
                 $accessProfile = 'Utilizador';
@@ -122,7 +163,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 $flashSuccess = 'Utilizador criado com sucesso.';
             } catch (PDOException $e) {
-                $flashError = 'Não foi possível criar utilizador (email/utilizador já em uso).';
+                if (stripos($e->getMessage(), 'users.email') !== false) {
+                    $flashError = build_user_conflict_message('email', $email, find_user_conflict($pdo, 'email', $email));
+                } elseif (stripos($e->getMessage(), 'users.username') !== false) {
+                    $flashError = build_user_conflict_message('username', $username, find_user_conflict($pdo, 'username', $username));
+                } else {
+                    $flashError = 'Não foi possível criar utilizador. Verifique os dados e tente novamente.';
+                }
             }
         }
     }
@@ -167,6 +214,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($targetUserId <= 0 || $name === '' || $username === '' || $email === '') {
             $flashError = 'Dados inválidos para atualizar utilizador.';
+        } elseif ($pinCode !== '' && !preg_match('/^\d{6}$/', $pinCode)) {
+            $flashError = 'O PIN deve ter exatamente 6 dígitos.';
+        } elseif ($pinOnlyLogin === 1 && $pinCode === '') {
+            $flashError = 'Defina um PIN de 6 dígitos para login apenas com PIN.';
+        } elseif ($existingEmailUser = find_user_conflict($pdo, 'email', $email, $targetUserId)) {
+            $flashError = build_user_conflict_message('email', $email, $existingEmailUser);
+        } elseif ($existingUsernameUser = find_user_conflict($pdo, 'username', $username, $targetUserId)) {
+            $flashError = build_user_conflict_message('username', $username, $existingUsernameUser);
         } else {
             if (!in_array($accessProfile, $accessProfileOptions, true)) {
                 $accessProfile = 'Utilizador';
@@ -192,7 +247,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $flashSuccess = 'Utilizador atualizado com sucesso.';
             } catch (PDOException $e) {
-                $flashError = 'Não foi possível atualizar utilizador (email/utilizador já em uso).';
+                if (stripos($e->getMessage(), 'users.email') !== false) {
+                    $flashError = build_user_conflict_message('email', $email, find_user_conflict($pdo, 'email', $email, $targetUserId));
+                } elseif (stripos($e->getMessage(), 'users.username') !== false) {
+                    $flashError = build_user_conflict_message('username', $username, find_user_conflict($pdo, 'username', $username, $targetUserId));
+                } else {
+                    $flashError = 'Não foi possível atualizar utilizador. Verifique os dados e tente novamente.';
+                }
             }
         }
     }
