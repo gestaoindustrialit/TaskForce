@@ -46,8 +46,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $durationType = trim((string) ($_POST['duration_type'] ?? 'Completa'));
         $durationHours = trim((string) ($_POST['duration_hours'] ?? ''));
 
-        $reasonStmt = $pdo->prepare('SELECT code, label FROM shopfloor_absence_reasons WHERE id = ? AND is_active = 1 LIMIT 1');
-        $reasonStmt->execute([$reasonId]);
+        $reasonStmt = $pdo->prepare('SELECT reason_code, sage_code, label FROM shopfloor_absence_reasons WHERE id = ? AND is_active = 1 AND (? = 1 OR ? = 1 OR show_in_shopfloor = 1) LIMIT 1');
+        $reasonStmt->execute([$reasonId, $isAdmin ? 1 : 0, $isRh ? 1 : 0]);
         $reasonData = $reasonStmt->fetch(PDO::FETCH_ASSOC);
 
         if (!in_array($requestType, ['Dias inteiros', 'Intervalo de tempo'], true)) {
@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $startDate = $singleDate;
                 $endDate = $singleDate;
             }
-            $reason = trim((string) ($reasonData['code'] ?? '')) . ' - ' . trim((string) ($reasonData['label'] ?? ''));
+            $reason = trim((string) ($reasonData['reason_code'] ?? '')) . ' · ' . trim((string) ($reasonData['sage_code'] ?? '')) . ' - ' . trim((string) ($reasonData['label'] ?? ''));
             $stmt = $pdo->prepare('INSERT INTO shopfloor_absence_requests(user_id, request_type, duration_type, duration_hours, start_date, end_date, start_time, end_time, reason, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
             $stmt->execute([
                 $userId,
@@ -367,9 +367,11 @@ if ($latestTodayEntry && !empty($latestTodayEntry['occurred_at'])) {
     }
 }
 
-$absenceReasons = $pdo->query('SELECT id, code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY label COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
+$absenceReasonsStmt = $pdo->prepare('SELECT id, reason_code, sage_code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 AND (? = 1 OR ? = 1 OR show_in_shopfloor = 1) ORDER BY label COLLATE NOCASE ASC');
+$absenceReasonsStmt->execute([$isAdmin ? 1 : 0, $isRh ? 1 : 0]);
+$absenceReasons = $absenceReasonsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$absenceRequestsStmt = $pdo->prepare('SELECT a.id, a.request_type, a.duration_type, a.duration_hours, a.start_date, a.end_date, a.start_time, a.end_time, a.reason, a.details, a.status, a.created_at, r.color AS reason_color, j.attachment_path AS latest_attachment_path FROM shopfloor_absence_requests a LEFT JOIN shopfloor_absence_reasons r ON a.reason LIKE (r.code || " - %") LEFT JOIN shopfloor_justifications j ON j.id = (SELECT j2.id FROM shopfloor_justifications j2 WHERE j2.absence_request_id = a.id AND j2.attachment_path IS NOT NULL AND TRIM(j2.attachment_path) <> "" ORDER BY j2.created_at DESC LIMIT 1) WHERE a.user_id = ? ORDER BY a.created_at DESC LIMIT 10');
+$absenceRequestsStmt = $pdo->prepare('SELECT a.id, a.request_type, a.duration_type, a.duration_hours, a.start_date, a.end_date, a.start_time, a.end_time, a.reason, a.details, a.status, a.created_at, r.color AS reason_color, j.attachment_path AS latest_attachment_path FROM shopfloor_absence_requests a LEFT JOIN shopfloor_absence_reasons r ON a.reason LIKE (r.reason_code || " · %") LEFT JOIN shopfloor_justifications j ON j.id = (SELECT j2.id FROM shopfloor_justifications j2 WHERE j2.absence_request_id = a.id AND j2.attachment_path IS NOT NULL AND TRIM(j2.attachment_path) <> "" ORDER BY j2.created_at DESC LIMIT 1) WHERE a.user_id = ? ORDER BY a.created_at DESC LIMIT 10');
 $absenceRequestsStmt->execute([$userId]);
 $absenceRequests = $absenceRequestsStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -492,7 +494,7 @@ require __DIR__ . '/partials/header.php';
                     <select name="reason_id" class="form-select" required>
                         <option value="">Selecionar motivo</option>
                         <?php foreach ($absenceReasons as $reasonOption): ?>
-                            <option value="<?= (int) $reasonOption['id'] ?>"><?= h((string) $reasonOption['code']) ?> — <?= h((string) $reasonOption['label']) ?></option>
+                            <option value="<?= (int) $reasonOption['id'] ?>"><?= h((string) $reasonOption['reason_code']) ?> · <?= h((string) $reasonOption['sage_code']) ?> — <?= h((string) $reasonOption['label']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>

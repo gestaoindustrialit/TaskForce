@@ -468,7 +468,7 @@ require __DIR__ . '/partials/header.php';
                             <td><?= h($alert['name']) ?></td>
                             <td><?= h($alertTypeOptions[$alert['alert_type']] ?? $alert['alert_type']) ?></td>
                             <td><?= h((string) $alert['send_time']) ?></td>
-                            <td><?= h(implode(', ', array_map(static fn($d) => $weekdayLabels[$d] ?? $d, $mask))) ?></td>
+                            <td><?= h($scheduleSummary) ?></td>
                             <td><?= h(format_alert_selected_users_summary($selectedAlertUsers, $userLabelMap)) ?></td>
                             <td><?= (int) $alert['is_active'] === 1 ? '<span class="badge text-bg-success">Ativo</span>' : '<span class="badge text-bg-secondary">Inativo</span>' ?></td>
                             <td>
