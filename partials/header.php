@@ -85,7 +85,6 @@ header('Content-Type: text/html; charset=UTF-8');
                     <?php else: ?>
                     <a class="nav-link" href="dashboard.php">Vis&atilde;o geral</a>
                     <a class="nav-link" href="shopfloor.php">Shopfloor</a>
-                    <a class="nav-link" href="resultados.php">Resultados</a>
                     <?php if ($showHrMenu): ?>
                         <div class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">RH</a>
@@ -109,14 +108,6 @@ header('Content-Type: text/html; charset=UTF-8');
                         </div>
                     <?php endif; ?>
                     <div class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Opera&ccedil;&otilde;es</a>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="requests.php">Gerar formul&aacute;rios</a></li>
-                            <li><a class="dropdown-item" href="daily_report.php">Relat&oacute;rio di&aacute;rio</a></li>
-                            <li><a class="dropdown-item" href="checklists.php">Checklists</a></li>
-                        </ul>
-                    </div>
-                    <div class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Equipas</a>
                         <ul class="dropdown-menu">
                             <?php if ($navTeams): ?>
@@ -133,6 +124,8 @@ header('Content-Type: text/html; charset=UTF-8');
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Administra&ccedil;&atilde;o</a>
                             <ul class="dropdown-menu dropdown-menu-end dropdown-menu-lg-start">
                                 <li><a class="dropdown-item" href="company_profile.php">Empresa &amp; Branding</a></li>
+                                <li><a class="dropdown-item" href="requests.php">Gerar formul&aacute;rios</a></li>
+                                <li><a class="dropdown-item" href="checklists.php">Checklists</a></li>
                                 <li><a class="dropdown-item" href="app_logs.php">Logs da aplica&ccedil;&atilde;o</a></li>
                             </ul>
                         </div>
