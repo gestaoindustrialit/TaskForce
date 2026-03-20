@@ -344,6 +344,7 @@ $pdo->exec(
         schedule_frequency TEXT NOT NULL DEFAULT "weekly",
         monthly_day INTEGER NOT NULL DEFAULT 1,
         selected_user_ids TEXT NOT NULL DEFAULT "",
+        last_sent_at DATETIME,
         is_active INTEGER NOT NULL DEFAULT 1,
         created_by INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -360,6 +361,9 @@ if (!in_array('monthly_day', $hrAlertColumns, true)) {
 }
 if (!in_array('selected_user_ids', $hrAlertColumns, true)) {
     $pdo->exec('ALTER TABLE hr_alerts ADD COLUMN selected_user_ids TEXT NOT NULL DEFAULT ""');
+}
+if (!in_array('last_sent_at', $hrAlertColumns, true)) {
+    $pdo->exec('ALTER TABLE hr_alerts ADD COLUMN last_sent_at DATETIME');
 }
 
 $pdo->exec(
