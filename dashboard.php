@@ -1341,12 +1341,14 @@ require __DIR__ . '/partials/header.php';
     </div>
 </div>
 
-<div class="card shadow-sm soft-card mt-4" id="dailyReportPanel">
-    <div class="card-header bg-white border-0 pt-4 px-4">
+<div class="row g-4">
+    <div class="col-12">
+        <div class="card shadow-sm soft-card" id="dailyReportPanel">
+            <div class="card-header bg-white border-0 pt-4 px-4">
         <h2 class="h3 mb-1">Relatório diário por colaborador</h2>
         <p class="small text-muted mb-0">Preenche e envia o relatório diário diretamente a partir da dashboard.</p>
-    </div>
-    <div class="card-body px-4 pb-4">
+            </div>
+            <div class="card-body px-4 pb-4">
         <form method="get" class="row g-2 mb-3" action="dashboard.php#dailyReportPanel">
             <div class="col-md-3"><input class="form-control" type="date" name="daily_report_date" value="<?= h($dailyReportSelectedDate) ?>"></div>
             <div class="col-md-5"><select name="daily_report_project_id" class="form-select"><option value="0">Todos os projetos</option><?php foreach ($dailyReportProjectList as $dailyReportProject): ?><option value="<?= (int) $dailyReportProject['id'] ?>" <?= $dailyReportProjectFilter === (int) $dailyReportProject['id'] ? 'selected' : '' ?>><?= h($dailyReportProject['name']) ?></option><?php endforeach; ?></select></div>
@@ -1370,6 +1372,8 @@ require __DIR__ . '/partials/header.php';
                 <button class="btn btn-primary" <?= !$dailyReportTasks ? 'disabled' : '' ?>>Enviar relatório e gerar versão A4</button>
             </div>
         </form>
+            </div>
+        </div>
     </div>
 </div>
 
