@@ -1291,7 +1291,7 @@ require __DIR__ . '/partials/header.php';
             </div>
         </div>
 
-        <div class="card shadow-sm soft-card h-100">
+        <div class="card shadow-sm soft-card mb-4">
             <div class="card-header bg-white border-0 pt-4 px-4"><h2 class="h4 mb-0">Novas notas de projetos</h2></div>
             <div class="card-body p-4">
                 <p class="small text-muted">Notas publicadas hoje em projetos onde estás envolvido.</p>
@@ -1309,6 +1309,38 @@ require __DIR__ . '/partials/header.php';
                         <?php endforeach; ?>
                     </div>
                 <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="card shadow-sm soft-card" id="dailyReportPanel">
+            <div class="card-header bg-white border-0 pt-4 px-4">
+                <h2 class="h3 mb-1">Relatório diário por colaborador</h2>
+                <p class="small text-muted mb-0">Preenche e envia o relatório diário diretamente a partir da dashboard.</p>
+            </div>
+            <div class="card-body px-4 pb-4">
+                <form method="get" class="row g-2 mb-3" action="dashboard.php#dailyReportPanel">
+                    <div class="col-md-3"><input class="form-control" type="date" name="daily_report_date" value="<?= h($dailyReportSelectedDate) ?>"></div>
+                    <div class="col-md-6"><select name="daily_report_project_id" class="form-select"><option value="0">Todos os projetos</option><?php foreach ($dailyReportProjectList as $dailyReportProject): ?><option value="<?= (int) $dailyReportProject['id'] ?>" <?= $dailyReportProjectFilter === (int) $dailyReportProject['id'] ? 'selected' : '' ?>><?= h($dailyReportProject['name']) ?></option><?php endforeach; ?></select></div>
+                    <div class="col-md-3"><button class="btn btn-outline-secondary w-100">Filtrar</button></div>
+                </form>
+
+                <form method="post" action="<?= h($dailyReportSubmitUrl) ?>" class="card border-0 bg-transparent">
+                    <input type="hidden" name="action" value="send_daily_report">
+                    <div class="table-responsive"><table class="table align-middle"><thead><tr><th></th><th>Projeto</th><th>Tarefa alterada</th><th>Previsto</th><th>Real</th><th>Discrepância</th><th>Atualizada</th></tr></thead><tbody>
+                        <?php foreach ($dailyReportTasks as $dailyReportTask): $estimated = $dailyReportTask['estimated_minutes'] !== null ? (int) $dailyReportTask['estimated_minutes'] : null; $actual = $dailyReportTask['actual_minutes'] !== null ? (int) $dailyReportTask['actual_minutes'] : null; $delta = task_time_delta($estimated, $actual); ?>
+                            <tr>
+                                <td><input class="form-check-input" type="checkbox" name="task_ids[]" value="<?= h((string) $dailyReportTask['entry_key']) ?>" checked></td>
+                                <td><?= h((string) ($dailyReportTask['project_name'] ?: $dailyReportTask['team_name'])) ?></td><td><?= h($dailyReportTask['title']) ?><?php if (($dailyReportTask['entry_type'] ?? '') === 'recurring'): ?> <span class="badge text-bg-success">Recorrente concluída</span><?php endif; ?></td><td><?= h(format_minutes($estimated)) ?></td><td><?= h(format_minutes($actual)) ?></td><td><?= $delta === null ? '-' : ($delta > 0 ? '+' : '-') . h(format_minutes(abs($delta))) ?></td><td><?= h((string) $dailyReportTask['updated_at']) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        <?php if (!$dailyReportTasks): ?><tr><td colspan="7" class="text-muted">Sem tarefas alteradas por si nesta data.</td></tr><?php endif; ?>
+                    </tbody></table></div>
+                    <label class="form-label">Resumo para o líder</label>
+                    <textarea name="summary" class="form-control mb-3" rows="3" placeholder="Descreva o que foi feito durante o dia..."></textarea>
+                    <div class="d-flex justify-content-start">
+                        <button class="btn btn-primary" <?= !$dailyReportTasks ? 'disabled' : '' ?>>Enviar relatório e gerar versão A4</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -1341,41 +1373,6 @@ require __DIR__ . '/partials/header.php';
     </div>
 </div>
 
-<div class="row g-4">
-    <div class="col-12">
-        <div class="card shadow-sm soft-card" id="dailyReportPanel">
-            <div class="card-header bg-white border-0 pt-4 px-4">
-        <h2 class="h3 mb-1">Relatório diário por colaborador</h2>
-        <p class="small text-muted mb-0">Preenche e envia o relatório diário diretamente a partir da dashboard.</p>
-            </div>
-            <div class="card-body px-4 pb-4">
-        <form method="get" class="row g-2 mb-3" action="dashboard.php#dailyReportPanel">
-            <div class="col-md-3"><input class="form-control" type="date" name="daily_report_date" value="<?= h($dailyReportSelectedDate) ?>"></div>
-            <div class="col-md-5"><select name="daily_report_project_id" class="form-select"><option value="0">Todos os projetos</option><?php foreach ($dailyReportProjectList as $dailyReportProject): ?><option value="<?= (int) $dailyReportProject['id'] ?>" <?= $dailyReportProjectFilter === (int) $dailyReportProject['id'] ? 'selected' : '' ?>><?= h($dailyReportProject['name']) ?></option><?php endforeach; ?></select></div>
-            <div class="col-md-2"><button class="btn btn-outline-secondary w-100">Filtrar</button></div>
-        </form>
-
-        <form method="post" action="<?= h($dailyReportSubmitUrl) ?>" class="card border-0 bg-transparent">
-            <input type="hidden" name="action" value="send_daily_report">
-            <div class="table-responsive"><table class="table align-middle"><thead><tr><th></th><th>Projeto</th><th>Tarefa alterada</th><th>Previsto</th><th>Real</th><th>Discrepância</th><th>Atualizada</th></tr></thead><tbody>
-                <?php foreach ($dailyReportTasks as $dailyReportTask): $estimated = $dailyReportTask['estimated_minutes'] !== null ? (int) $dailyReportTask['estimated_minutes'] : null; $actual = $dailyReportTask['actual_minutes'] !== null ? (int) $dailyReportTask['actual_minutes'] : null; $delta = task_time_delta($estimated, $actual); ?>
-                    <tr>
-                        <td><input class="form-check-input" type="checkbox" name="task_ids[]" value="<?= h((string) $dailyReportTask['entry_key']) ?>" checked></td>
-                        <td><?= h((string) ($dailyReportTask['project_name'] ?: $dailyReportTask['team_name'])) ?></td><td><?= h($dailyReportTask['title']) ?><?php if (($dailyReportTask['entry_type'] ?? '') === 'recurring'): ?> <span class="badge text-bg-success">Recorrente concluída</span><?php endif; ?></td><td><?= h(format_minutes($estimated)) ?></td><td><?= h(format_minutes($actual)) ?></td><td><?= $delta === null ? '-' : ($delta > 0 ? '+' : '-') . h(format_minutes(abs($delta))) ?></td><td><?= h((string) $dailyReportTask['updated_at']) ?></td>
-                    </tr>
-                <?php endforeach; ?>
-                <?php if (!$dailyReportTasks): ?><tr><td colspan="7" class="text-muted">Sem tarefas alteradas por si nesta data.</td></tr><?php endif; ?>
-            </tbody></table></div>
-            <label class="form-label">Resumo para o líder</label>
-            <textarea name="summary" class="form-control mb-3" rows="3" placeholder="Descreva o que foi feito durante o dia..."></textarea>
-            <div class="d-flex justify-content-start">
-                <button class="btn btn-primary" <?= !$dailyReportTasks ? 'disabled' : '' ?>>Enviar relatório e gerar versão A4</button>
-            </div>
-        </form>
-            </div>
-        </div>
-    </div>
-</div>
 
 <div class="modal fade" id="ticketModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
