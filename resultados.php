@@ -133,6 +133,86 @@ function format_date_pt(string $date): string
     return date('d-m-Y', $timestamp) . ' (' . $weekday . ')';
 }
 
+
+function list_weekdays_between(string $startDate, string $endDate): array
+{
+    if ($startDate === '' || $endDate === '' || $endDate < $startDate) {
+        return [];
+    }
+
+    $days = [];
+    $current = new DateTimeImmutable($startDate);
+    $end = new DateTimeImmutable($endDate);
+    while ($current <= $end) {
+        if ((int) $current->format('N') <= 5) {
+            $days[] = $current->format('Y-m-d');
+        }
+        $current = $current->modify('+1 day');
+    }
+
+    return $days;
+}
+
+function parse_absence_sage_code(string $reason): string
+{
+    if (preg_match('/·\s*([A-Z0-9\-]+)\s*-/', $reason, $matches)) {
+        return trim((string) ($matches[1] ?? ''));
+    }
+
+    return '';
+}
+
+function format_sage_employee_number(string $value, int $fallbackUserId): string
+{
+    $digits = preg_replace('/\D+/', '', $value) ?? '';
+    if ($digits === '') {
+        $digits = (string) $fallbackUserId;
+    }
+
+    if (strlen($digits) < 3) {
+        return str_pad($digits, 3, '0', STR_PAD_LEFT);
+    }
+
+    return $digits;
+}
+
+function format_sage_quantity(float $quantity): string
+{
+    return str_pad(number_format($quantity, 2, '.', ''), 22, '0', STR_PAD_LEFT);
+}
+
+function build_sage_payroll_export(array $records): string
+{
+    if ($records === []) {
+        return '';
+    }
+
+    usort(
+        $records,
+        static function (array $a, array $b): int {
+            $left = ($a['employee_number'] ?? '') . '|' . ($a['work_date'] ?? '') . '|' . ($a['sage_code'] ?? '');
+            $right = ($b['employee_number'] ?? '') . '|' . ($b['work_date'] ?? '') . '|' . ($b['sage_code'] ?? '');
+            return strcmp($left, $right);
+        }
+    );
+
+    $lines = [];
+    foreach ($records as $record) {
+        $employeeNumber = (string) ($record['employee_number'] ?? '000');
+        $sageCode = trim((string) ($record['sage_code'] ?? ''));
+        $workDate = trim((string) ($record['work_date'] ?? ''));
+        $quantity = (float) ($record['quantity'] ?? 0);
+        if ($sageCode === '' || $workDate === '') {
+            continue;
+        }
+
+        $dateLabel = date('d.m.Y', strtotime($workDate));
+        $lines[] = sprintf('%s%s      %s%s', $employeeNumber, $dateLabel, $sageCode, format_sage_quantity($quantity));
+    }
+
+    return $lines === [] ? '' : implode(PHP_EOL, $lines) . PHP_EOL;
+}
+
 function parse_signed_hhmm_to_minutes(string $value): ?int
 {
     if (!preg_match('/^([+-])?(\d{1,3}):(\d{2})$/', $value, $matches)) {
@@ -520,6 +600,99 @@ usort(
     }
 );
 
+$absenceParams = [$endDate, $startDate];
+$absenceWhere = ['a.start_date <= ?', 'a.end_date >= ?', 'a.status = "Aprovado"'];
+if (!$canViewAllResults) {
+    $absenceWhere[] = 'a.user_id = ?';
+    $absenceParams[] = $userId;
+}
+if ($teamId > 0) {
+    $absenceWhere[] = 'EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = ? AND tm.user_id = a.user_id)';
+    $absenceParams[] = $teamId;
+}
+if ($selectedUsers) {
+    $placeholders = implode(',', array_fill(0, count($selectedUsers), '?'));
+    $absenceWhere[] = 'a.user_id IN (' . $placeholders . ')';
+    foreach ($selectedUsers as $selUserId) {
+        $absenceParams[] = $selUserId;
+    }
+}
+
+$absenceSql = 'SELECT a.user_id, a.start_date, a.end_date, a.reason, a.duration_type, a.duration_hours, u.user_number
+    FROM shopfloor_absence_requests a
+    INNER JOIN users u ON u.id = a.user_id
+    WHERE ' . implode(' AND ', $absenceWhere) . '
+    ORDER BY a.user_id ASC, a.start_date ASC';
+$absenceStmt = $pdo->prepare($absenceSql);
+$absenceStmt->execute($absenceParams);
+$approvedAbsences = $absenceStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$exportRecords = [];
+$exportRecordKeys = [];
+foreach ($daily as $row) {
+    if ((string) ($row['status'] ?? '') !== 'Validado' || (int) ($row['seconds'] ?? 0) <= 0) {
+        continue;
+    }
+
+    $employeeNumber = format_sage_employee_number((string) ($row['user_number'] ?? ''), (int) ($row['user_id'] ?? 0));
+    $recordKey = implode('|', [$row['user_id'], $row['date'], '202']);
+    $exportRecordKeys[$recordKey] = true;
+    $exportRecords[] = [
+        'employee_number' => $employeeNumber,
+        'user_id' => (int) ($row['user_id'] ?? 0),
+        'work_date' => (string) $row['date'],
+        'sage_code' => '202',
+        'quantity' => 1.0,
+    ];
+}
+
+foreach ($approvedAbsences as $absence) {
+    $sageCode = parse_absence_sage_code((string) ($absence['reason'] ?? ''));
+    if ($sageCode === '') {
+        continue;
+    }
+
+    $quantity = 1.0;
+    $durationType = (string) ($absence['duration_type'] ?? 'Completa');
+    if ($durationType === 'Parcial') {
+        $quantity = 0.5;
+    } elseif ($durationType === 'Horas') {
+        $hoursValue = trim((string) ($absence['duration_hours'] ?? ''));
+        if (preg_match('/^(\d{1,2}):(\d{2})$/', $hoursValue, $matches)) {
+            $quantity = ((int) $matches[1]) + (((int) $matches[2]) / 60);
+        }
+    }
+
+    foreach (list_weekdays_between((string) $absence['start_date'], (string) $absence['end_date']) as $absenceDate) {
+        $recordKey = implode('|', [(int) ($absence['user_id'] ?? 0), $absenceDate, $sageCode]);
+        if (isset($exportRecordKeys[$recordKey])) {
+            continue;
+        }
+
+        $exportRecordKeys[$recordKey] = true;
+        $exportRecords[] = [
+            'employee_number' => format_sage_employee_number((string) ($absence['user_number'] ?? ''), (int) ($absence['user_id'] ?? 0)),
+            'user_id' => (int) ($absence['user_id'] ?? 0),
+            'work_date' => $absenceDate,
+            'sage_code' => $sageCode,
+            'quantity' => $quantity,
+        ];
+    }
+}
+
+if (isset($_GET['action']) && $_GET['action'] === 'export_sage_payroll' && $canViewAllResults) {
+    header('Content-Type: text/plain; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="payroll_sage_' . $startDate . '_' . $endDate . '.txt"');
+
+    $payload = build_sage_payroll_export($exportRecords);
+    if ($payload === '') {
+        $payload = 'Sem dados validados/aprovados para exportação no intervalo selecionado.' . PHP_EOL;
+    }
+
+    echo $payload;
+    exit;
+}
+
 $maxEntryCount = 6;
 foreach ($daily as $dailyRow) {
     $maxEntryCount = max($maxEntryCount, count($dailyRow['entries']));
@@ -615,6 +788,9 @@ require __DIR__ . '/partials/header.php';
                 </div>
             </div>
             <div class="col-md-1 d-grid"><button class="btn btn-dark">Filtrar</button></div>
+            <div class="col-md-12 d-flex justify-content-end">
+                <a class="btn btn-outline-secondary btn-sm" href="?start_date=<?= h($startDate) ?>&end_date=<?= h($endDate) ?>&team_id=<?= (int) $teamId ?><?php foreach ($selectedUsers as $exportUserId): ?>&user_ids[]=<?= (int) $exportUserId ?><?php endforeach; ?>&action=export_sage_payroll">Exportar payroll Sage</a>
+            </div>
         <?php else: ?>
             <div class="col-md-2 d-grid"><button class="btn btn-dark">Filtrar</button></div>
         <?php endif; ?>
