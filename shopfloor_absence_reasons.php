@@ -501,6 +501,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+
+    if ($action === 'delete_all_reasons') {
+        if (!$isAdmin) {
+            $flashError = 'Apenas administradores podem eliminar todos os motivos.';
+        } else {
+            $deletedCountStmt = $pdo->query('SELECT COUNT(*) FROM shopfloor_absence_reasons');
+            $deletedCount = (int) ($deletedCountStmt ? $deletedCountStmt->fetchColumn() : 0);
+            $pdo->exec('DELETE FROM shopfloor_absence_reasons');
+            log_app_event($pdo, $userId, 'shopfloor.absence_reason.delete_all', 'Todos os motivos de ausência foram eliminados.', ['deleted_count' => $deletedCount]);
+            $flashSuccess = $deletedCount > 0
+                ? 'Todos os motivos foram eliminados com sucesso.'
+                : 'Não existiam motivos para eliminar.';
+            $editingReasonId = 0;
+            $editingReason = null;
+        }
+    }
 }
 
 $allowedSortFields = [
@@ -630,7 +646,17 @@ require __DIR__ . '/partials/header.php';
 
 <div class="card shadow-sm">
     <div class="card-body">
-        <h2 class="h4 mb-3">Lista de motivos</h2>
+        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+            <h2 class="h4 mb-0">Lista de motivos</h2>
+            <?php if ($isAdmin): ?>
+                <form method="post" onsubmit="return confirm('Tem a certeza que pretende eliminar todos os motivos? Esta ação não pode ser revertida.');">
+                    <input type="hidden" name="action" value="delete_all_reasons">
+                    <button type="submit" class="btn btn-outline-danger">
+                        <i class="bi bi-trash3"></i> Eliminar todos
+                    </button>
+                </form>
+            <?php endif; ?>
+        </div>
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-0">
                 <thead>
