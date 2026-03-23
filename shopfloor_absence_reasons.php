@@ -362,6 +362,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $processed = [];
             $errors = [];
             $insertStmt = $pdo->prepare('INSERT INTO shopfloor_absence_reasons(reason_type, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+            $existingReasonStmt = $pdo->query('SELECT reason_code, label FROM shopfloor_absence_reasons');
+            $existingReasonCodes = [];
+            $existingLabels = [];
+            foreach ($existingReasonStmt->fetchAll(PDO::FETCH_ASSOC) as $existingReason) {
+                $existingReasonCode = strtoupper(trim((string) ($existingReason['reason_code'] ?? '')));
+                $existingLabel = mb_strtolower(trim((string) ($existingReason['label'] ?? '')), 'UTF-8');
+                if ($existingReasonCode !== '') {
+                    $existingReasonCodes[$existingReasonCode] = true;
+                }
+                if ($existingLabel !== '') {
+                    $existingLabels[$existingLabel] = true;
+                }
+            }
+            $pendingReasonCodes = [];
+            $pendingLabels = [];
 
             $pdo->beginTransaction();
             foreach ($rows as $row) {
@@ -392,6 +407,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     continue;
                 }
 
+                $normalizedLabel = mb_strtolower($rowLabel, 'UTF-8');
+                if (isset($existingReasonCodes[$rowReasonCode]) || isset($pendingReasonCodes[$rowReasonCode])) {
+                    $errors[] = 'Linha ' . $row['_row_number'] . ': reason_code já existe e tem de ser único.';
+                    continue;
+                }
+                if (isset($existingLabels[$normalizedLabel]) || isset($pendingLabels[$normalizedLabel])) {
+                    $errors[] = 'Linha ' . $row['_row_number'] . ': label já existe e tem de ser único.';
+                    continue;
+                }
+
                 try {
                     $showInShopfloor = parse_binary_flag((string) ($row['show_in_shopfloor'] ?? '1'), 'show_in_shopfloor', (int) $row['_row_number']);
                     $isActive = parse_binary_flag((string) ($row['is_active'] ?? '1'), 'is_active', (int) $row['_row_number']);
@@ -402,6 +427,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 try {
                     $insertStmt->execute([$rowReasonType, $rowReasonCode, $rowSageCode, $rowLabel, $rowColor, $showInShopfloor, $isActive, $userId]);
+                    $existingReasonCodes[$rowReasonCode] = true;
+                    $existingLabels[$normalizedLabel] = true;
+                    $pendingReasonCodes[$rowReasonCode] = true;
+                    $pendingLabels[$normalizedLabel] = true;
                     $processed[] = [
                         'reason_type' => $rowReasonType,
                         'reason_code' => $rowReasonCode,
@@ -409,7 +438,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'label' => $rowLabel,
                     ];
                 } catch (PDOException $exception) {
-                    $errors[] = 'Linha ' . $row['_row_number'] . ': não foi possível guardar o motivo (código, SAGE ou descrição duplicados).';
+                    $errors[] = 'Linha ' . $row['_row_number'] . ': não foi possível guardar o motivo. O reason_code e o label têm de ser únicos; o sage_code pode ser repetido.';
                 }
             }
 
@@ -557,7 +586,7 @@ require __DIR__ . '/partials/header.php';
             <div class="col-lg-9">
                 <label class="form-label">Ficheiro Excel/CSV</label>
                 <input class="form-control" type="file" name="bulk_file" accept=".xlsx,.xls,.xml,.csv" required>
-                <div class="form-text">Colunas esperadas: <code>reason_type</code>, <code>reason_code</code>, <code>sage_code</code>, <code>label</code>, <code>color</code>, <code>show_in_shopfloor</code> e <code>is_active</code>.</div>
+                <div class="form-text">Colunas esperadas: <code>reason_type</code>, <code>reason_code</code>, <code>sage_code</code>, <code>label</code>, <code>color</code>, <code>show_in_shopfloor</code> e <code>is_active</code>. O <code>sage_code</code> pode ser repetido.</div>
             </div>
             <div class="col-lg-3 d-grid">
                 <button class="btn btn-primary">Importar motivos</button>
