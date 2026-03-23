@@ -169,7 +169,11 @@ function format_sage_employee_number(string $value, int $fallbackUserId): string
         $digits = (string) $fallbackUserId;
     }
 
-    return str_pad(substr($digits, -3), 3, '0', STR_PAD_LEFT);
+    if (strlen($digits) < 3) {
+        return str_pad($digits, 3, '0', STR_PAD_LEFT);
+    }
+
+    return $digits;
 }
 
 function format_sage_quantity(float $quantity): string
@@ -193,7 +197,6 @@ function build_sage_payroll_export(array $records): string
     );
 
     $lines = [];
-    $sequence = 1;
     foreach ($records as $record) {
         $employeeNumber = (string) ($record['employee_number'] ?? '000');
         $sageCode = trim((string) ($record['sage_code'] ?? ''));
@@ -204,9 +207,7 @@ function build_sage_payroll_export(array $records): string
         }
 
         $dateLabel = date('d.m.Y', strtotime($workDate));
-        $lines[] = sprintf('Col(%s)-Data%s - Código Sage%s %05d', $employeeNumber, $dateLabel, $sageCode, $sequence);
         $lines[] = sprintf('%s%s      %s%s', $employeeNumber, $dateLabel, $sageCode, format_sage_quantity($quantity));
-        $sequence++;
     }
 
     return $lines === [] ? '' : implode(PHP_EOL, $lines) . PHP_EOL;
