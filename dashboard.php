@@ -842,6 +842,78 @@ if ($isAdmin) {
     }
 }
 
+$dailyReportSelectedDate = trim((string) ($_GET['daily_report_date'] ?? date('Y-m-d')));
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dailyReportSelectedDate)) {
+    $dailyReportSelectedDate = date('Y-m-d');
+}
+$dailyReportProjectFilter = (int) ($_GET['daily_report_project_id'] ?? 0);
+
+$dailyReportTasksSql = 'SELECT t.id, t.title, t.status, t.estimated_minutes, t.actual_minutes, t.updated_at, p.id AS project_id, p.name AS project_name, tm.team_id, teams.name AS team_name '
+    . 'FROM tasks t '
+    . 'INNER JOIN projects p ON p.id = t.project_id '
+    . 'INNER JOIN teams ON teams.id = p.team_id '
+    . 'INNER JOIN team_members tm ON tm.team_id = p.team_id AND tm.user_id = ? '
+    . 'WHERE DATE(t.updated_at) = ? AND t.updated_by = ?';
+$dailyReportTaskParams = [$userId, $dailyReportSelectedDate, $userId];
+if ($dailyReportProjectFilter > 0) {
+    $dailyReportTasksSql .= ' AND p.id = ?';
+    $dailyReportTaskParams[] = $dailyReportProjectFilter;
+}
+$dailyReportTasksSql .= ' ORDER BY p.name, t.updated_at DESC';
+$dailyReportTasksStmt = $pdo->prepare($dailyReportTasksSql);
+$dailyReportTasksStmt->execute($dailyReportTaskParams);
+$dailyReportProjectTasks = $dailyReportTasksStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$dailyReportRecurringSql = 'SELECT c.recurring_task_id AS id, '
+    . 'COALESCE(o.title, rt.title) AS title, '
+    . '"done" AS status, '
+    . 'NULL AS estimated_minutes, '
+    . 'NULL AS actual_minutes, '
+    . 'c.completed_at AS updated_at, '
+    . 'COALESCE(o.project_id, rt.project_id) AS project_id, '
+    . 'p.name AS project_name, '
+    . 'rt.team_id, '
+    . 'teams.name AS team_name, '
+    . 'c.occurrence_date '
+    . 'FROM team_recurring_task_completions c '
+    . 'INNER JOIN team_recurring_tasks rt ON rt.id = c.recurring_task_id '
+    . 'INNER JOIN team_members tm ON tm.team_id = rt.team_id AND tm.user_id = ? '
+    . 'INNER JOIN teams ON teams.id = rt.team_id '
+    . 'LEFT JOIN team_recurring_task_overrides o ON o.recurring_task_id = c.recurring_task_id AND o.occurrence_date = c.occurrence_date '
+    . 'LEFT JOIN projects p ON p.id = COALESCE(o.project_id, rt.project_id) '
+    . 'WHERE c.completed_by = ? AND c.occurrence_date = ?';
+$dailyReportRecurringParams = [$userId, $userId, $dailyReportSelectedDate];
+if ($dailyReportProjectFilter > 0) {
+    $dailyReportRecurringSql .= ' AND COALESCE(o.project_id, rt.project_id) = ?';
+    $dailyReportRecurringParams[] = $dailyReportProjectFilter;
+}
+$dailyReportRecurringSql .= ' ORDER BY c.completed_at DESC';
+$dailyReportRecurringStmt = $pdo->prepare($dailyReportRecurringSql);
+$dailyReportRecurringStmt->execute($dailyReportRecurringParams);
+$dailyReportRecurringTasks = $dailyReportRecurringStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$dailyReportTasks = [];
+foreach ($dailyReportProjectTasks as $dailyReportTask) {
+    $dailyReportTask['entry_type'] = 'project';
+    $dailyReportTask['entry_key'] = 'project_' . (int) $dailyReportTask['id'];
+    $dailyReportTasks[] = $dailyReportTask;
+}
+foreach ($dailyReportRecurringTasks as $dailyReportTask) {
+    $dailyReportTask['entry_type'] = 'recurring';
+    $dailyReportTask['entry_key'] = 'recurring_' . (int) $dailyReportTask['id'] . '_' . (string) $dailyReportTask['occurrence_date'];
+    $dailyReportTasks[] = $dailyReportTask;
+}
+
+usort($dailyReportTasks, static fn(array $a, array $b): int => strcmp((string) $b['updated_at'], (string) $a['updated_at']));
+
+$dailyReportProjectsStmt = $pdo->prepare('SELECT DISTINCT p.id, p.name FROM projects p INNER JOIN team_members tm ON tm.team_id = p.team_id WHERE tm.user_id = ? ORDER BY p.name');
+$dailyReportProjectsStmt->execute([$userId]);
+$dailyReportProjectList = $dailyReportProjectsStmt->fetchAll(PDO::FETCH_ASSOC);
+$dailyReportSubmitUrl = 'daily_report.php?date=' . urlencode($dailyReportSelectedDate);
+if ($dailyReportProjectFilter > 0) {
+    $dailyReportSubmitUrl .= '&project_id=' . $dailyReportProjectFilter;
+}
+
 $pageTitle = 'Dashboard';
 require __DIR__ . '/partials/header.php';
 ?>
@@ -1269,13 +1341,35 @@ require __DIR__ . '/partials/header.php';
     </div>
 </div>
 
-<div class="card shadow-sm soft-card mt-4">
-    <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center gap-3">
-        <div>
-            <h2 class="h5 mb-1">Relatório diário</h2>
-            <p class="small text-muted mb-0">Acesso rápido ao preenchimento e envio do relatório diário do colaborador.</p>
-        </div>
-        <a class="btn btn-outline-primary btn-sm" href="daily_report.php">Abrir relatório</a>
+<div class="card shadow-sm soft-card mt-4" id="dailyReportPanel">
+    <div class="card-header bg-white border-0 pt-4 px-4">
+        <h2 class="h3 mb-1">Relatório diário por colaborador</h2>
+        <p class="small text-muted mb-0">Preenche e envia o relatório diário diretamente a partir da dashboard.</p>
+    </div>
+    <div class="card-body px-4 pb-4">
+        <form method="get" class="row g-2 mb-3" action="dashboard.php#dailyReportPanel">
+            <div class="col-md-3"><input class="form-control" type="date" name="daily_report_date" value="<?= h($dailyReportSelectedDate) ?>"></div>
+            <div class="col-md-5"><select name="daily_report_project_id" class="form-select"><option value="0">Todos os projetos</option><?php foreach ($dailyReportProjectList as $dailyReportProject): ?><option value="<?= (int) $dailyReportProject['id'] ?>" <?= $dailyReportProjectFilter === (int) $dailyReportProject['id'] ? 'selected' : '' ?>><?= h($dailyReportProject['name']) ?></option><?php endforeach; ?></select></div>
+            <div class="col-md-2"><button class="btn btn-outline-secondary w-100">Filtrar</button></div>
+        </form>
+
+        <form method="post" action="<?= h($dailyReportSubmitUrl) ?>" class="card border-0 bg-transparent">
+            <input type="hidden" name="action" value="send_daily_report">
+            <div class="table-responsive"><table class="table align-middle"><thead><tr><th></th><th>Projeto</th><th>Tarefa alterada</th><th>Previsto</th><th>Real</th><th>Discrepância</th><th>Atualizada</th></tr></thead><tbody>
+                <?php foreach ($dailyReportTasks as $dailyReportTask): $estimated = $dailyReportTask['estimated_minutes'] !== null ? (int) $dailyReportTask['estimated_minutes'] : null; $actual = $dailyReportTask['actual_minutes'] !== null ? (int) $dailyReportTask['actual_minutes'] : null; $delta = task_time_delta($estimated, $actual); ?>
+                    <tr>
+                        <td><input class="form-check-input" type="checkbox" name="task_ids[]" value="<?= h((string) $dailyReportTask['entry_key']) ?>" checked></td>
+                        <td><?= h((string) ($dailyReportTask['project_name'] ?: $dailyReportTask['team_name'])) ?></td><td><?= h($dailyReportTask['title']) ?><?php if (($dailyReportTask['entry_type'] ?? '') === 'recurring'): ?> <span class="badge text-bg-success">Recorrente concluída</span><?php endif; ?></td><td><?= h(format_minutes($estimated)) ?></td><td><?= h(format_minutes($actual)) ?></td><td><?= $delta === null ? '-' : ($delta > 0 ? '+' : '-') . h(format_minutes(abs($delta))) ?></td><td><?= h((string) $dailyReportTask['updated_at']) ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$dailyReportTasks): ?><tr><td colspan="7" class="text-muted">Sem tarefas alteradas por si nesta data.</td></tr><?php endif; ?>
+            </tbody></table></div>
+            <label class="form-label">Resumo para o líder</label>
+            <textarea name="summary" class="form-control mb-3" rows="3" placeholder="Descreva o que foi feito durante o dia..."></textarea>
+            <div class="d-flex justify-content-start">
+                <button class="btn btn-primary" <?= !$dailyReportTasks ? 'disabled' : '' ?>>Enviar relatório e gerar versão A4</button>
+            </div>
+        </form>
     </div>
 </div>
 
