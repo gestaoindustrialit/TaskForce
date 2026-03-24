@@ -96,11 +96,21 @@ foreach ($alerts as $alert) {
     }
 
     if ($alert['alert_type'] === 'attendance_monthly_map') {
+        $deliveredToAtLeastOneRecipient = false;
         foreach ($users as $user) {
             $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
-            deliver_report((string) $user['email'], (string) $report['subject'], (string) $report['body']);
+            $sent = deliver_report((string) $user['email'], (string) $report['subject'], (string) $report['body']);
+            if ($sent) {
+                $deliveredToAtLeastOneRecipient = true;
+            }
         }
 
+        if (!$deliveredToAtLeastOneRecipient) {
+            $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' falhou para todos os destinatários no tipo attendance_monthly_map' . PHP_EOL;
+            @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+        }
+
+        $markSentStmt->execute([$now->format('Y-m-d H:i:s'), (int) $alert['id']]);
         $processedAlerts++;
         continue;
     }
