@@ -184,7 +184,7 @@ foreach ($alerts as $alert) {
         $body .= "Tipo de alerta: {$alert['alert_type']}\n";
     }
 
-    $headers = 'From: no-reply@taskforce.local';
+    $headers = taskforce_default_mail_headers();
     $deliveredToAtLeastOneRecipient = false;
     foreach ($users as $user) {
         $recipientEmail = (string) ($user['email'] ?? '');
