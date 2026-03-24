@@ -619,6 +619,14 @@ body {
     grid-column: auto;
 }
 
+.shopfloor-reason-select {
+    font-size: 0.9rem;
+}
+
+.shopfloor-reason-select option {
+    font-size: 0.85rem;
+}
+
 .shopfloor-table {
     --bs-table-bg: #ffffff;
     --bs-table-color: #0f172a;

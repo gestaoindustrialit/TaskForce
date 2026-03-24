@@ -491,10 +491,10 @@ require __DIR__ . '/partials/header.php';
                             <a href="shopfloor_absence_reasons.php" class="small link-primary">Gerir motivos</a>
                         <?php endif; ?>
                     </label>
-                    <select name="reason_id" class="form-select" required>
-                        <option value="">Selecionar motivo</option>
+                    <select name="reason_id" class="form-select shopfloor-reason-select" id="absenceReasonSelect" required>
+                        <option value="" data-color="#475569">Selecionar motivo</option>
                         <?php foreach ($absenceReasons as $reasonOption): ?>
-                            <option value="<?= (int) $reasonOption['id'] ?>"><?= h((string) $reasonOption['reason_code']) ?> · <?= h((string) $reasonOption['sage_code']) ?> — <?= h((string) $reasonOption['label']) ?></option>
+                            <option value="<?= (int) $reasonOption['id'] ?>" data-color="<?= h((string) ($reasonOption['color'] ?? '#1e293b')) ?>" style="color: <?= h((string) ($reasonOption['color'] ?? '#1e293b')) ?>;"><?= h((string) $reasonOption['reason_code']) ?> · <?= h((string) $reasonOption['sage_code']) ?> — <?= h((string) $reasonOption['label']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -971,6 +971,7 @@ require __DIR__ . '/partials/header.php';
     const singleDateInput = form.querySelector('input[name="single_date"]');
     const startTimeInput = form.querySelector('input[name="start_time"]');
     const endTimeInput = form.querySelector('input[name="end_time"]');
+    const reasonSelect = document.getElementById('absenceReasonSelect');
 
     const refreshFields = () => {
         const isInterval = typeSelect.value === 'Intervalo de tempo';
@@ -1001,6 +1002,18 @@ require __DIR__ . '/partials/header.php';
 
     typeSelect.addEventListener('change', refreshFields);
     refreshFields();
+
+    const applyReasonColor = () => {
+        if (!reasonSelect) {
+            return;
+        }
+        const selectedOption = reasonSelect.options[reasonSelect.selectedIndex];
+        const selectedColor = selectedOption?.dataset?.color || '#0f172a';
+        reasonSelect.style.color = selectedColor;
+    };
+
+    reasonSelect?.addEventListener('change', applyReasonColor);
+    applyReasonColor();
 })();
 
 (() => {
