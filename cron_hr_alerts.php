@@ -96,11 +96,22 @@ foreach ($alerts as $alert) {
     }
 
     if ($alert['alert_type'] === 'attendance_monthly_map') {
+        $deliveredToAtLeastOneRecipient = false;
         foreach ($users as $user) {
             $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
-            deliver_report((string) $user['email'], (string) $report['subject'], (string) $report['body']);
+            $sent = deliver_report((string) $user['email'], (string) $report['subject'], (string) $report['body']);
+            if ($sent) {
+                $deliveredToAtLeastOneRecipient = true;
+            }
         }
 
+        if (!$deliveredToAtLeastOneRecipient) {
+            $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' falhou para todos os destinatários no tipo attendance_monthly_map' . PHP_EOL;
+            @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+            continue;
+        }
+
+        $markSentStmt->execute([$now->format('Y-m-d H:i:s'), (int) $alert['id']]);
         $processedAlerts++;
         continue;
     }
@@ -132,6 +143,7 @@ foreach ($alerts as $alert) {
     }
 
     $headers = 'From: no-reply@taskforce.local';
+    $deliveredToAtLeastOneRecipient = false;
     foreach ($users as $user) {
         $recipientEmail = (string) ($user['email'] ?? '');
         if ($recipientEmail === '') {
@@ -143,7 +155,16 @@ foreach ($alerts as $alert) {
         if (!$sent) {
             $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' para ' . $recipientEmail . PHP_EOL . $subject . PHP_EOL . $body . PHP_EOL;
             @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+            continue;
         }
+
+        $deliveredToAtLeastOneRecipient = true;
+    }
+
+    if (!$deliveredToAtLeastOneRecipient) {
+        $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' falhou para todos os destinatários no tipo ' . $alert['alert_type'] . PHP_EOL;
+        @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+        continue;
     }
 
     $markSentStmt->execute([$now->format('Y-m-d H:i:s'), (int) $alert['id']]);
