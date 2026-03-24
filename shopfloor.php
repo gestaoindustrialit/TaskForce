@@ -367,7 +367,7 @@ if ($latestTodayEntry && !empty($latestTodayEntry['occurred_at'])) {
     }
 }
 
-$absenceReasonsStmt = $pdo->prepare('SELECT id, reason_code, sage_code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 AND (? = 1 OR ? = 1 OR show_in_shopfloor = 1) ORDER BY label COLLATE NOCASE ASC');
+$absenceReasonsStmt = $pdo->prepare('SELECT id, reason_code, sage_code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 AND (? = 1 OR ? = 1 OR show_in_shopfloor = 1) ORDER BY reason_code COLLATE NOCASE ASC, label COLLATE NOCASE ASC');
 $absenceReasonsStmt->execute([$isAdmin ? 1 : 0, $isRh ? 1 : 0]);
 $absenceReasons = $absenceReasonsStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -491,12 +491,30 @@ require __DIR__ . '/partials/header.php';
                             <a href="shopfloor_absence_reasons.php" class="small link-primary">Gerir motivos</a>
                         <?php endif; ?>
                     </label>
-                    <select name="reason_id" class="form-select shopfloor-reason-select" id="absenceReasonSelect" required>
+                    <select name="reason_id" class="form-select shopfloor-reason-select d-none" id="absenceReasonSelect">
                         <option value="" data-color="#475569">Selecionar motivo</option>
                         <?php foreach ($absenceReasons as $reasonOption): ?>
-                            <option value="<?= (int) $reasonOption['id'] ?>" data-color="<?= h((string) ($reasonOption['color'] ?? '#1e293b')) ?>" style="color: <?= h((string) ($reasonOption['color'] ?? '#1e293b')) ?>;"><?= h((string) $reasonOption['reason_code']) ?> · <?= h((string) $reasonOption['sage_code']) ?> — <?= h((string) $reasonOption['label']) ?></option>
+                            <option value="<?= (int) $reasonOption['id'] ?>" data-color="<?= h((string) ($reasonOption['color'] ?? '#1e293b')) ?>"><?= h((string) $reasonOption['reason_code']) ?> · <?= h((string) $reasonOption['sage_code']) ?> — <?= h((string) $reasonOption['label']) ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <div class="shopfloor-reason-picker" id="absenceReasonPicker">
+                        <button type="button" class="form-select text-start shopfloor-reason-picker-toggle" data-role="toggle">Selecionar motivo</button>
+                        <div class="shopfloor-reason-picker-menu d-none" data-role="menu">
+                            <input type="text" class="form-control form-control-sm shopfloor-reason-picker-search" data-role="search" placeholder="Pesquisar por código ou motivo">
+                            <div class="shopfloor-reason-picker-list" data-role="list">
+                                <?php foreach ($absenceReasons as $reasonOption): ?>
+                                    <?php
+                                        $reasonColor = (string) ($reasonOption['color'] ?? '#1e293b');
+                                        $reasonLabel = (string) $reasonOption['reason_code'] . ' · ' . (string) $reasonOption['sage_code'] . ' — ' . (string) $reasonOption['label'];
+                                    ?>
+                                    <button type="button" class="shopfloor-reason-option" data-role="option" data-value="<?= (int) $reasonOption['id'] ?>" data-color="<?= h($reasonColor) ?>" data-search="<?= h(strtolower($reasonLabel)) ?>">
+                                        <span class="shopfloor-dot" style="background: <?= h($reasonColor) ?>"></span>
+                                        <span><?= h($reasonLabel) ?></span>
+                                    </button>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div>
                     <label class="form-label">Duração</label>
@@ -972,6 +990,7 @@ require __DIR__ . '/partials/header.php';
     const startTimeInput = form.querySelector('input[name="start_time"]');
     const endTimeInput = form.querySelector('input[name="end_time"]');
     const reasonSelect = document.getElementById('absenceReasonSelect');
+    const reasonPicker = document.getElementById('absenceReasonPicker');
 
     const refreshFields = () => {
         const isInterval = typeSelect.value === 'Intervalo de tempo';
@@ -1003,16 +1022,79 @@ require __DIR__ . '/partials/header.php';
     typeSelect.addEventListener('change', refreshFields);
     refreshFields();
 
-    const applyReasonColor = () => {
-        if (!reasonSelect) {
+    const applyReasonColor = (selectedOption = null) => {
+        if (!reasonSelect || !reasonPicker) {
             return;
         }
-        const selectedOption = reasonSelect.options[reasonSelect.selectedIndex];
-        const selectedColor = selectedOption?.dataset?.color || '#0f172a';
-        reasonSelect.style.color = selectedColor;
+        const resolvedOption = selectedOption || reasonSelect.options[reasonSelect.selectedIndex];
+        const selectedColor = resolvedOption?.dataset?.color || '#0f172a';
+        const toggleButton = reasonPicker.querySelector('[data-role="toggle"]');
+        if (toggleButton) {
+            toggleButton.style.color = selectedColor;
+        }
     };
 
-    reasonSelect?.addEventListener('change', applyReasonColor);
+    const setupReasonPicker = () => {
+        if (!reasonSelect || !reasonPicker) {
+            return;
+        }
+
+        const toggleButton = reasonPicker.querySelector('[data-role="toggle"]');
+        const menu = reasonPicker.querySelector('[data-role="menu"]');
+        const searchInput = reasonPicker.querySelector('[data-role="search"]');
+        const options = Array.from(reasonPicker.querySelectorAll('[data-role="option"]'));
+        if (!toggleButton || !menu || !searchInput || options.length === 0) {
+            return;
+        }
+
+        const closeMenu = () => {
+            menu.classList.add('d-none');
+        };
+        const openMenu = () => {
+            menu.classList.remove('d-none');
+            searchInput.focus();
+        };
+
+        toggleButton.addEventListener('click', () => {
+            if (menu.classList.contains('d-none')) {
+                openMenu();
+            } else {
+                closeMenu();
+            }
+        });
+
+        options.forEach((optionButton) => {
+            optionButton.addEventListener('click', () => {
+                const value = optionButton.getAttribute('data-value') || '';
+                const labelElement = optionButton.querySelector('span:last-child');
+                const label = (labelElement?.textContent || '').trim();
+                reasonSelect.value = value;
+                toggleButton.textContent = label || 'Selecionar motivo';
+                applyReasonColor({ dataset: { color: optionButton.getAttribute('data-color') || '#0f172a' } });
+                closeMenu();
+            });
+        });
+
+        searchInput.addEventListener('input', () => {
+            const term = searchInput.value.trim().toLowerCase();
+            options.forEach((optionButton) => {
+                const haystack = optionButton.getAttribute('data-search') || '';
+                optionButton.classList.toggle('d-none', term !== '' && !haystack.includes(term));
+            });
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!(event.target instanceof Node)) {
+                return;
+            }
+            if (!reasonPicker.contains(event.target)) {
+                closeMenu();
+            }
+        });
+    };
+
+    reasonSelect?.addEventListener('change', () => applyReasonColor());
+    setupReasonPicker();
     applyReasonColor();
 })();
 
