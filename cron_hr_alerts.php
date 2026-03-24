@@ -29,6 +29,27 @@ function cron_log_line(string $message): void
     @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
 }
 
+function log_hr_alert_cron_event(PDO $pdo, string $eventType, string $description, array $context = []): void
+{
+    try {
+        log_app_event($pdo, null, $eventType, $description, $context);
+    } catch (Throwable $exception) {
+        cron_log_line('LOG_FALHA ' . $eventType . ' | ' . $description . ' | ' . $exception->getMessage());
+    }
+}
+
+function parse_selected_user_ids(string $raw): array
+{
+    if (trim($raw) === '') {
+        return [];
+    }
+
+    $ids = array_map('intval', array_map('trim', explode(',', $raw)));
+    $ids = array_values(array_filter($ids, static fn(int $id): bool => $id > 0));
+
+    return array_values(array_unique($ids));
+}
+
 function is_hr_alert_due_today(array $alert, DateTimeImmutable $now): bool
 {
     $scheduleFrequency = normalize_cron_schedule_frequency((string) ($alert['schedule_frequency'] ?? 'weekly'));
@@ -86,7 +107,6 @@ function fetch_alert_recipient_users(PDO $pdo, array $selectedUserIds): array
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-
     $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     return is_array($users) ? $users : [];
@@ -122,111 +142,12 @@ function fetch_selected_users_missing_delivery_requirements(PDO $pdo, array $sel
     return $missing;
 }
 
-function log_hr_alert_cron_event(PDO $pdo, string $eventType, string $description, array $context = []): void
-{
-    try {
-        log_app_event($pdo, null, $eventType, $description, $context);
-    } catch (Throwable $exception) {
-        $line = '[' . date('Y-m-d H:i:s') . '] LOG_FALHA ' . $eventType . ' | ' . $description . ' | ' . $exception->getMessage() . PHP_EOL;
-        @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
-    }
-}
-
-$now = new DateTimeImmutable('now');
-$currentTime = $now->format('H:i');
-$today = $now->format('Y-m-d');
-
-    $placeholders = implode(',', array_fill(0, count($selectedUserIds), '?'));
-
-log_hr_alert_cron_event(
-    $pdo,
-    'hr.alerts.cron.started',
-    'Execução do cron de alertas RH iniciada.',
-    ['time' => $currentTime, 'alerts_due_by_time' => count($alerts)]
-);
-
-foreach ($alerts as $alert) {
-    if (!is_hr_alert_due_today($alert, $now) || has_hr_alert_been_sent_today($alert, $now)) {
-        continue;
-    }
-
-    $selectedUserIds = array_values(array_filter(array_map('intval', explode(',', (string) ($alert['selected_user_ids'] ?? '')))));
-    $selectedUsersMissingDelivery = fetch_selected_users_missing_delivery_requirements($pdo, $selectedUserIds);
-    if ($selectedUsersMissingDelivery) {
-        $missingLabels = array_map(
-            static fn(array $user): string => ((string) ($user['name'] ?? 'Sem nome')) . ' (#' . (int) ($user['id'] ?? 0) . ')',
-            $selectedUsersMissingDelivery
-        );
-        $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' ignorou colaboradores sem requisitos de entrega: ' . implode(', ', $missingLabels) . PHP_EOL;
-        @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
-        log_hr_alert_cron_event(
-            $pdo,
-            'hr.alerts.recipients.filtered',
-            'Alguns colaboradores selecionados não cumprem requisitos de entrega.',
-            ['alert_id' => (int) $alert['id'], 'ignored_users' => $missingLabels]
-        );
-    }
-
-    $users = fetch_alert_recipient_users($pdo, $selectedUserIds);
-    if (!$users) {
-        $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' sem destinatários elegíveis após validar e-mail/notificações.' . PHP_EOL;
-        @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
-        log_hr_alert_cron_event(
-            $pdo,
-            'hr.alerts.recipients.none',
-            'Sem destinatários elegíveis para envio.',
-            ['alert_id' => (int) $alert['id'], 'alert_type' => (string) $alert['alert_type']]
-        );
-        continue;
-    }
-
-    if ($alert['alert_type'] === 'attendance_monthly_map') {
-        $deliveredToAtLeastOneRecipient = false;
-        foreach ($users as $user) {
-            $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
-            $sent = deliver_report((string) $user['email'], (string) $report['subject'], (string) $report['body']);
-            if ($sent) {
-                $deliveredToAtLeastOneRecipient = true;
-            }
-        }
-
-        if (!$deliveredToAtLeastOneRecipient) {
-            $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' falhou para todos os destinatários no tipo attendance_monthly_map' . PHP_EOL;
-            @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
-            log_hr_alert_cron_event(
-                $pdo,
-                'hr.alerts.delivery.failed',
-                'Falha de envio para todos os destinatários (attendance_monthly_map).',
-                ['alert_id' => (int) $alert['id'], 'alert_type' => 'attendance_monthly_map']
-            );
-            continue;
-        }
-    }
-
-        $markSentStmt->execute([$now->format('Y-m-d H:i:s'), (int) $alert['id']]);
-        log_hr_alert_cron_event(
-            $pdo,
-            'hr.alerts.delivery.success',
-            'Alerta attendance_monthly_map enviado com sucesso.',
-            ['alert_id' => (int) $alert['id'], 'recipients' => count($users)]
-        );
-        $processedAlerts++;
-        continue;
-    }
-
-    $ids = array_map('intval', array_map('trim', explode(',', $raw)));
-    $ids = array_values(array_filter($ids, static fn(int $id): bool => $id > 0));
-    $ids = array_values(array_unique($ids));
-
-    return $ids;
-}
-
 function build_absences_daily_body(PDO $pdo, array $alert, DateTimeImmutable $now): string
 {
     $today = $now->format('Y-m-d');
 
-    $body = "Alerta RH: " . (string) ($alert['name'] ?? 'Sem nome') . PHP_EOL;
-    $body .= "Data/Hora: " . $now->format('d/m/Y H:i') . PHP_EOL . PHP_EOL;
+    $body = 'Alerta RH: ' . (string) ($alert['name'] ?? 'Sem nome') . PHP_EOL;
+    $body .= 'Data/Hora: ' . $now->format('d/m/Y H:i') . PHP_EOL . PHP_EOL;
 
     $absStmt = $pdo->prepare(
         'SELECT u.name, v.start_date, v.end_date, v.status
@@ -239,11 +160,11 @@ function build_absences_daily_body(PDO $pdo, array $alert, DateTimeImmutable $no
 
     $rows = $absStmt->fetchAll(PDO::FETCH_ASSOC);
     if (!is_array($rows) || count($rows) === 0) {
-        $body .= "Sem ausências previstas para hoje (" . $today . ")." . PHP_EOL;
+        $body .= 'Sem ausências previstas para hoje (' . $today . ').' . PHP_EOL;
         return $body;
     }
 
-    $body .= "Ausências previstas para hoje:" . PHP_EOL;
+    $body .= 'Ausências previstas para hoje:' . PHP_EOL;
     foreach ($rows as $row) {
         $body .= '- '
             . (string) ($row['name'] ?? 'Sem nome')
@@ -258,9 +179,9 @@ function build_absences_daily_body(PDO $pdo, array $alert, DateTimeImmutable $no
 
 function build_generic_alert_body(array $alert, DateTimeImmutable $now): string
 {
-    $body = "Alerta RH: " . (string) ($alert['name'] ?? 'Sem nome') . PHP_EOL;
-    $body .= "Data/Hora: " . $now->format('d/m/Y H:i') . PHP_EOL . PHP_EOL;
-    $body .= "Tipo de alerta: " . (string) ($alert['alert_type'] ?? 'desconhecido') . PHP_EOL;
+    $body = 'Alerta RH: ' . (string) ($alert['name'] ?? 'Sem nome') . PHP_EOL;
+    $body .= 'Data/Hora: ' . $now->format('d/m/Y H:i') . PHP_EOL . PHP_EOL;
+    $body .= 'Tipo de alerta: ' . (string) ($alert['alert_type'] ?? 'desconhecido') . PHP_EOL;
 
     return $body;
 }
@@ -279,7 +200,6 @@ function send_standard_alert_to_users(array $users, string $subject, string $bod
         }
 
         $sent = deliver_report($recipientEmail, $subject, $body);
-
         if ($sent) {
             $deliveredToAtLeastOneRecipient = true;
             cron_log_line('ALERTA #' . $alertId . ' enviado com sucesso para ' . $recipientEmail);
@@ -289,67 +209,151 @@ function send_standard_alert_to_users(array $users, string $subject, string $bod
         cron_log_line('ALERTA #' . $alertId . ' falhou para ' . $recipientEmail);
     }
 
-    $headers = taskforce_default_mail_headers();
-    $deliveredToAtLeastOneRecipient = false;
-    foreach ($users as $user) {
-        $recipientEmail = trim((string) ($user['email'] ?? ''));
-        $recipientName = trim((string) ($user['name'] ?? 'Sem nome'));
+    return $deliveredToAtLeastOneRecipient;
+}
 
-        if ($recipientEmail === '') {
-            cron_log_line('ALERTA #' . $alertId . ' attendance_monthly_map ignorou destinatário sem email: ' . $recipientName);
+$now = new DateTimeImmutable('now');
+$currentTime = $now->format('H:i');
+$processedAlerts = 0;
+
+try {
+    $alertStmt = $pdo->prepare(
+        'SELECT id, name, alert_type, send_time, weekdays_mask, schedule_frequency, monthly_day, selected_user_ids, last_sent_at
+         FROM hr_alerts
+         WHERE is_active = 1
+           AND send_time = ?
+         ORDER BY id ASC'
+    );
+    $alertStmt->execute([$currentTime]);
+    $alerts = $alertStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    log_hr_alert_cron_event(
+        $pdo,
+        'hr.alerts.cron.started',
+        'Execução do cron de alertas RH iniciada.',
+        ['time' => $currentTime, 'alerts_due_by_time' => is_array($alerts) ? count($alerts) : 0]
+    );
+
+    if (!is_array($alerts)) {
+        $alerts = [];
+    }
+
+    $markSentStmt = $pdo->prepare('UPDATE hr_alerts SET last_sent_at = ? WHERE id = ?');
+
+    foreach ($alerts as $alert) {
+        $alertId = (int) ($alert['id'] ?? 0);
+        if ($alertId <= 0) {
             continue;
         }
 
-        try {
-            $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
-        } catch (Throwable $exception) {
-            cron_log_line(
-                'ALERTA #' . $alertId
-                . ' erro ao gerar mapa mensal para ' . $recipientName
-                . ': ' . $exception->getMessage()
+        if (!is_hr_alert_due_today($alert, $now) || has_hr_alert_been_sent_today($alert, $now)) {
+            continue;
+        }
+
+        $selectedUserIds = parse_selected_user_ids((string) ($alert['selected_user_ids'] ?? ''));
+        $selectedUsersMissingDelivery = fetch_selected_users_missing_delivery_requirements($pdo, $selectedUserIds);
+        if ($selectedUsersMissingDelivery) {
+            $missingLabels = array_map(
+                static fn(array $user): string => ((string) ($user['name'] ?? 'Sem nome')) . ' (#' . (int) ($user['id'] ?? 0) . ')',
+                $selectedUsersMissingDelivery
+            );
+
+            cron_log_line('ALERTA ' . $alertId . ' ignorou colaboradores sem requisitos de entrega: ' . implode(', ', $missingLabels));
+            log_hr_alert_cron_event(
+                $pdo,
+                'hr.alerts.recipients.filtered',
+                'Alguns colaboradores selecionados não cumprem requisitos de entrega.',
+                ['alert_id' => $alertId, 'ignored_users' => $missingLabels]
+            );
+        }
+
+        $users = fetch_alert_recipient_users($pdo, $selectedUserIds);
+        if (!$users) {
+            cron_log_line('ALERTA ' . $alertId . ' sem destinatários elegíveis após validar e-mail/notificações.');
+            log_hr_alert_cron_event(
+                $pdo,
+                'hr.alerts.recipients.none',
+                'Sem destinatários elegíveis para envio.',
+                ['alert_id' => $alertId, 'alert_type' => (string) ($alert['alert_type'] ?? '')]
             );
             continue;
         }
 
-        $subject = (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens');
-        $body = (string) ($report['body'] ?? '');
+        $alertType = (string) ($alert['alert_type'] ?? '');
+        $deliveredToAtLeastOneRecipient = false;
 
-        if (!$sent) {
-            $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' para ' . $recipientEmail . PHP_EOL . $subject . PHP_EOL . $body . PHP_EOL;
-            @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+        if ($alertType === 'attendance_monthly_map') {
+            foreach ($users as $user) {
+                $recipientEmail = trim((string) ($user['email'] ?? ''));
+                if ($recipientEmail === '') {
+                    continue;
+                }
+
+                try {
+                    $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
+                } catch (Throwable $exception) {
+                    cron_log_line('ALERTA #' . $alertId . ' erro ao gerar mapa mensal para user #' . (int) ($user['id'] ?? 0) . ': ' . $exception->getMessage());
+                    continue;
+                }
+
+                $subject = (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens');
+                $body = (string) ($report['body'] ?? '');
+
+                if (deliver_report($recipientEmail, $subject, $body)) {
+                    $deliveredToAtLeastOneRecipient = true;
+                }
+            }
+        } else {
+            $subject = '[TaskForce RH] ' . ((string) ($alert['name'] ?? 'Alerta RH'));
+            $body = $alertType === 'absences_daily'
+                ? build_absences_daily_body($pdo, $alert, $now)
+                : build_generic_alert_body($alert, $now);
+
+            $deliveredToAtLeastOneRecipient = send_standard_alert_to_users($users, $subject, $body, $alertId);
+        }
+
+        if (!$deliveredToAtLeastOneRecipient) {
+            cron_log_line('ALERTA ' . $alertId . ' falhou para todos os destinatários no tipo ' . $alertType);
+            log_hr_alert_cron_event(
+                $pdo,
+                'hr.alerts.delivery.failed',
+                'Falha de envio para todos os destinatários.',
+                ['alert_id' => $alertId, 'alert_type' => $alertType]
+            );
             continue;
         }
 
-        $deliveredToAtLeastOneRecipient = true;
-    }
-
-    if (!$deliveredToAtLeastOneRecipient) {
-        $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' falhou para todos os destinatários no tipo ' . $alert['alert_type'] . PHP_EOL;
-        @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+        $markSentStmt->execute([$now->format('Y-m-d H:i:s'), $alertId]);
         log_hr_alert_cron_event(
             $pdo,
-            'hr.alerts.delivery.failed',
-            'Falha de envio para todos os destinatários.',
-            ['alert_id' => (int) $alert['id'], 'alert_type' => (string) $alert['alert_type']]
+            'hr.alerts.delivery.success',
+            'Alerta RH enviado com sucesso.',
+            ['alert_id' => $alertId, 'alert_type' => $alertType, 'recipients' => count($users)]
         );
-        continue;
+        $processedAlerts++;
     }
 
-    $markSentStmt->execute([$now->format('Y-m-d H:i:s'), (int) $alert['id']]);
     log_hr_alert_cron_event(
         $pdo,
-        'hr.alerts.delivery.success',
-        'Alerta RH enviado com sucesso.',
-        ['alert_id' => (int) $alert['id'], 'alert_type' => (string) $alert['alert_type'], 'recipients' => count($users)]
+        'hr.alerts.cron.finished',
+        'Execução do cron de alertas RH concluída.',
+        ['processed_alerts' => $processedAlerts]
     );
-    $processedAlerts++;
+
+    echo 'Alertas RH processados: ' . $processedAlerts . PHP_EOL;
+} catch (Throwable $exception) {
+    cron_log_line('Erro fatal no cron_hr_alerts.php: ' . $exception->getMessage());
+
+    try {
+        log_hr_alert_cron_event(
+            $pdo,
+            'hr.alerts.cron.failed',
+            'Execução do cron de alertas RH falhou.',
+            ['error' => $exception->getMessage()]
+        );
+    } catch (Throwable $innerException) {
+        cron_log_line('Falha ao gravar erro no app_logs: ' . $innerException->getMessage());
+    }
+
+    throw $exception;
 }
-
-log_hr_alert_cron_event(
-    $pdo,
-    'hr.alerts.cron.finished',
-    'Execução do cron de alertas RH concluída.',
-    ['processed_alerts' => $processedAlerts]
-);
-
-echo 'Alertas RH processados: ' . $processedAlerts . PHP_EOL;
