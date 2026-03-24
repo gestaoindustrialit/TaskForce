@@ -348,50 +348,8 @@ function status_label(string $status): string
 
 function deliver_report(string $email, string $subject, string $body): bool
 {
-    $email = trim($email);
-    $subject = trim($subject);
-
-    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $logLines = [];
-        $logLines[] = '[' . date('Y-m-d H:i:s') . '] ENVIO CANCELADO';
-        $logLines[] = 'Motivo: e-mail inválido ou vazio';
-        $logLines[] = 'TO: ' . $email;
-        $logLines[] = 'SUBJECT: ' . $subject;
-        $logLines[] = str_repeat('-', 80);
-
-        @file_put_contents(
-            __DIR__ . '/reports_sent.log',
-            implode(PHP_EOL, $logLines) . PHP_EOL,
-            FILE_APPEND
-        );
-
-        return false;
-    }
-
     $headers = taskforce_default_mail_headers();
-
-    $sent = false;
-    $phpErrorMessage = '';
-
-    try {
-        $sent = mail($email, $subject, $body, $headers);
-    } catch (Throwable $exception) {
-        $phpErrorMessage = $exception->getMessage();
-        $sent = false;
-    }
-
-    if ($phpErrorMessage === '') {
-        $lastError = error_get_last();
-        if (is_array($lastError) && !empty($lastError['message'])) {
-            $phpErrorMessage = (string) $lastError['message'];
-        }
-    }
-
-    $logLines = [];
-    $logLines[] = '[' . date('Y-m-d H:i:s') . '] ENVIO DE RELATÓRIO';
-    $logLines[] = 'TO: ' . $email;
-    $logLines[] = 'SUBJECT: ' . $subject;
-    $logLines[] = 'RESULT: ' . ($sent ? 'OK' : 'FAIL');
+    $sent = @mail($email, $subject, $body, $headers);
 
     if (!$sent && $phpErrorMessage !== '') {
         $logLines[] = 'PHP ERROR: ' . $phpErrorMessage;
@@ -424,22 +382,12 @@ function taskforce_mail_from_name(): string
 
 function taskforce_default_mail_headers(): string
 {
-    $fromAddress = trim(taskforce_mail_from_address());
-    $fromName = trim(taskforce_mail_from_name());
+    $fromAddress = taskforce_mail_from_address();
+    $fromName = taskforce_mail_from_name();
 
-    if ($fromAddress === '') {
-        $fromAddress = 'noreply@localhost';
-    }
-
-    if ($fromName === '') {
-        $fromName = 'TaskForce';
-    }
-
-    return "MIME-Version: 1.0\r\n"
-        . "Content-Type: text/plain; charset=UTF-8\r\n"
+    return "Content-Type: text/plain; charset=UTF-8\r\n"
         . 'From: ' . $fromName . ' <' . $fromAddress . ">\r\n"
-        . 'Reply-To: ' . $fromAddress . "\r\n"
-        . 'X-Mailer: PHP/' . phpversion() . "\r\n";
+        . 'Reply-To: ' . $fromAddress . "\r\n";
 }
 
 function taskforce_weekday_label_pt(int $weekday): string
