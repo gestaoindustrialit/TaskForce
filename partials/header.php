@@ -9,7 +9,7 @@ $navbarLogo = app_setting($pdo, 'logo_navbar_light');
 $showHrMenu = $user && ((int) ($user['is_admin'] ?? 0) === 1 || (string) ($user['access_profile'] ?? '') === 'RH');
 $isPinOnlyUser = $user && (int) ($user['pin_only_login'] ?? 0) === 1;
 
-if ($user && !$isPinOnlyUser && !isset($navbarClockControl)) {
+if ($user && !isset($navbarClockControl)) {
     $todayEntriesStmt = $pdo->prepare('SELECT entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC');
     $todayEntriesStmt->execute([(int) $user['id']]);
     $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);

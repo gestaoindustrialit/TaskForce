@@ -44,6 +44,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $password = (string) ($_POST['password'] ?? '');
                 if (password_verify($password, (string) ($pendingUser['password'] ?? ''))) {
                     $_SESSION['user_id'] = (int) $pendingUser['id'];
+                    $_SESSION['login_at'] = date('Y-m-d H:i:s');
+                    $pdo->prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([(int) $pendingUser['id']]);
                     safe_log_app_event($pdo, (int) $pendingUser['id'], 'auth.login_success', 'Login com sucesso.');
                     redirect('dashboard.php');
                 }
@@ -68,6 +70,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 if ($matchedPinUser) {
                     $_SESSION['user_id'] = (int) $matchedPinUser['id'];
+                    $_SESSION['login_at'] = date('Y-m-d H:i:s');
+                    $pdo->prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([(int) $matchedPinUser['id']]);
                     safe_log_app_event(
                         $pdo,
                         (int) $matchedPinUser['id'],

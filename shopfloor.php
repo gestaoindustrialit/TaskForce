@@ -16,9 +16,41 @@ if (!$isAdmin && !in_array($profile, ['Utilizador', 'Chefias', 'RH'], true)) {
 
 $flashSuccess = null;
 $flashError = null;
+$sessionLoginAt = trim((string) ($_SESSION['login_at'] ?? ''));
+if (isset($_GET['announcement_ack_required'])) {
+    $flashError = 'Tem de validar o conhecimento do comunicado pendente para continuar.';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = trim((string) ($_POST['action'] ?? ''));
+    $pendingAnnouncementForAck = fetch_pending_shopfloor_announcement_ack($pdo, $userId, $sessionLoginAt);
+
+    if ($action === 'acknowledge_announcement') {
+        $announcementId = (int) ($_POST['announcement_id'] ?? 0);
+        if ($announcementId <= 0 || !$pendingAnnouncementForAck || (int) ($pendingAnnouncementForAck['id'] ?? 0) !== $announcementId) {
+            $flashError = 'Comunicado inválido para confirmação.';
+        } else {
+            $ackStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_announcement_acknowledgements(announcement_id, user_id) VALUES (?, ?)');
+            $ackStmt->execute([$announcementId, $userId]);
+            log_app_event(
+                $pdo,
+                $userId,
+                'shopfloor.announcement.acknowledge',
+                'Comunicado confirmado pelo utilizador.',
+                [
+                    'announcement_id' => $announcementId,
+                    'title' => (string) ($pendingAnnouncementForAck['title'] ?? ''),
+                    'acknowledged_at' => date('Y-m-d H:i:s'),
+                ]
+            );
+            $flashSuccess = 'Comunicado confirmado com sucesso.';
+            $pendingAnnouncementForAck = null;
+        }
+    }
+
+    if ($action !== 'acknowledge_announcement' && $pendingAnnouncementForAck) {
+        $flashError = 'Tem de confirmar o comunicado pendente antes de continuar.';
+    } else {
 
     if ($action === 'clock_entry') {
         $entryType = trim((string) ($_POST['entry_type'] ?? ''));
@@ -307,7 +339,31 @@ $requestType,
                 }
             }
 
-            log_app_event($pdo, $userId, 'shopfloor.announcement.create', 'Comunicado publicado no Shopfloor.', ['title' => $title, 'targets' => $validTargetUserIds]);
+            $recipientRows = [];
+            if ($validTargetUserIds !== []) {
+                $recipientPlaceholders = implode(',', array_fill(0, count($validTargetUserIds), '?'));
+                $recipientStmt = $pdo->prepare('SELECT id, name, email, username FROM users WHERE id IN (' . $recipientPlaceholders . ') ORDER BY name COLLATE NOCASE ASC');
+                $recipientStmt->execute($validTargetUserIds);
+                $recipientRows = $recipientStmt->fetchAll(PDO::FETCH_ASSOC);
+            } else {
+                $recipientStmt = $pdo->query('SELECT id, name, email, username FROM users WHERE is_active = 1 ORDER BY name COLLATE NOCASE ASC');
+                $recipientRows = $recipientStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            log_app_event(
+                $pdo,
+                $userId,
+                'shopfloor.announcement.create',
+                'Comunicado publicado no Shopfloor.',
+                [
+                    'announcement_id' => $announcementId,
+                    'title' => $title,
+                    'body' => $body,
+                    'audience' => $audience,
+                    'target_user_ids' => $validTargetUserIds,
+                    'submitted_to_users' => $recipientRows,
+                ]
+            );
             $flashSuccess = 'Comunicado publicado com sucesso.';
         }
     }
@@ -337,6 +393,7 @@ $requestType,
             $flashError = 'Comunicado inválido para eliminação.';
         }
     }
+    }
 }
 
 $hourBankStmt = $pdo->prepare('SELECT balance_hours, updated_at FROM shopfloor_hour_banks WHERE user_id = ? LIMIT 1');
@@ -350,22 +407,6 @@ if (!$hourBank) {
 $todayEntriesStmt = $pdo->prepare('SELECT entry_type, note, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC');
 $todayEntriesStmt->execute([$userId]);
 $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
-
-$latestTodayEntry = $todayEntries[0] ?? null;
-$nextEntryType = $latestTodayEntry && (($latestTodayEntry['entry_type'] ?? '') === 'entrada') ? 'saida' : 'entrada';
-$clockButtonLabel = $nextEntryType === 'entrada' ? 'Ponto de entrada' : 'Ponto de saída';
-$clockButtonClass = $nextEntryType === 'entrada' ? 'btn-primary' : 'btn-outline-light';
-$latestEntryTimeLabel = null;
-if ($latestTodayEntry && !empty($latestTodayEntry['occurred_at'])) {
-    $latestTimestamp = strtotime((string) $latestTodayEntry['occurred_at']);
-    if ($latestTimestamp !== false) {
-        $latestEntryTimeLabel = sprintf(
-            '%s às %s',
-            (($latestTodayEntry['entry_type'] ?? '') === 'entrada') ? 'Entrada' : 'Saída',
-            date('H:i', $latestTimestamp)
-        );
-    }
-}
 
 $absenceReasonsStmt = $pdo->prepare('SELECT id, reason_code, sage_code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 AND (? = 1 OR ? = 1 OR show_in_shopfloor = 1) ORDER BY reason_code COLLATE NOCASE ASC, label COLLATE NOCASE ASC');
 $absenceReasonsStmt->execute([$isAdmin ? 1 : 0, $isRh ? 1 : 0]);
@@ -425,6 +466,7 @@ if ($isAdmin || $isRh) {
 $announcementsStmt = $pdo->prepare('SELECT a.id, a.title, a.body, a.created_at, a.is_active, a.audience, COALESCE(u.name, "Sistema") AS created_by_name FROM shopfloor_announcements a LEFT JOIN users u ON u.id = a.created_by WHERE a.is_active = 1 AND (a.audience IN ("all", "shopfloor") OR EXISTS (SELECT 1 FROM shopfloor_announcement_targets t WHERE t.announcement_id = a.id AND t.user_id = ?)) ORDER BY a.created_at DESC LIMIT 8');
 $announcementsStmt->execute([$userId]);
 $announcements = $announcementsStmt->fetchAll(PDO::FETCH_ASSOC);
+$pendingAnnouncementAck = fetch_pending_shopfloor_announcement_ack($pdo, $userId, $sessionLoginAt);
 
 $managedAnnouncements = [];
 if ($isAdmin || $isRh) {
@@ -466,6 +508,29 @@ require __DIR__ . '/partials/header.php';
     <?php endif; ?>
     <?php if ($flashError): ?>
         <div class="alert alert-danger mt-3 mb-3"><?= h($flashError) ?></div>
+    <?php endif; ?>
+
+    <?php if ($pendingAnnouncementAck): ?>
+        <div class="modal fade" id="shopfloorAnnouncementAcknowledgeModal" tabindex="-1" aria-labelledby="shopfloorAnnouncementAcknowledgeModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title fs-5" id="shopfloorAnnouncementAcknowledgeModalLabel"><?= h((string) $pendingAnnouncementAck['title']) ?></h2>
+                    </div>
+                    <div class="modal-body">
+                        <p class="small text-secondary mb-2">Comunicado emitido por <?= h((string) $pendingAnnouncementAck['created_by_name']) ?> em <?= h((string) $pendingAnnouncementAck['created_at']) ?>.</p>
+                        <div class="border rounded p-3 bg-light"><?= nl2br(h((string) $pendingAnnouncementAck['body'])) ?></div>
+                    </div>
+                    <div class="modal-footer">
+                        <form method="post" class="w-100 d-grid">
+                            <input type="hidden" name="action" value="acknowledge_announcement">
+                            <input type="hidden" name="announcement_id" value="<?= (int) $pendingAnnouncementAck['id'] ?>">
+                            <button type="submit" class="btn btn-primary btn-lg fw-semibold">Tomei conhecimento</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
     <?php endif; ?>
 
     <div class="shopfloor-panel mb-4">
@@ -1121,6 +1186,24 @@ require __DIR__ . '/partials/header.php';
     modalElement.addEventListener('hidden.bs.modal', () => {
         imageElement.src = '';
     });
+})();
+
+(() => {
+    const modalElement = document.getElementById('shopfloorAnnouncementAcknowledgeModal');
+    if (!modalElement || typeof bootstrap === 'undefined') {
+        return;
+    }
+
+    const announcementModal = bootstrap.Modal.getOrCreateInstance(modalElement, {
+        backdrop: 'static',
+        keyboard: false
+    });
+
+    modalElement.addEventListener('hide.bs.modal', (event) => {
+        event.preventDefault();
+    });
+
+    announcementModal.show();
 })();
 </script>
 
