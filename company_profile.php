@@ -19,6 +19,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $companyAddress = trim((string) ($_POST['company_address'] ?? ''));
         $companyEmail = trim((string) ($_POST['company_email'] ?? ''));
         $companyPhone = trim((string) ($_POST['company_phone'] ?? ''));
+        $smtpHost = trim((string) ($_POST['smtp_host'] ?? ''));
+        $smtpPort = (int) ($_POST['smtp_port'] ?? 587);
+        $smtpSecure = strtolower(trim((string) ($_POST['smtp_secure'] ?? 'tls')));
+        $smtpUsername = trim((string) ($_POST['smtp_username'] ?? ''));
+        $smtpPassword = trim((string) ($_POST['smtp_password'] ?? ''));
+        $smtpTimeout = (int) ($_POST['smtp_timeout_seconds'] ?? 10);
+        $mailFromAddress = trim((string) ($_POST['mail_from_address'] ?? ''));
+        $mailFromName = trim((string) ($_POST['mail_from_name'] ?? ''));
 
         $statusValues = $_POST['ticket_status_value'] ?? [];
         $statusLabels = $_POST['ticket_status_label'] ?? [];
@@ -133,8 +141,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
+        if (!in_array($smtpSecure, ['', 'tls', 'ssl'], true)) {
+            $smtpSecure = 'tls';
+        }
+        if ($smtpPort < 1 || $smtpPort > 65535) {
+            $smtpPort = 587;
+        }
+        if ($smtpTimeout < 3 || $smtpTimeout > 120) {
+            $smtpTimeout = 10;
+        }
+
         if ($companyEmail !== '' && filter_var($companyEmail, FILTER_VALIDATE_EMAIL) === false) {
             $flashError = 'Indique um email válido para a empresa.';
+        } elseif ($smtpHost !== '' && $smtpUsername === '') {
+            $flashError = 'Preencha o utilizador SMTP quando definir um servidor SMTP.';
+        } elseif ($smtpHost !== '' && $smtpPassword === '') {
+            $flashError = 'Preencha a password SMTP quando definir um servidor SMTP.';
+        } elseif ($mailFromAddress !== '' && filter_var($mailFromAddress, FILTER_VALIDATE_EMAIL) === false) {
+            $flashError = 'Indique um email válido para o remetente.';
         } elseif (count($ticketStatuses) === 0) {
             $flashError = 'Defina pelo menos um estado para os tickets.';
         } elseif (!array_filter($ticketStatuses, static fn (array $status): bool => empty($status['is_completed']))) {
@@ -148,6 +172,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_app_setting($pdo, 'company_address', $companyAddress);
             set_app_setting($pdo, 'company_email', $companyEmail);
             set_app_setting($pdo, 'company_phone', $companyPhone);
+            set_app_setting($pdo, 'smtp_host', $smtpHost);
+            set_app_setting($pdo, 'smtp_port', (string) $smtpPort);
+            set_app_setting($pdo, 'smtp_secure', $smtpSecure);
+            set_app_setting($pdo, 'smtp_username', $smtpUsername);
+            set_app_setting($pdo, 'smtp_password', $smtpPassword);
+            set_app_setting($pdo, 'smtp_timeout_seconds', (string) $smtpTimeout);
+            set_app_setting($pdo, 'mail_from_address', $mailFromAddress);
+            set_app_setting($pdo, 'mail_from_name', $mailFromName);
             set_app_setting($pdo, 'ticket_statuses_json', json_encode(array_values($ticketStatuses), JSON_UNESCAPED_UNICODE));
             set_app_setting($pdo, 'recurring_task_recurrences_json', json_encode(array_values($recurrenceCatalog), JSON_UNESCAPED_UNICODE));
             set_app_setting($pdo, 'pending_ticket_departments_json', json_encode(array_values($pendingDepartmentCatalog), JSON_UNESCAPED_UNICODE));
@@ -176,6 +208,14 @@ $companyName = app_setting($pdo, 'company_name', '');
 $companyAddress = app_setting($pdo, 'company_address', '');
 $companyEmail = app_setting($pdo, 'company_email', '');
 $companyPhone = app_setting($pdo, 'company_phone', '');
+$smtpHost = app_setting($pdo, 'smtp_host', '');
+$smtpPort = app_setting($pdo, 'smtp_port', '587');
+$smtpSecure = app_setting($pdo, 'smtp_secure', 'tls');
+$smtpUsername = app_setting($pdo, 'smtp_username', '');
+$smtpPassword = app_setting($pdo, 'smtp_password', '');
+$smtpTimeout = app_setting($pdo, 'smtp_timeout_seconds', '10');
+$mailFromAddress = app_setting($pdo, 'mail_from_address', 'noreply@calcadacorp.ch');
+$mailFromName = app_setting($pdo, 'mail_from_name', 'TaskForce');
 $navbarLogo = app_setting($pdo, 'logo_navbar_light');
 $reportLogo = app_setting($pdo, 'logo_report_dark');
 $ticketStatuses = ticket_statuses($pdo);
@@ -212,6 +252,47 @@ require __DIR__ . '/partials/header.php';
             <div class="col-md-6">
                 <label class="form-label">Morada</label>
                 <input class="form-control" name="company_address" value="<?= h($companyAddress) ?>" <?= !$isAdmin ? 'readonly' : '' ?>>
+            </div>
+            <div class="col-12">
+                <hr>
+                <label class="form-label mb-0">Configuração de envio de email (SMTP)</label>
+                <p class="small text-muted mb-2">Preencha estes campos para envio autenticado de alertas e relatórios quando o servidor não usa <code>mail()</code>.</p>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Servidor SMTP</label>
+                <input class="form-control" name="smtp_host" placeholder="smtp.seudominio.com" value="<?= h($smtpHost) ?>" <?= !$isAdmin ? 'readonly' : '' ?>>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Porta SMTP</label>
+                <input class="form-control" type="number" min="1" max="65535" name="smtp_port" value="<?= h((string) $smtpPort) ?>" <?= !$isAdmin ? 'readonly' : '' ?>>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Segurança</label>
+                <select class="form-select" name="smtp_secure" <?= !$isAdmin ? 'disabled' : '' ?>>
+                    <option value="" <?= $smtpSecure === '' ? 'selected' : '' ?>>Sem TLS</option>
+                    <option value="tls" <?= $smtpSecure === 'tls' ? 'selected' : '' ?>>STARTTLS</option>
+                    <option value="ssl" <?= $smtpSecure === 'ssl' ? 'selected' : '' ?>>SSL</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Utilizador SMTP</label>
+                <input class="form-control" name="smtp_username" value="<?= h($smtpUsername) ?>" <?= !$isAdmin ? 'readonly' : '' ?>>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Password SMTP</label>
+                <input class="form-control" type="password" name="smtp_password" value="<?= h($smtpPassword) ?>" autocomplete="new-password" <?= !$isAdmin ? 'readonly' : '' ?>>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Timeout (s)</label>
+                <input class="form-control" type="number" min="3" max="120" name="smtp_timeout_seconds" value="<?= h((string) $smtpTimeout) ?>" <?= !$isAdmin ? 'readonly' : '' ?>>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Email remetente</label>
+                <input class="form-control" type="email" name="mail_from_address" value="<?= h($mailFromAddress) ?>" <?= !$isAdmin ? 'readonly' : '' ?>>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Nome remetente</label>
+                <input class="form-control" name="mail_from_name" value="<?= h($mailFromName) ?>" <?= !$isAdmin ? 'readonly' : '' ?>>
             </div>
 
             <div class="col-md-6">

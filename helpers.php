@@ -384,14 +384,30 @@ function status_label(string $status): string
 
 function taskforce_mail_from_address(): string
 {
-    $value = trim((string) getenv('TASKFORCE_MAIL_FROM_ADDRESS'));
+    global $pdo;
+
+    $value = '';
+    if (isset($pdo) && $pdo instanceof PDO && function_exists('app_setting')) {
+        $value = trim((string) app_setting($pdo, 'mail_from_address', ''));
+    }
+    if ($value === '') {
+        $value = trim((string) getenv('TASKFORCE_MAIL_FROM_ADDRESS'));
+    }
 
     return $value !== '' ? $value : 'noreply@calcadacorp.ch';
 }
 
 function taskforce_mail_from_name(): string
 {
-    $value = trim((string) getenv('TASKFORCE_MAIL_FROM_NAME'));
+    global $pdo;
+
+    $value = '';
+    if (isset($pdo) && $pdo instanceof PDO && function_exists('app_setting')) {
+        $value = trim((string) app_setting($pdo, 'mail_from_name', ''));
+    }
+    if ($value === '') {
+        $value = trim((string) getenv('TASKFORCE_MAIL_FROM_NAME'));
+    }
 
     return $value !== '' ? $value : 'TaskForce';
 }
@@ -409,13 +425,49 @@ function taskforce_default_mail_headers(): string
 
 function taskforce_smtp_config(): array
 {
+    global $pdo;
+
+    $settingValue = static function (string $key) use ($pdo): string {
+        if (isset($pdo) && $pdo instanceof PDO && function_exists('app_setting')) {
+            return trim((string) app_setting($pdo, $key, ''));
+        }
+
+        return '';
+    };
+
+    $host = $settingValue('smtp_host');
+    $portRaw = $settingValue('smtp_port');
+    $secure = $settingValue('smtp_secure');
+    $username = $settingValue('smtp_username');
+    $password = $settingValue('smtp_password');
+    $timeoutRaw = $settingValue('smtp_timeout_seconds');
+
+    if ($host === '') {
+        $host = trim((string) getenv('TASKFORCE_SMTP_HOST'));
+    }
+    if ($portRaw === '') {
+        $portRaw = (string) getenv('TASKFORCE_SMTP_PORT');
+    }
+    if ($secure === '') {
+        $secure = strtolower(trim((string) getenv('TASKFORCE_SMTP_SECURE')));
+    }
+    if ($username === '') {
+        $username = trim((string) getenv('TASKFORCE_SMTP_USER'));
+    }
+    if ($password === '') {
+        $password = (string) getenv('TASKFORCE_SMTP_PASS');
+    }
+    if ($timeoutRaw === '') {
+        $timeoutRaw = (string) getenv('TASKFORCE_SMTP_TIMEOUT');
+    }
+
     return [
-        'host' => trim((string) getenv('TASKFORCE_SMTP_HOST')),
-        'port' => (int) (getenv('TASKFORCE_SMTP_PORT') ?: 587),
-        'secure' => strtolower(trim((string) getenv('TASKFORCE_SMTP_SECURE'))),
-        'username' => trim((string) getenv('TASKFORCE_SMTP_USER')),
-        'password' => (string) getenv('TASKFORCE_SMTP_PASS'),
-        'timeout' => max(3, (int) (getenv('TASKFORCE_SMTP_TIMEOUT') ?: 10)),
+        'host' => $host,
+        'port' => (int) ($portRaw !== '' ? $portRaw : 587),
+        'secure' => strtolower(trim($secure)),
+        'username' => $username,
+        'password' => $password,
+        'timeout' => max(3, (int) ($timeoutRaw !== '' ? $timeoutRaw : 10)),
     ];
 }
 
