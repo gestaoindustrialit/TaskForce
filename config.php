@@ -502,7 +502,7 @@ $pdo->exec(
         code TEXT,
         reason_code TEXT,
         sage_code TEXT,
-        label TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL,
         color TEXT NOT NULL DEFAULT "#2563eb",
         show_in_shopfloor INTEGER NOT NULL DEFAULT 1,
         is_active INTEGER NOT NULL DEFAULT 1,
@@ -530,6 +530,42 @@ if (!in_array('reason_type', $absenceReasonColumns, true)) {
 }
 if (!in_array('show_in_shopfloor', $absenceReasonColumns, true)) {
     $pdo->exec('ALTER TABLE shopfloor_absence_reasons ADD COLUMN show_in_shopfloor INTEGER NOT NULL DEFAULT 1');
+}
+
+$absenceReasonsCreateStmt = $pdo->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'shopfloor_absence_reasons' LIMIT 1");
+$absenceReasonsCreateSql = $absenceReasonsCreateStmt ? (string) ($absenceReasonsCreateStmt->fetchColumn() ?: '') : '';
+if ($absenceReasonsCreateSql !== '' && stripos($absenceReasonsCreateSql, 'label TEXT NOT NULL UNIQUE') !== false) {
+    $pdo->exec('PRAGMA foreign_keys = OFF');
+    $pdo->beginTransaction();
+    try {
+        $pdo->exec('ALTER TABLE shopfloor_absence_reasons RENAME TO shopfloor_absence_reasons_legacy');
+        $pdo->exec(
+            'CREATE TABLE shopfloor_absence_reasons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reason_type TEXT NOT NULL DEFAULT "Ausência",
+                code TEXT,
+                reason_code TEXT,
+                sage_code TEXT,
+                label TEXT NOT NULL,
+                color TEXT NOT NULL DEFAULT "#2563eb",
+                show_in_shopfloor INTEGER NOT NULL DEFAULT 1,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_by INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+            )'
+        );
+        $pdo->exec('INSERT INTO shopfloor_absence_reasons(id, reason_type, code, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by, created_at) SELECT id, reason_type, code, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by, created_at FROM shopfloor_absence_reasons_legacy');
+        $pdo->exec('DROP TABLE shopfloor_absence_reasons_legacy');
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    } finally {
+        $pdo->exec('PRAGMA foreign_keys = ON');
+    }
 }
 
 $pdo->exec("UPDATE shopfloor_absence_reasons SET color = '#2563eb' WHERE color IS NULL OR TRIM(color) = ''");
