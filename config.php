@@ -550,15 +550,36 @@ if (!$absenceReasonCodeIndexExists) {
     $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_reasons_reason_code ON shopfloor_absence_reasons(reason_code)');
 }
 
-$defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(reason_type, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, 1, NULL)');
-foreach ([
-    ['Ausência', 'MOT-001', '001', 'Falta sem perda de remuneração', '#0d6efd'],
-    ['Ausência', 'MOT-002', '002', 'Consulta médica', '#198754'],
-    ['Ausência', 'MOT-003', '003', 'Acompanhamento familiar', '#fd7e14'],
-    ['Ausência', 'MOT-004', '004', 'Formação externa', '#6f42c1'],
-    ['Ausência', 'MOT-005', '005', 'Outro motivo justificado', '#6c757d']
-] as $defaultAbsenceReason) {
-    $defaultAbsenceReasonStmt->execute($defaultAbsenceReason);
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS app_settings (
+        setting_key TEXT PRIMARY KEY,
+        setting_value TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )'
+);
+$absenceReasonSeedKey = 'shopfloor_absence_reasons_seeded';
+$absenceReasonSeedStmt = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1');
+$absenceReasonSeedStmt->execute([$absenceReasonSeedKey]);
+$absenceReasonSeedState = $absenceReasonSeedStmt->fetchColumn();
+$absenceReasonCountStmt = $pdo->query('SELECT COUNT(*) FROM shopfloor_absence_reasons');
+$absenceReasonCount = (int) ($absenceReasonCountStmt ? $absenceReasonCountStmt->fetchColumn() : 0);
+
+if ($absenceReasonSeedState === false && $absenceReasonCount === 0) {
+    $defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(reason_type, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, 1, NULL)');
+    foreach ([
+        ['Ausência', 'MOT-001', '001', 'Falta sem perda de remuneração', '#0d6efd'],
+        ['Ausência', 'MOT-002', '002', 'Consulta médica', '#198754'],
+        ['Ausência', 'MOT-003', '003', 'Acompanhamento familiar', '#fd7e14'],
+        ['Ausência', 'MOT-004', '004', 'Formação externa', '#6f42c1'],
+        ['Ausência', 'MOT-005', '005', 'Outro motivo justificado', '#6c757d']
+    ] as $defaultAbsenceReason) {
+        $defaultAbsenceReasonStmt->execute($defaultAbsenceReason);
+    }
+}
+
+if ($absenceReasonSeedState === false) {
+    $absenceReasonSeedInsertStmt = $pdo->prepare('INSERT INTO app_settings(setting_key, setting_value) VALUES (?, ?)');
+    $absenceReasonSeedInsertStmt->execute([$absenceReasonSeedKey, '1']);
 }
 
 $pdo->exec(
