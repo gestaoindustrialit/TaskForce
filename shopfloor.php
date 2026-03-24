@@ -574,6 +574,29 @@ require __DIR__ . '/partials/header.php';
 
     <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
+            <div>
+                <h2 class="h4 mb-1">Ponto</h2>
+                <p class="text-secondary mb-0">Registe entrada/saída no início da jornada, pausas e fim do turno.</p>
+            </div>
+            <?php if ($latestEntryTimeLabel): ?>
+                <span class="badge text-bg-light border"><?= h($latestEntryTimeLabel) ?></span>
+            <?php endif; ?>
+        </div>
+        <form method="post" class="row g-2 align-items-end">
+            <input type="hidden" name="action" value="clock_entry">
+            <input type="hidden" name="entry_type" value="<?= h($nextEntryType) ?>">
+            <div class="col-md-9">
+                <label class="form-label">Observação (opcional)</label>
+                <input type="text" name="note" class="form-control" placeholder="Ex.: Início de turno, pausa almoço, regresso, fim de turno">
+            </div>
+            <div class="col-md-3 d-grid">
+                <button type="submit" class="btn <?= h($clockButtonClass) ?> fw-semibold"><?= h($clockButtonLabel) ?></button>
+            </div>
+        </form>
+    </div>
+
+    <div class="shopfloor-panel mb-4">
+        <div class="shopfloor-panel-header">
             <h2 class="h4 mb-0">Pedidos de ausência</h2>
             <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#absenceFormPanel" aria-expanded="false" aria-controls="absenceFormPanel">Novo pedido</button>
         </div>
