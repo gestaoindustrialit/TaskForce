@@ -533,6 +533,7 @@ require __DIR__ . '/partials/header.php';
         </div>
     <?php endif; ?>
 
+    <div class="<?= $pendingAnnouncementAck ? 'd-none' : '' ?>">
     <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
             <h2 class="h4 mb-0">Pedidos de ausência</h2>
@@ -1009,6 +1010,7 @@ require __DIR__ . '/partials/header.php';
                 <?php endif; ?>
             </div>
         </div>
+    </div>
     </div>
 
 </section>
