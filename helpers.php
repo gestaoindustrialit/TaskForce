@@ -382,38 +382,18 @@ function status_label(string $status): string
 }
 
 
-function deliver_report(string $email, string $subject, string $body): bool
-{
-    $headers = taskforce_default_mail_headers();
-    $sent = @mail($email, $subject, $body, $headers);
-
-    if (!$sent && $phpErrorMessage !== '') {
-        $logLines[] = 'PHP ERROR: ' . $phpErrorMessage;
-    }
-
-    $logLines[] = 'HEADERS:';
-    $logLines[] = $headers;
-    $logLines[] = 'BODY:';
-    $logLines[] = $body;
-    $logLines[] = str_repeat('-', 80);
-
-    @file_put_contents(
-        __DIR__ . '/reports_sent.log',
-        implode(PHP_EOL, $logLines) . PHP_EOL,
-        FILE_APPEND
-    );
-
-    return $sent;
-}
-
 function taskforce_mail_from_address(): string
 {
-    return 'noreply@calcadacorp.ch';
+    $value = trim((string) getenv('TASKFORCE_MAIL_FROM_ADDRESS'));
+
+    return $value !== '' ? $value : 'noreply@calcadacorp.ch';
 }
 
 function taskforce_mail_from_name(): string
 {
-    return 'TaskForce';
+    $value = trim((string) getenv('TASKFORCE_MAIL_FROM_NAME'));
+
+    return $value !== '' ? $value : 'TaskForce';
 }
 
 function taskforce_default_mail_headers(): string
@@ -421,9 +401,184 @@ function taskforce_default_mail_headers(): string
     $fromAddress = taskforce_mail_from_address();
     $fromName = taskforce_mail_from_name();
 
-    return "Content-Type: text/plain; charset=UTF-8\r\n"
+    return "MIME-Version: 1.0\r\n"
+        . "Content-Type: text/plain; charset=UTF-8\r\n"
         . 'From: ' . $fromName . ' <' . $fromAddress . ">\r\n"
         . 'Reply-To: ' . $fromAddress . "\r\n";
+}
+
+function taskforce_smtp_config(): array
+{
+    return [
+        'host' => trim((string) getenv('TASKFORCE_SMTP_HOST')),
+        'port' => (int) (getenv('TASKFORCE_SMTP_PORT') ?: 587),
+        'secure' => strtolower(trim((string) getenv('TASKFORCE_SMTP_SECURE'))),
+        'username' => trim((string) getenv('TASKFORCE_SMTP_USER')),
+        'password' => (string) getenv('TASKFORCE_SMTP_PASS'),
+        'timeout' => max(3, (int) (getenv('TASKFORCE_SMTP_TIMEOUT') ?: 10)),
+    ];
+}
+
+function taskforce_write_report_log(array $lines): void
+{
+    @file_put_contents(__DIR__ . '/reports_sent.log', implode(PHP_EOL, $lines) . PHP_EOL, FILE_APPEND);
+}
+
+function taskforce_smtp_expect($socket, array $expectedCodes): string
+{
+    $response = '';
+
+    while (($line = fgets($socket, 1024)) !== false) {
+        $response .= $line;
+        if (preg_match('/^\d{3} /', $line) === 1) {
+            break;
+        }
+    }
+
+    $code = (int) substr($response, 0, 3);
+    if (!in_array($code, $expectedCodes, true)) {
+        throw new RuntimeException('SMTP resposta inesperada: ' . trim($response));
+    }
+
+    return $response;
+}
+
+function taskforce_smtp_write($socket, string $command): void
+{
+    fwrite($socket, $command . "\r\n");
+}
+
+function taskforce_smtp_send_mail(string $recipient, string $subject, string $body, string $headers): array
+{
+    $config = taskforce_smtp_config();
+    if ($config['host'] === '' || $config['username'] === '' || $config['password'] === '') {
+        return ['sent' => false, 'error' => 'SMTP não configurado (TASKFORCE_SMTP_HOST/USER/PASS em falta).'];
+    }
+
+    $transport = $config['host'];
+    if ($config['secure'] === 'ssl' || ($config['secure'] === '' && $config['port'] === 465)) {
+        $transport = 'ssl://' . $transport;
+    }
+
+    $socket = @stream_socket_client(
+        $transport . ':' . $config['port'],
+        $errno,
+        $errstr,
+        $config['timeout'],
+        STREAM_CLIENT_CONNECT
+    );
+
+    if ($socket === false) {
+        return ['sent' => false, 'error' => 'Falha ligação SMTP: ' . $errstr . ' (' . $errno . ')'];
+    }
+
+    stream_set_timeout($socket, $config['timeout']);
+
+    try {
+        taskforce_smtp_expect($socket, [220]);
+        taskforce_smtp_write($socket, 'EHLO taskforce.local');
+        taskforce_smtp_expect($socket, [250]);
+
+        if ($config['secure'] === 'tls' || ($config['secure'] === '' && $config['port'] === 587)) {
+            taskforce_smtp_write($socket, 'STARTTLS');
+            taskforce_smtp_expect($socket, [220]);
+
+            if (!stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+                throw new RuntimeException('Não foi possível iniciar STARTTLS.');
+            }
+
+            taskforce_smtp_write($socket, 'EHLO taskforce.local');
+            taskforce_smtp_expect($socket, [250]);
+        }
+
+        taskforce_smtp_write($socket, 'AUTH LOGIN');
+        taskforce_smtp_expect($socket, [334]);
+        taskforce_smtp_write($socket, base64_encode($config['username']));
+        taskforce_smtp_expect($socket, [334]);
+        taskforce_smtp_write($socket, base64_encode($config['password']));
+        taskforce_smtp_expect($socket, [235]);
+
+        $fromAddress = taskforce_mail_from_address();
+        taskforce_smtp_write($socket, 'MAIL FROM:<' . $fromAddress . '>');
+        taskforce_smtp_expect($socket, [250]);
+        taskforce_smtp_write($socket, 'RCPT TO:<' . $recipient . '>');
+        taskforce_smtp_expect($socket, [250, 251]);
+        taskforce_smtp_write($socket, 'DATA');
+        taskforce_smtp_expect($socket, [354]);
+
+        $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
+        $message = 'Subject: ' . $encodedSubject . "\r\n" . $headers . "\r\n" . $body;
+        $message = preg_replace("/(\r\n|\n|\r)\.([^\r\n])/", '$1..$2', $message) ?? $message;
+        fwrite($socket, $message . "\r\n.\r\n");
+        taskforce_smtp_expect($socket, [250]);
+
+        taskforce_smtp_write($socket, 'QUIT');
+        fclose($socket);
+
+        return ['sent' => true, 'error' => ''];
+    } catch (Throwable $exception) {
+        @fclose($socket);
+
+        return ['sent' => false, 'error' => $exception->getMessage()];
+    }
+}
+
+function deliver_report(string $email, string $subject, string $body): bool
+{
+    $headers = taskforce_default_mail_headers();
+    $logLines = [
+        '[' . date('Y-m-d H:i:s') . '] DELIVERY ATTEMPT',
+        'TO: ' . $email,
+        'SUBJECT: ' . $subject,
+    ];
+
+    $phpErrorMessage = '';
+    set_error_handler(static function (int $severity, string $message) use (&$phpErrorMessage): bool {
+        $phpErrorMessage = $message;
+
+        return true;
+    });
+
+    try {
+        $sent = @mail($email, $subject, $body, $headers);
+    } finally {
+        restore_error_handler();
+    }
+
+    if ($sent) {
+        $logLines[] = 'TRANSPORT: mail()';
+        $logLines[] = 'RESULT: SUCCESS';
+        taskforce_write_report_log($logLines);
+
+        return true;
+    }
+
+    $logLines[] = 'TRANSPORT: mail()';
+    $logLines[] = 'RESULT: FAIL';
+    if ($phpErrorMessage !== '') {
+        $logLines[] = 'MAIL_ERROR: ' . $phpErrorMessage;
+    }
+
+    $smtpAttempt = taskforce_smtp_send_mail($email, $subject, $body, $headers);
+    if (!empty($smtpAttempt['sent'])) {
+        $logLines[] = 'TRANSPORT_FALLBACK: smtp';
+        $logLines[] = 'RESULT_FALLBACK: SUCCESS';
+        taskforce_write_report_log($logLines);
+
+        return true;
+    }
+
+    $logLines[] = 'TRANSPORT_FALLBACK: smtp';
+    $logLines[] = 'RESULT_FALLBACK: FAIL';
+    $logLines[] = 'SMTP_ERROR: ' . (string) ($smtpAttempt['error'] ?? 'Erro desconhecido SMTP.');
+    $logLines[] = 'HEADERS:';
+    $logLines[] = $headers;
+    $logLines[] = 'BODY:';
+    $logLines[] = $body;
+    $logLines[] = str_repeat('-', 80);
+    taskforce_write_report_log($logLines);
+
+    return false;
 }
 
 function taskforce_weekday_label_pt(int $weekday): string
