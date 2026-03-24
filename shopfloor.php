@@ -17,36 +17,13 @@ if (!$isAdmin && !in_array($profile, ['Utilizador', 'Chefias', 'RH'], true)) {
 $flashSuccess = null;
 $flashError = null;
 $sessionLoginAt = trim((string) ($_SESSION['login_at'] ?? ''));
-
-$fetchPendingAnnouncementAcknowledgement = static function (PDO $pdo, int $targetUserId, string $targetSessionLoginAt): ?array {
-    $params = [$targetUserId];
-    $loginConstraint = '';
-    if ($targetSessionLoginAt !== '') {
-        $loginConstraint = ' AND a.created_at <= ?';
-        $params[] = $targetSessionLoginAt;
-    }
-
-    $stmt = $pdo->prepare(
-        'SELECT a.id, a.title, a.body, a.created_at, COALESCE(u.name, "Sistema") AS created_by_name
-         FROM shopfloor_announcements a
-         LEFT JOIN users u ON u.id = a.created_by
-         WHERE a.is_active = 1
-           AND (a.audience IN ("all", "shopfloor") OR EXISTS (SELECT 1 FROM shopfloor_announcement_targets t WHERE t.announcement_id = a.id AND t.user_id = ?))
-           AND NOT EXISTS (SELECT 1 FROM shopfloor_announcement_acknowledgements ack WHERE ack.announcement_id = a.id AND ack.user_id = ?)'
-        . $loginConstraint . '
-         ORDER BY a.created_at ASC, a.id ASC
-         LIMIT 1'
-    );
-
-    $stmt->execute(array_merge([$targetUserId], $params));
-    $announcement = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    return is_array($announcement) ? $announcement : null;
-};
+if (isset($_GET['announcement_ack_required'])) {
+    $flashError = 'Tem de validar o conhecimento do comunicado pendente para continuar.';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = trim((string) ($_POST['action'] ?? ''));
-    $pendingAnnouncementForAck = $fetchPendingAnnouncementAcknowledgement($pdo, $userId, $sessionLoginAt);
+    $pendingAnnouncementForAck = fetch_pending_shopfloor_announcement_ack($pdo, $userId, $sessionLoginAt);
 
     if ($action === 'acknowledge_announcement') {
         $announcementId = (int) ($_POST['announcement_id'] ?? 0);
@@ -505,7 +482,7 @@ if ($isAdmin || $isRh) {
 $announcementsStmt = $pdo->prepare('SELECT a.id, a.title, a.body, a.created_at, a.is_active, a.audience, COALESCE(u.name, "Sistema") AS created_by_name FROM shopfloor_announcements a LEFT JOIN users u ON u.id = a.created_by WHERE a.is_active = 1 AND (a.audience IN ("all", "shopfloor") OR EXISTS (SELECT 1 FROM shopfloor_announcement_targets t WHERE t.announcement_id = a.id AND t.user_id = ?)) ORDER BY a.created_at DESC LIMIT 8');
 $announcementsStmt->execute([$userId]);
 $announcements = $announcementsStmt->fetchAll(PDO::FETCH_ASSOC);
-$pendingAnnouncementAck = $fetchPendingAnnouncementAcknowledgement($pdo, $userId, $sessionLoginAt);
+$pendingAnnouncementAck = fetch_pending_shopfloor_announcement_ack($pdo, $userId, $sessionLoginAt);
 
 $managedAnnouncements = [];
 if ($isAdmin || $isRh) {
