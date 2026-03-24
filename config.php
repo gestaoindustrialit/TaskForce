@@ -536,8 +536,8 @@ $absenceReasonsCreateStmt = $pdo->query("SELECT sql FROM sqlite_master WHERE typ
 $absenceReasonsCreateSql = $absenceReasonsCreateStmt ? (string) ($absenceReasonsCreateStmt->fetchColumn() ?: '') : '';
 if ($absenceReasonsCreateSql !== '' && stripos($absenceReasonsCreateSql, 'label TEXT NOT NULL UNIQUE') !== false) {
     $pdo->exec('PRAGMA foreign_keys = OFF');
-    $pdo->beginTransaction();
     try {
+        $pdo->beginTransaction();
         $pdo->exec('ALTER TABLE shopfloor_absence_reasons RENAME TO shopfloor_absence_reasons_legacy');
         $pdo->exec(
             'CREATE TABLE shopfloor_absence_reasons (
@@ -556,13 +556,23 @@ if ($absenceReasonsCreateSql !== '' && stripos($absenceReasonsCreateSql, 'label 
             )'
         );
         $pdo->exec('INSERT INTO shopfloor_absence_reasons(id, reason_type, code, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by, created_at) SELECT id, reason_type, code, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by, created_at FROM shopfloor_absence_reasons_legacy');
-        $pdo->exec('DROP TABLE shopfloor_absence_reasons_legacy');
         $pdo->commit();
+
+        try {
+            $pdo->exec('DROP TABLE shopfloor_absence_reasons_legacy');
+        } catch (PDOException $dropException) {
+            if (stripos((string) $dropException->getMessage(), 'locked') === false) {
+                throw $dropException;
+            }
+        }
     } catch (Throwable $exception) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        throw $exception;
+
+        if (stripos((string) $exception->getMessage(), 'locked') === false) {
+            throw $exception;
+        }
     } finally {
         $pdo->exec('PRAGMA foreign_keys = ON');
     }
