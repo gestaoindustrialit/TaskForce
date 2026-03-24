@@ -408,22 +408,6 @@ $todayEntriesStmt = $pdo->prepare('SELECT entry_type, note, occurred_at FROM sho
 $todayEntriesStmt->execute([$userId]);
 $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$latestTodayEntry = $todayEntries[0] ?? null;
-$nextEntryType = $latestTodayEntry && (($latestTodayEntry['entry_type'] ?? '') === 'entrada') ? 'saida' : 'entrada';
-$clockButtonLabel = $nextEntryType === 'entrada' ? 'Ponto de entrada' : 'Ponto de saída';
-$clockButtonClass = $nextEntryType === 'entrada' ? 'btn-primary' : 'btn-outline-light';
-$latestEntryTimeLabel = null;
-if ($latestTodayEntry && !empty($latestTodayEntry['occurred_at'])) {
-    $latestTimestamp = strtotime((string) $latestTodayEntry['occurred_at']);
-    if ($latestTimestamp !== false) {
-        $latestEntryTimeLabel = sprintf(
-            '%s às %s',
-            (($latestTodayEntry['entry_type'] ?? '') === 'entrada') ? 'Entrada' : 'Saída',
-            date('H:i', $latestTimestamp)
-        );
-    }
-}
-
 $absenceReasonsStmt = $pdo->prepare('SELECT id, reason_code, sage_code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 AND (? = 1 OR ? = 1 OR show_in_shopfloor = 1) ORDER BY reason_code COLLATE NOCASE ASC, label COLLATE NOCASE ASC');
 $absenceReasonsStmt->execute([$isAdmin ? 1 : 0, $isRh ? 1 : 0]);
 $absenceReasons = $absenceReasonsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -548,29 +532,6 @@ require __DIR__ . '/partials/header.php';
             </div>
         </div>
     <?php endif; ?>
-
-    <div class="shopfloor-panel mb-4">
-        <div class="shopfloor-panel-header">
-            <div>
-                <h2 class="h4 mb-1">Ponto</h2>
-                <p class="text-secondary mb-0">Registe entrada/saída no início da jornada, pausas e fim do turno.</p>
-            </div>
-            <?php if ($latestEntryTimeLabel): ?>
-                <span class="badge text-bg-light border"><?= h($latestEntryTimeLabel) ?></span>
-            <?php endif; ?>
-        </div>
-        <form method="post" class="row g-2 align-items-end">
-            <input type="hidden" name="action" value="clock_entry">
-            <input type="hidden" name="entry_type" value="<?= h($nextEntryType) ?>">
-            <div class="col-md-9">
-                <label class="form-label">Observação (opcional)</label>
-                <input type="text" name="note" class="form-control" placeholder="Ex.: Início de turno, pausa almoço, regresso, fim de turno">
-            </div>
-            <div class="col-md-3 d-grid">
-                <button type="submit" class="btn <?= h($clockButtonClass) ?> fw-semibold"><?= h($clockButtonLabel) ?></button>
-            </div>
-        </form>
-    </div>
 
     <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
