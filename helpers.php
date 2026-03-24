@@ -58,6 +58,12 @@ function is_admin(PDO $pdo, int $userId): bool
     return (int) $stmt->fetchColumn() === 1;
 }
 
+function normalize_sage_code(string $value): string
+{
+    $normalized = strtoupper(trim($value));
+    return preg_replace('/\.0+$/', '', $normalized) ?? $normalized;
+}
+
 
 function verify_pin_code(array $user, string $pin): bool
 {

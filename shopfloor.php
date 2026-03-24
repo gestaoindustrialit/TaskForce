@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $startDate = $singleDate;
                 $endDate = $singleDate;
             }
-            $reason = trim((string) ($reasonData['reason_code'] ?? '')) . ' · ' . trim((string) ($reasonData['sage_code'] ?? '')) . ' - ' . trim((string) ($reasonData['label'] ?? ''));
+            $reason = trim((string) ($reasonData['reason_code'] ?? '')) . ' · ' . normalize_sage_code((string) ($reasonData['sage_code'] ?? '')) . ' - ' . trim((string) ($reasonData['label'] ?? ''));
             $stmt = $pdo->prepare('INSERT INTO shopfloor_absence_requests(user_id, request_type, duration_type, duration_hours, start_date, end_date, start_time, end_time, reason, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
             $stmt->execute([
                 $userId,
@@ -494,7 +494,7 @@ require __DIR__ . '/partials/header.php';
                     <select name="reason_id" class="form-select shopfloor-reason-select d-none" id="absenceReasonSelect">
                         <option value="" data-color="#475569">Selecionar motivo</option>
                         <?php foreach ($absenceReasons as $reasonOption): ?>
-                            <option value="<?= (int) $reasonOption['id'] ?>" data-color="<?= h((string) ($reasonOption['color'] ?? '#1e293b')) ?>"><?= h((string) $reasonOption['reason_code']) ?> · <?= h((string) $reasonOption['sage_code']) ?> — <?= h((string) $reasonOption['label']) ?></option>
+                            <option value="<?= (int) $reasonOption['id'] ?>" data-color="<?= h((string) ($reasonOption['color'] ?? '#1e293b')) ?>"><?= h((string) $reasonOption['reason_code']) ?> · <?= h(normalize_sage_code((string) $reasonOption['sage_code'])) ?> — <?= h((string) $reasonOption['label']) ?></option>
                         <?php endforeach; ?>
                     </select>
                     <div class="shopfloor-reason-picker" id="absenceReasonPicker">
@@ -505,7 +505,7 @@ require __DIR__ . '/partials/header.php';
                                 <?php foreach ($absenceReasons as $reasonOption): ?>
                                     <?php
                                         $reasonColor = (string) ($reasonOption['color'] ?? '#1e293b');
-                                        $reasonLabel = (string) $reasonOption['reason_code'] . ' · ' . (string) $reasonOption['sage_code'] . ' — ' . (string) $reasonOption['label'];
+                                        $reasonLabel = (string) $reasonOption['reason_code'] . ' · ' . normalize_sage_code((string) $reasonOption['sage_code']) . ' — ' . (string) $reasonOption['label'];
                                     ?>
                                     <button type="button" class="shopfloor-reason-option" data-role="option" data-value="<?= (int) $reasonOption['id'] ?>" data-color="<?= h($reasonColor) ?>" data-search="<?= h(strtolower($reasonLabel)) ?>">
                                         <span class="shopfloor-dot" style="background: <?= h($reasonColor) ?>"></span>
