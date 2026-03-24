@@ -74,6 +74,36 @@ function fetch_alert_recipient_users(PDO $pdo, array $selectedUserIds): array
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+function fetch_selected_users_missing_delivery_requirements(PDO $pdo, array $selectedUserIds): array
+{
+    if (!$selectedUserIds) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($selectedUserIds), '?'));
+    $stmt = $pdo->prepare(
+        'SELECT id, name, email, is_active, email_notifications_active, pin_only_login
+         FROM users
+         WHERE id IN (' . $placeholders . ')'
+    );
+    $stmt->execute($selectedUserIds);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $missing = [];
+    foreach ($rows as $row) {
+        $isEligible = (int) ($row['is_active'] ?? 0) === 1
+            && (int) ($row['email_notifications_active'] ?? 0) === 1
+            && (int) ($row['pin_only_login'] ?? 0) === 0
+            && trim((string) ($row['email'] ?? '')) !== '';
+
+        if (!$isEligible) {
+            $missing[] = $row;
+        }
+    }
+
+    return $missing;
+}
+
 $now = new DateTimeImmutable('now');
 $currentTime = $now->format('H:i');
 $today = $now->format('Y-m-d');
@@ -90,17 +120,40 @@ foreach ($alerts as $alert) {
     }
 
     $selectedUserIds = array_values(array_filter(array_map('intval', explode(',', (string) ($alert['selected_user_ids'] ?? '')))));
+    $selectedUsersMissingDelivery = fetch_selected_users_missing_delivery_requirements($pdo, $selectedUserIds);
+    if ($selectedUsersMissingDelivery) {
+        $missingLabels = array_map(
+            static fn(array $user): string => ((string) ($user['name'] ?? 'Sem nome')) . ' (#' . (int) ($user['id'] ?? 0) . ')',
+            $selectedUsersMissingDelivery
+        );
+        $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' ignorou colaboradores sem requisitos de entrega: ' . implode(', ', $missingLabels) . PHP_EOL;
+        @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+    }
+
     $users = fetch_alert_recipient_users($pdo, $selectedUserIds);
     if (!$users) {
+        $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' sem destinatários elegíveis após validar e-mail/notificações.' . PHP_EOL;
+        @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
         continue;
     }
 
     if ($alert['alert_type'] === 'attendance_monthly_map') {
+        $deliveredToAtLeastOneRecipient = false;
         foreach ($users as $user) {
             $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
-            deliver_report((string) $user['email'], (string) $report['subject'], (string) $report['body']);
+            $sent = deliver_report((string) $user['email'], (string) $report['subject'], (string) $report['body']);
+            if ($sent) {
+                $deliveredToAtLeastOneRecipient = true;
+            }
         }
 
+        if (!$deliveredToAtLeastOneRecipient) {
+            $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' falhou para todos os destinatários no tipo attendance_monthly_map' . PHP_EOL;
+            @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+            continue;
+        }
+
+        $markSentStmt->execute([$now->format('Y-m-d H:i:s'), (int) $alert['id']]);
         $processedAlerts++;
         continue;
     }
@@ -132,6 +185,7 @@ foreach ($alerts as $alert) {
     }
 
     $headers = 'From: no-reply@taskforce.local';
+    $deliveredToAtLeastOneRecipient = false;
     foreach ($users as $user) {
         $recipientEmail = (string) ($user['email'] ?? '');
         if ($recipientEmail === '') {
@@ -143,7 +197,16 @@ foreach ($alerts as $alert) {
         if (!$sent) {
             $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' para ' . $recipientEmail . PHP_EOL . $subject . PHP_EOL . $body . PHP_EOL;
             @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+            continue;
         }
+
+        $deliveredToAtLeastOneRecipient = true;
+    }
+
+    if (!$deliveredToAtLeastOneRecipient) {
+        $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' falhou para todos os destinatários no tipo ' . $alert['alert_type'] . PHP_EOL;
+        @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+        continue;
     }
 
     $markSentStmt->execute([$now->format('Y-m-d H:i:s'), (int) $alert['id']]);
