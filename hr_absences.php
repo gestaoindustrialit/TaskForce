@@ -60,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $sageCode = '';
             foreach ($reasons as $reason) {
                 if ((string) $reason['reason_code'] === $reasonCode) {
-                    $sageCode = (string) ($reason['sage_code'] ?? '');
+                    $sageCode = normalize_sage_code((string) ($reason['sage_code'] ?? ''));
                     break;
                 }
             }
@@ -122,7 +122,7 @@ require __DIR__ . '/partials/header.php';
             <div class="col-md-3"><label class="form-label">Colaborador</label><select class="form-select" name="user_id" required><?php foreach ($users as $u): ?><option value="<?= (int) $u['id'] ?>"><?= h(format_absence_employee_label($u)) ?></option><?php endforeach; ?></select></div>
             <div class="col-md-3"><label class="form-label">Início</label><input class="form-control" type="date" name="start_date" required></div>
             <div class="col-md-3"><label class="form-label">Fim</label><input class="form-control" type="date" name="end_date" required></div>
-            <div class="col-md-3"><label class="form-label">Motivo</label><select class="form-select" name="reason_code" required><option value="">Selecione</option><?php foreach ($reasons as $r): ?><option value="<?= h((string) $r['reason_code']) ?>"><?= h(trim((string) ($r['reason_type'] ?? 'Ausência')) . ' · ' . (string) $r['reason_code'] . ' · ' . (string) $r['sage_code'] . ' - ' . (string) $r['label']) ?></option><?php endforeach; ?></select></div>
+            <div class="col-md-3"><label class="form-label">Motivo</label><select class="form-select" name="reason_code" required><option value="">Selecione</option><?php foreach ($reasons as $r): ?><option value="<?= h((string) $r['reason_code']) ?>"><?= h(trim((string) ($r['reason_type'] ?? 'Ausência')) . ' · ' . (string) $r['reason_code'] . ' · ' . normalize_sage_code((string) $r['sage_code']) . ' - ' . (string) $r['label']) ?></option><?php endforeach; ?></select></div>
             <div class="col-12"><label class="form-label">Justificação / Observações</label><input class="form-control" name="notes" placeholder="Visível em todas as etapas"></div>
             <div class="col-md-3 d-grid"><button class="btn btn-dark">Submeter pedido</button></div>
         </form>

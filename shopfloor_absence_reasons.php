@@ -311,7 +311,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $reasonType = 'Ausência';
     }
     $reasonCode = strtoupper(trim((string) ($_POST['reason_code'] ?? '')));
-    $sageCode = strtoupper(trim((string) ($_POST['sage_code'] ?? '')));
+    $sageCode = normalize_sage_code((string) ($_POST['sage_code'] ?? ''));
     $label = trim((string) ($_POST['label'] ?? ''));
     $color = trim((string) ($_POST['color'] ?? '#2563eb'));
     if (!preg_match('/^#[0-9a-fA-F]{6}$/', $color)) {
@@ -376,7 +376,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($rows as $row) {
                 $rowReasonType = trim((string) ($row['reason_type'] ?? ''));
                 $rowReasonCode = strtoupper(trim((string) ($row['reason_code'] ?? '')));
-                $rowSageCode = strtoupper(trim((string) ($row['sage_code'] ?? '')));
+                $rowSageCode = normalize_sage_code((string) ($row['sage_code'] ?? ''));
                 $rowLabel = trim((string) ($row['label'] ?? ''));
                 $rowColor = trim((string) ($row['color'] ?? '#2563eb'));
 
@@ -556,7 +556,7 @@ require __DIR__ . '/partials/header.php';
             </div>
             <div class="col-md-2">
                 <label class="form-label">Código SAGE</label>
-                <input type="text" name="sage_code" class="form-control" placeholder="Ex: 100" value="<?= h((string) ($editingReason['sage_code'] ?? '')) ?>" required>
+                <input type="text" name="sage_code" class="form-control" placeholder="Ex: 100" value="<?= h(normalize_sage_code((string) ($editingReason['sage_code'] ?? ''))) ?>" required>
             </div>
             <div class="col-md-4">
                 <label class="form-label">Descrição</label>
@@ -618,7 +618,7 @@ require __DIR__ . '/partials/header.php';
                                 <tr>
                                     <td><?= h($processedRow['reason_type']) ?></td>
                                     <td><?= h($processedRow['reason_code']) ?></td>
-                                    <td><?= h($processedRow['sage_code']) ?></td>
+                                    <td><?= h(normalize_sage_code((string) $processedRow['sage_code'])) ?></td>
                                     <td><?= h($processedRow['label']) ?></td>
                                 </tr>
                             <?php endforeach; ?>
@@ -664,7 +664,7 @@ require __DIR__ . '/partials/header.php';
                     <tr>
                         <td><?= h((string) ($reason['reason_type'] ?? 'Ausência')) ?></td>
                         <td><span class="badge text-bg-light border"><?= h((string) $reason['reason_code']) ?></span></td>
-                        <td><span class="badge text-bg-light border"><?= h((string) $reason['sage_code']) ?></span></td>
+                        <td><span class="badge text-bg-light border"><?= h(normalize_sage_code((string) $reason['sage_code'])) ?></span></td>
                         <td class="fw-semibold"><?= h((string) $reason['label']) ?></td>
                         <td>
                             <span class="d-inline-block rounded border" style="width:20px;height:20px;background:<?= h((string) $reason['color']) ?>;"></span>
