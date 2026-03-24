@@ -142,11 +142,6 @@ function require_login(): void
 function fetch_pending_shopfloor_announcement_ack(PDO $pdo, int $targetUserId, string $targetSessionLoginAt = ''): ?array
 {
     $params = [$targetUserId, $targetUserId];
-    $loginConstraint = '';
-    if ($targetSessionLoginAt !== '') {
-        $loginConstraint = ' AND a.created_at <= ?';
-        $params[] = $targetSessionLoginAt;
-    }
 
     $stmt = $pdo->prepare(
         'SELECT a.id, a.title, a.body, a.created_at, COALESCE(u.name, "Sistema") AS created_by_name
@@ -154,8 +149,7 @@ function fetch_pending_shopfloor_announcement_ack(PDO $pdo, int $targetUserId, s
          LEFT JOIN users u ON u.id = a.created_by
          WHERE a.is_active = 1
            AND (a.audience IN ("all", "shopfloor") OR EXISTS (SELECT 1 FROM shopfloor_announcement_targets t WHERE t.announcement_id = a.id AND t.user_id = ?))
-           AND NOT EXISTS (SELECT 1 FROM shopfloor_announcement_acknowledgements ack WHERE ack.announcement_id = a.id AND ack.user_id = ?)'
-        . $loginConstraint . '
+           AND NOT EXISTS (SELECT 1 FROM shopfloor_announcement_acknowledgements ack WHERE ack.announcement_id = a.id AND ack.user_id = ?)
          ORDER BY a.created_at ASC, a.id ASC
          LIMIT 1'
     );
