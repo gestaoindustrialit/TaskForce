@@ -347,7 +347,7 @@ function status_label(string $status): string
 
 function deliver_report(string $email, string $subject, string $body): bool
 {
-    $headers = "Content-Type: text/plain; charset=UTF-8\r\n";
+    $headers = taskforce_default_mail_headers();
     $sent = @mail($email, $subject, $body, $headers);
 
     if (!$sent) {
@@ -356,6 +356,26 @@ function deliver_report(string $email, string $subject, string $body): bool
     }
 
     return $sent;
+}
+
+function taskforce_mail_from_address(): string
+{
+    return 'noreply@calcadacorp.ch';
+}
+
+function taskforce_mail_from_name(): string
+{
+    return 'TaskForce';
+}
+
+function taskforce_default_mail_headers(): string
+{
+    $fromAddress = taskforce_mail_from_address();
+    $fromName = taskforce_mail_from_name();
+
+    return "Content-Type: text/plain; charset=UTF-8\r\n"
+        . 'From: ' . $fromName . ' <' . $fromAddress . ">\r\n"
+        . 'Reply-To: ' . $fromAddress . "\r\n";
 }
 
 function taskforce_weekday_label_pt(int $weekday): string
