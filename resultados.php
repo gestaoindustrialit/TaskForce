@@ -229,6 +229,46 @@ function parse_signed_hhmm_to_minutes(string $value): ?int
     return $sign * (($hours * 60) + $minutes);
 }
 
+function parse_hhmm_to_minutes(string $value): ?int
+{
+    if (!preg_match('/^(\d{1,3}):(\d{2})$/', $value, $matches)) {
+        return null;
+    }
+
+    $hours = (int) $matches[1];
+    $minutes = (int) $matches[2];
+    if ($minutes > 59) {
+        return null;
+    }
+
+    return ($hours * 60) + $minutes;
+}
+
+function format_hhmm_from_minutes(int $minutes): string
+{
+    if ($minutes < 0) {
+        $minutes = 0;
+    }
+
+    return sprintf('%02d:%02d', intdiv($minutes, 60), $minutes % 60);
+}
+
+function resolve_absence_minutes(array $absence, int $targetMinutes): int
+{
+    $durationType = (string) ($absence['duration_type'] ?? 'Completa');
+    if ($durationType === 'Horas') {
+        $hoursValue = trim((string) ($absence['duration_hours'] ?? ''));
+        $parsedMinutes = parse_hhmm_to_minutes($hoursValue);
+        return $parsedMinutes ?? 0;
+    }
+
+    if ($durationType === 'Parcial') {
+        return (int) floor($targetMinutes / 2);
+    }
+
+    return $targetMinutes;
+}
+
 function get_override_bh_seconds(PDO $pdo, int $targetUserId, string $workDate): ?int
 {
     $overrideStmt = $pdo->prepare('SELECT bh_minutes FROM shopfloor_bh_overrides WHERE user_id = ? AND work_date = ? LIMIT 1');
@@ -239,6 +279,18 @@ function get_override_bh_seconds(PDO $pdo, int $targetUserId, string $workDate):
     }
 
     return ((int) $bhMinutes) * 60;
+}
+
+function get_absence_allocated_seconds(PDO $pdo, int $targetUserId, string $workDate): int
+{
+    $allocationStmt = $pdo->prepare('SELECT allocated_minutes FROM shopfloor_absence_time_allocations WHERE user_id = ? AND work_date = ? LIMIT 1');
+    $allocationStmt->execute([$targetUserId, $workDate]);
+    $allocatedMinutes = $allocationStmt->fetchColumn();
+    if ($allocatedMinutes === false) {
+        return 0;
+    }
+
+    return ((int) $allocatedMinutes) * 60;
 }
 
 function persist_bh_override(PDO $pdo, int $targetUserId, string $workDate, int $overrideMinutes, string $overrideReason, int $actorUserId): void
@@ -331,7 +383,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
         exit;
     }
 
-    if (!DateTimeImmutable::createFromFormat('Y-m-d', $validateDate)) {
+    if ($action === 'save_absence_allocation') {
+        header('Content-Type: application/json; charset=UTF-8');
+
+        $targetUserId = (int) ($_POST['target_user_id'] ?? 0);
+        $workDate = trim((string) ($_POST['work_date'] ?? ''));
+        $absenceRequestId = (int) ($_POST['absence_request_id'] ?? 0);
+        $absenceCode = trim((string) ($_POST['absence_code'] ?? ''));
+        $allocatedValue = trim((string) ($_POST['allocated_duration'] ?? ''));
+        $allocatedMinutes = parse_hhmm_to_minutes($allocatedValue);
+
+        if ($targetUserId <= 0 || !DateTimeImmutable::createFromFormat('Y-m-d', $workDate) || $absenceRequestId <= 0 || $absenceCode === '' || $allocatedMinutes === null) {
+            echo json_encode(['ok' => false, 'message' => 'Dados inválidos para guardar relação de ausência.']);
+            exit;
+        }
+
+        $checkStmt = $pdo->prepare('SELECT id FROM shopfloor_absence_requests WHERE id = ? AND user_id = ? AND status = "Aprovado" AND start_date <= ? AND end_date >= ? LIMIT 1');
+        $checkStmt->execute([$absenceRequestId, $targetUserId, $workDate, $workDate]);
+        if (!$checkStmt->fetchColumn()) {
+            echo json_encode(['ok' => false, 'message' => 'Ausência não encontrada ou não aprovada para este dia.']);
+            exit;
+        }
+
+        $existingStmt = $pdo->prepare('SELECT id FROM shopfloor_absence_time_allocations WHERE user_id = ? AND work_date = ? LIMIT 1');
+        $existingStmt->execute([$targetUserId, $workDate]);
+        $existingId = $existingStmt->fetchColumn();
+
+        if ($existingId) {
+            $updateStmt = $pdo->prepare('UPDATE shopfloor_absence_time_allocations SET absence_request_id = ?, absence_code = ?, allocated_minutes = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+            $updateStmt->execute([$absenceRequestId, $absenceCode, $allocatedMinutes, $userId, (int) $existingId]);
+        } else {
+            $insertStmt = $pdo->prepare('INSERT INTO shopfloor_absence_time_allocations(user_id, work_date, absence_request_id, absence_code, allocated_minutes, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)');
+            $insertStmt->execute([$targetUserId, $workDate, $absenceRequestId, $absenceCode, $allocatedMinutes, $userId]);
+        }
+
+        log_app_event($pdo, $userId, 'shopfloor.absence_time_allocation.save', 'Tempo de ausência relacionado ao dia de picagens.', [
+            'target_user_id' => $targetUserId,
+            'work_date' => $workDate,
+            'absence_request_id' => $absenceRequestId,
+            'absence_code' => $absenceCode,
+            'allocated_minutes' => $allocatedMinutes,
+        ]);
+
+        echo json_encode(['ok' => true, 'allocated_minutes' => $allocatedMinutes]);
+        exit;
+    }
+
+    if ($action === 'reopen_row' && $validateUserId > 0 && DateTimeImmutable::createFromFormat('Y-m-d', $validateDate)) {
+        $entriesStmt = $pdo->prepare('SELECT id, entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = ? ORDER BY occurred_at ASC');
+        $entriesStmt->execute([$validateUserId, $validateDate]);
+        $entriesToReopen = $entriesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!$entriesToReopen) {
+            $flashError = 'Não existem picagens para reabrir neste dia.';
+        } else {
+            $pdo->beginTransaction();
+            try {
+                $targetSeconds = (8 * 3600) + (15 * 60);
+                $effectiveSeconds = calculate_effective_seconds($entriesToReopen);
+                $absenceAllocatedSeconds = get_absence_allocated_seconds($pdo, $validateUserId, $validateDate);
+                $computedBhSeconds = ($effectiveSeconds - $targetSeconds) + $absenceAllocatedSeconds;
+                $bhSeconds = get_override_bh_seconds($pdo, $validateUserId, $validateDate) ?? $computedBhSeconds;
+
+                apply_hour_bank_delta($pdo, $validateUserId, -$bhSeconds, $userId, $validateDate);
+                $reopenStmt = $pdo->prepare('UPDATE shopfloor_time_entries SET validated_at = NULL, validated_by = NULL WHERE user_id = ? AND date(occurred_at) = ?');
+                $reopenStmt->execute([$validateUserId, $validateDate]);
+
+                $pdo->commit();
+                $flashSuccess = 'Dia reaberto para edição.';
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                $flashError = 'Não foi possível reabrir o dia selecionado.';
+            }
+        }
+    } elseif (!DateTimeImmutable::createFromFormat('Y-m-d', $validateDate)) {
         $flashError = 'Data inválida para validação.';
     } elseif ($action === 'validate_row' && $validateUserId > 0) {
         $targetEntriesStmt = $pdo->prepare('SELECT id, entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = ? AND validated_at IS NULL ORDER BY occurred_at ASC');
@@ -363,7 +490,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
 
                 $targetSeconds = (8 * 3600) + (15 * 60);
                 $effectiveSeconds = calculate_effective_seconds($targetEntries);
-                $bhSeconds = get_override_bh_seconds($pdo, $validateUserId, $validateDate) ?? ($effectiveSeconds - $targetSeconds);
+                $absenceAllocatedSeconds = get_absence_allocated_seconds($pdo, $validateUserId, $validateDate);
+                $computedBhSeconds = ($effectiveSeconds - $targetSeconds) + $absenceAllocatedSeconds;
+                $bhSeconds = get_override_bh_seconds($pdo, $validateUserId, $validateDate) ?? $computedBhSeconds;
                 apply_hour_bank_delta($pdo, $validateUserId, $bhSeconds, $userId, $validateDate);
                 $pdo->commit();
                 $flashSuccess = 'Picagens validadas com sucesso.';
@@ -425,7 +554,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
                 $targetSeconds = (8 * 3600) + (15 * 60);
                 foreach ($entriesByUser as $entryUserId => $userEntries) {
                     $effectiveSeconds = calculate_effective_seconds($userEntries);
-                    $bhSeconds = get_override_bh_seconds($pdo, (int) $entryUserId, $validateDate) ?? ($effectiveSeconds - $targetSeconds);
+                    $absenceAllocatedSeconds = get_absence_allocated_seconds($pdo, (int) $entryUserId, $validateDate);
+                    $computedBhSeconds = ($effectiveSeconds - $targetSeconds) + $absenceAllocatedSeconds;
+                    $bhSeconds = get_override_bh_seconds($pdo, (int) $entryUserId, $validateDate) ?? $computedBhSeconds;
                     apply_hour_bank_delta($pdo, (int) $entryUserId, $bhSeconds, $userId, $validateDate);
                 }
 
@@ -618,7 +749,7 @@ if ($selectedUsers) {
     }
 }
 
-$absenceSql = 'SELECT a.user_id, a.start_date, a.end_date, a.reason, a.duration_type, a.duration_hours, u.user_number
+$absenceSql = 'SELECT a.id, a.user_id, a.start_date, a.end_date, a.reason, a.duration_type, a.duration_hours, u.user_number
     FROM shopfloor_absence_requests a
     INNER JOIN users u ON u.id = a.user_id
     WHERE ' . implode(' AND ', $absenceWhere) . '
@@ -626,6 +757,86 @@ $absenceSql = 'SELECT a.user_id, a.start_date, a.end_date, a.reason, a.duration_
 $absenceStmt = $pdo->prepare($absenceSql);
 $absenceStmt->execute($absenceParams);
 $approvedAbsences = $absenceStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$approvedAbsencesByDay = [];
+foreach ($approvedAbsences as $absence) {
+    $absenceCode = parse_absence_sage_code((string) ($absence['reason'] ?? ''));
+    if ($absenceCode === '') {
+        continue;
+    }
+
+    $absenceUserId = (int) ($absence['user_id'] ?? 0);
+    $resolvedMinutes = resolve_absence_minutes($absence, (8 * 60) + 15);
+    foreach (list_weekdays_between((string) $absence['start_date'], (string) $absence['end_date']) as $absenceDate) {
+        $mapKey = $absenceUserId . '|' . $absenceDate;
+        if (!isset($approvedAbsencesByDay[$mapKey])) {
+            $approvedAbsencesByDay[$mapKey] = [];
+        }
+
+        $approvedAbsencesByDay[$mapKey][] = [
+            'absence_request_id' => (int) ($absence['id'] ?? 0),
+            'absence_code' => $absenceCode,
+            'default_minutes' => $resolvedMinutes,
+            'reason' => (string) ($absence['reason'] ?? ''),
+        ];
+    }
+}
+
+$allocationParams = [$startDate, $endDate];
+$allocationWhere = ['work_date BETWEEN ? AND ?'];
+if (!$canViewAllResults) {
+    $allocationWhere[] = 'user_id = ?';
+    $allocationParams[] = $userId;
+}
+if ($teamId > 0) {
+    $allocationWhere[] = 'EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = ? AND tm.user_id = user_id)';
+    $allocationParams[] = $teamId;
+}
+if ($selectedUsers) {
+    $placeholders = implode(',', array_fill(0, count($selectedUsers), '?'));
+    $allocationWhere[] = 'user_id IN (' . $placeholders . ')';
+    foreach ($selectedUsers as $selUserId) {
+        $allocationParams[] = $selUserId;
+    }
+}
+
+$allocationSql = 'SELECT user_id, work_date, absence_request_id, absence_code, allocated_minutes FROM shopfloor_absence_time_allocations WHERE ' . implode(' AND ', $allocationWhere);
+$allocationStmt = $pdo->prepare($allocationSql);
+$allocationStmt->execute($allocationParams);
+$allocationMap = [];
+foreach ($allocationStmt->fetchAll(PDO::FETCH_ASSOC) as $allocationRow) {
+    $allocationKey = ((int) $allocationRow['user_id']) . '|' . (string) $allocationRow['work_date'];
+    $allocationMap[$allocationKey] = [
+        'absence_request_id' => (int) ($allocationRow['absence_request_id'] ?? 0),
+        'absence_code' => (string) ($allocationRow['absence_code'] ?? ''),
+        'allocated_minutes' => (int) ($allocationRow['allocated_minutes'] ?? 0),
+    ];
+}
+
+foreach ($daily as &$row) {
+    $rowKey = ((int) $row['user_id']) . '|' . (string) $row['date'];
+    $dayAbsences = $approvedAbsencesByDay[$rowKey] ?? [];
+    $allocation = $allocationMap[$rowKey] ?? null;
+    if ($allocation === null && $dayAbsences !== []) {
+        $firstAbsence = $dayAbsences[0];
+        $allocation = [
+            'absence_request_id' => (int) ($firstAbsence['absence_request_id'] ?? 0),
+            'absence_code' => (string) ($firstAbsence['absence_code'] ?? ''),
+            'allocated_minutes' => (int) ($firstAbsence['default_minutes'] ?? 0),
+        ];
+    }
+
+    $row['absence_options'] = $dayAbsences;
+    $row['absence_allocation'] = $allocation;
+    $row['absence_allocated_seconds'] = $allocation ? ((int) ($allocation['allocated_minutes'] ?? 0) * 60) : 0;
+    $row['computed_bh_seconds'] = ((int) $row['seconds'] - ((8 * 3600) + (15 * 60))) + (int) $row['absence_allocated_seconds'];
+    $override = $overrideMap[$rowKey] ?? null;
+    $row['bh_seconds'] = $override ? (((int) $override['bh_minutes']) * 60) : (int) $row['computed_bh_seconds'];
+    $row['bh'] = format_signed_hhmm((int) $row['bh_seconds']);
+    $row['bh_is_override'] = $override !== null;
+    $row['bh_reason'] = $override['reason'] ?? '';
+}
+unset($row);
 
 $exportRecords = [];
 $exportRecordKeys = [];
@@ -961,7 +1172,30 @@ require __DIR__ . '/partials/header.php';
                                 <div class="d-flex mt-1 align-items-center gap-1">
                                     <input type="text" class="form-control form-control-sm results-bh-input js-results-bh-input <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM" data-default-value="<?= h($row['bh']) ?>" data-auto-bh="<?= h($row['bh']) ?>" data-is-override="<?= $row['bh_is_override'] ? '1' : '0' ?>" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
                                     <input type="text" class="form-control form-control-sm results-bh-reason" name="override_reason" value="<?= h((string) $row['bh_reason']) ?>" placeholder="Motivo" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
+                                    <?php if (!empty($row['absence_options'])): ?>
+                                        <?php
+                                            $allocation = $row['absence_allocation'] ?? null;
+                                            $allocationRequestId = (int) ($allocation['absence_request_id'] ?? 0);
+                                            $allocationCode = (string) ($allocation['absence_code'] ?? '');
+                                            $allocationMinutes = (int) ($allocation['allocated_minutes'] ?? 0);
+                                        ?>
+                                        <button
+                                            type="button"
+                                            class="btn btn-outline-secondary btn-sm js-absence-allocation-trigger"
+                                            title="Relacionar ausência ao tempo em falta"
+                                            data-user-id="<?= (int) $row['user_id'] ?>"
+                                            data-work-date="<?= h((string) $row['date']) ?>"
+                                            data-user-label="<?= h((string) $row['user_name']) ?>"
+                                            data-current-request-id="<?= $allocationRequestId ?>"
+                                            data-current-code="<?= h($allocationCode) ?>"
+                                            data-current-minutes="<?= $allocationMinutes ?>"
+                                            data-absence-options='<?= h((string) json_encode(array_values((array) $row['absence_options']), JSON_UNESCAPED_UNICODE)) ?>'
+                                        ><i class="bi bi-person-bounding-box"></i><i class="bi bi-box-arrow-up-right ms-1"></i></button>
+                                    <?php endif; ?>
                                 </div>
+                                <?php if (!empty($row['absence_allocation'])): ?>
+                                    <div class="small text-muted mt-1">Ausência <?= h((string) ($row['absence_allocation']['absence_code'] ?? '')) ?> · <?= h(format_hhmm_from_minutes((int) ($row['absence_allocation']['allocated_minutes'] ?? 0))) ?></div>
+                                <?php endif; ?>
                             <?php else: ?>
                                 <input type="text" class="form-control form-control-sm results-bh-input <?= $bhClass ?>" value="<?= h($row['bh']) ?>" readonly>
                             <?php endif; ?>
@@ -969,7 +1203,15 @@ require __DIR__ . '/partials/header.php';
                         <?php if ($canValidateResults): ?>
                             <td class="text-end">
                                 <?php if ($row['status'] === 'Validado'): ?>
-                                    <div class="d-inline-flex gap-1"><span class="text-success small"><i class="bi bi-check-circle-fill me-1"></i>Validado</span><button class="btn btn-outline-primary btn-sm js-results-enable-edit" type="button"><i class="bi bi-pencil me-1"></i>Voltar a editar</button></div>
+                                    <div class="d-inline-flex gap-1 align-items-center">
+                                        <span class="text-success small"><i class="bi bi-check-circle-fill me-1"></i>Validado</span>
+                                        <form method="post" class="d-inline">
+                                            <input type="hidden" name="action" value="reopen_row">
+                                            <input type="hidden" name="validate_date" value="<?= h($row['date']) ?>">
+                                            <input type="hidden" name="validate_user_id" value="<?= (int) $row['user_id'] ?>">
+                                            <button class="btn btn-outline-primary btn-sm" type="submit"><i class="bi bi-pencil me-1"></i>Voltar a editar</button>
+                                        </form>
+                                    </div>
                                 <?php else: ?>
                                     <button class="btn btn-outline-success btn-sm" type="submit" form="<?= h($rowFormId) ?>">Validar</button>
                                     <form method="post" id="<?= h($rowFormId) ?>" class="d-none">
@@ -989,6 +1231,109 @@ require __DIR__ . '/partials/header.php';
 </div>
 <?php endif; ?>
 
+<?php if ($canValidateResults): ?>
+<div class="modal fade" id="absenceAllocationModal" tabindex="-1" aria-labelledby="absenceAllocationModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="absenceAllocationModalLabel">Relacionar ausência</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted mb-2 js-absence-allocation-context"></p>
+                <div class="mb-2">
+                    <label class="form-label">Código de ausência</label>
+                    <select class="form-select js-absence-allocation-code"></select>
+                </div>
+                <div>
+                    <label class="form-label">Tempo associado (HH:MM)</label>
+                    <input type="text" class="form-control js-absence-allocation-duration" placeholder="02:00">
+                </div>
+                <div class="small text-muted mt-2">O tempo associado é somado ao efectivo para reduzir o Tempo BH negativo.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-dark js-absence-allocation-save">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <?php require __DIR__ . '/partials/footer.php'; ?>
 
-<script>document.querySelectorAll('.js-results-enable-edit').forEach((button)=>{button.addEventListener('click',()=>{const row=button.closest('tr'); if(!row) return; row.querySelectorAll('.results-entry-input,.results-bh-input,.results-bh-reason').forEach((input)=>{input.disabled=false; input.removeAttribute('readonly');});});});</script>
+<script>
+(() => {
+    const modalElement = document.getElementById('absenceAllocationModal');
+    if (!modalElement || !window.bootstrap) return;
+    const modal = new bootstrap.Modal(modalElement);
+    const contextEl = modalElement.querySelector('.js-absence-allocation-context');
+    const codeSelect = modalElement.querySelector('.js-absence-allocation-code');
+    const durationInput = modalElement.querySelector('.js-absence-allocation-duration');
+    const saveButton = modalElement.querySelector('.js-absence-allocation-save');
+    const state = { userId: 0, workDate: '', options: [] };
+
+    const buildOptionLabel = (option) => `${option.absence_code} · ${option.reason || 'Motivo'}`;
+
+    document.querySelectorAll('.js-absence-allocation-trigger').forEach((trigger) => {
+        trigger.addEventListener('click', () => {
+            let options = [];
+            try {
+                options = JSON.parse(trigger.dataset.absenceOptions || '[]');
+            } catch (error) {
+                options = [];
+            }
+            if (!Array.isArray(options) || options.length === 0) return;
+
+            state.userId = parseInt(trigger.dataset.userId || '0', 10);
+            state.workDate = trigger.dataset.workDate || '';
+            state.options = options;
+
+            contextEl.textContent = `${trigger.dataset.userLabel || ''} · ${state.workDate}`;
+            codeSelect.innerHTML = '';
+            options.forEach((option) => {
+                const opt = document.createElement('option');
+                opt.value = String(option.absence_request_id || 0);
+                opt.textContent = buildOptionLabel(option);
+                opt.dataset.absenceCode = option.absence_code || '';
+                opt.dataset.defaultMinutes = String(option.default_minutes || 0);
+                codeSelect.appendChild(opt);
+            });
+
+            const currentRequestId = String(trigger.dataset.currentRequestId || '');
+            const selectedOption = Array.from(codeSelect.options).find((opt) => opt.value === currentRequestId) || codeSelect.options[0];
+            if (selectedOption) {
+                selectedOption.selected = true;
+                const currentMinutes = parseInt(trigger.dataset.currentMinutes || selectedOption.dataset.defaultMinutes || '0', 10);
+                durationInput.value = `${String(Math.floor(currentMinutes / 60)).padStart(2, '0')}:${String(currentMinutes % 60).padStart(2, '0')}`;
+            }
+
+            modal.show();
+        });
+    });
+
+    saveButton?.addEventListener('click', async () => {
+        const selected = codeSelect.options[codeSelect.selectedIndex];
+        if (!selected) return;
+        const payload = new URLSearchParams();
+        payload.set('action', 'save_absence_allocation');
+        payload.set('target_user_id', String(state.userId));
+        payload.set('work_date', state.workDate);
+        payload.set('absence_request_id', selected.value);
+        payload.set('absence_code', selected.dataset.absenceCode || '');
+        payload.set('allocated_duration', (durationInput.value || '').trim());
+
+        const response = await fetch('resultados.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+            body: payload.toString(),
+        });
+        const result = await response.json();
+        if (!result.ok) {
+            alert(result.message || 'Não foi possível guardar o tempo da ausência.');
+            return;
+        }
+        window.location.reload();
+    });
+})();
+</script>
