@@ -16,9 +16,64 @@ if (!$isAdmin && !in_array($profile, ['Utilizador', 'Chefias', 'RH'], true)) {
 
 $flashSuccess = null;
 $flashError = null;
+$sessionLoginAt = trim((string) ($_SESSION['login_at'] ?? ''));
+
+$fetchPendingAnnouncementAcknowledgement = static function (PDO $pdo, int $targetUserId, string $targetSessionLoginAt): ?array {
+    $params = [$targetUserId];
+    $loginConstraint = '';
+    if ($targetSessionLoginAt !== '') {
+        $loginConstraint = ' AND a.created_at <= ?';
+        $params[] = $targetSessionLoginAt;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT a.id, a.title, a.body, a.created_at, COALESCE(u.name, "Sistema") AS created_by_name
+         FROM shopfloor_announcements a
+         LEFT JOIN users u ON u.id = a.created_by
+         WHERE a.is_active = 1
+           AND (a.audience IN ("all", "shopfloor") OR EXISTS (SELECT 1 FROM shopfloor_announcement_targets t WHERE t.announcement_id = a.id AND t.user_id = ?))
+           AND NOT EXISTS (SELECT 1 FROM shopfloor_announcement_acknowledgements ack WHERE ack.announcement_id = a.id AND ack.user_id = ?)'
+        . $loginConstraint . '
+         ORDER BY a.created_at ASC, a.id ASC
+         LIMIT 1'
+    );
+
+    $stmt->execute(array_merge([$targetUserId], $params));
+    $announcement = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return is_array($announcement) ? $announcement : null;
+};
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = trim((string) ($_POST['action'] ?? ''));
+    $pendingAnnouncementForAck = $fetchPendingAnnouncementAcknowledgement($pdo, $userId, $sessionLoginAt);
+
+    if ($action === 'acknowledge_announcement') {
+        $announcementId = (int) ($_POST['announcement_id'] ?? 0);
+        if ($announcementId <= 0 || !$pendingAnnouncementForAck || (int) ($pendingAnnouncementForAck['id'] ?? 0) !== $announcementId) {
+            $flashError = 'Comunicado inválido para confirmação.';
+        } else {
+            $ackStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_announcement_acknowledgements(announcement_id, user_id) VALUES (?, ?)');
+            $ackStmt->execute([$announcementId, $userId]);
+            log_app_event(
+                $pdo,
+                $userId,
+                'shopfloor.announcement.acknowledge',
+                'Comunicado confirmado pelo utilizador.',
+                [
+                    'announcement_id' => $announcementId,
+                    'title' => (string) ($pendingAnnouncementForAck['title'] ?? ''),
+                    'acknowledged_at' => date('Y-m-d H:i:s'),
+                ]
+            );
+            $flashSuccess = 'Comunicado confirmado com sucesso.';
+            $pendingAnnouncementForAck = null;
+        }
+    }
+
+    if ($action !== 'acknowledge_announcement' && $pendingAnnouncementForAck) {
+        $flashError = 'Tem de confirmar o comunicado pendente antes de continuar.';
+    } else {
 
     if ($action === 'clock_entry') {
         $entryType = trim((string) ($_POST['entry_type'] ?? ''));
@@ -307,7 +362,31 @@ $requestType,
                 }
             }
 
-            log_app_event($pdo, $userId, 'shopfloor.announcement.create', 'Comunicado publicado no Shopfloor.', ['title' => $title, 'targets' => $validTargetUserIds]);
+            $recipientRows = [];
+            if ($validTargetUserIds !== []) {
+                $recipientPlaceholders = implode(',', array_fill(0, count($validTargetUserIds), '?'));
+                $recipientStmt = $pdo->prepare('SELECT id, name, email, username FROM users WHERE id IN (' . $recipientPlaceholders . ') ORDER BY name COLLATE NOCASE ASC');
+                $recipientStmt->execute($validTargetUserIds);
+                $recipientRows = $recipientStmt->fetchAll(PDO::FETCH_ASSOC);
+            } else {
+                $recipientStmt = $pdo->query('SELECT id, name, email, username FROM users WHERE is_active = 1 ORDER BY name COLLATE NOCASE ASC');
+                $recipientRows = $recipientStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            log_app_event(
+                $pdo,
+                $userId,
+                'shopfloor.announcement.create',
+                'Comunicado publicado no Shopfloor.',
+                [
+                    'announcement_id' => $announcementId,
+                    'title' => $title,
+                    'body' => $body,
+                    'audience' => $audience,
+                    'target_user_ids' => $validTargetUserIds,
+                    'submitted_to_users' => $recipientRows,
+                ]
+            );
             $flashSuccess = 'Comunicado publicado com sucesso.';
         }
     }
@@ -336,6 +415,7 @@ $requestType,
         } else {
             $flashError = 'Comunicado inválido para eliminação.';
         }
+    }
     }
 }
 
@@ -425,6 +505,7 @@ if ($isAdmin || $isRh) {
 $announcementsStmt = $pdo->prepare('SELECT a.id, a.title, a.body, a.created_at, a.is_active, a.audience, COALESCE(u.name, "Sistema") AS created_by_name FROM shopfloor_announcements a LEFT JOIN users u ON u.id = a.created_by WHERE a.is_active = 1 AND (a.audience IN ("all", "shopfloor") OR EXISTS (SELECT 1 FROM shopfloor_announcement_targets t WHERE t.announcement_id = a.id AND t.user_id = ?)) ORDER BY a.created_at DESC LIMIT 8');
 $announcementsStmt->execute([$userId]);
 $announcements = $announcementsStmt->fetchAll(PDO::FETCH_ASSOC);
+$pendingAnnouncementAck = $fetchPendingAnnouncementAcknowledgement($pdo, $userId, $sessionLoginAt);
 
 $managedAnnouncements = [];
 if ($isAdmin || $isRh) {
@@ -467,6 +548,52 @@ require __DIR__ . '/partials/header.php';
     <?php if ($flashError): ?>
         <div class="alert alert-danger mt-3 mb-3"><?= h($flashError) ?></div>
     <?php endif; ?>
+
+    <?php if ($pendingAnnouncementAck): ?>
+        <div class="modal fade" id="shopfloorAnnouncementAcknowledgeModal" tabindex="-1" aria-labelledby="shopfloorAnnouncementAcknowledgeModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title fs-5" id="shopfloorAnnouncementAcknowledgeModalLabel"><?= h((string) $pendingAnnouncementAck['title']) ?></h2>
+                    </div>
+                    <div class="modal-body">
+                        <p class="small text-secondary mb-2">Comunicado emitido por <?= h((string) $pendingAnnouncementAck['created_by_name']) ?> em <?= h((string) $pendingAnnouncementAck['created_at']) ?>.</p>
+                        <div class="border rounded p-3 bg-light"><?= nl2br(h((string) $pendingAnnouncementAck['body'])) ?></div>
+                    </div>
+                    <div class="modal-footer">
+                        <form method="post" class="w-100 d-grid">
+                            <input type="hidden" name="action" value="acknowledge_announcement">
+                            <input type="hidden" name="announcement_id" value="<?= (int) $pendingAnnouncementAck['id'] ?>">
+                            <button type="submit" class="btn btn-primary btn-lg fw-semibold">Tomei conhecimento</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <div class="shopfloor-panel mb-4">
+        <div class="shopfloor-panel-header">
+            <div>
+                <h2 class="h4 mb-1">Ponto</h2>
+                <p class="text-secondary mb-0">Registe entrada/saída no início da jornada, pausas e fim do turno.</p>
+            </div>
+            <?php if ($latestEntryTimeLabel): ?>
+                <span class="badge text-bg-light border"><?= h($latestEntryTimeLabel) ?></span>
+            <?php endif; ?>
+        </div>
+        <form method="post" class="row g-2 align-items-end">
+            <input type="hidden" name="action" value="clock_entry">
+            <input type="hidden" name="entry_type" value="<?= h($nextEntryType) ?>">
+            <div class="col-md-9">
+                <label class="form-label">Observação (opcional)</label>
+                <input type="text" name="note" class="form-control" placeholder="Ex.: Início de turno, pausa almoço, regresso, fim de turno">
+            </div>
+            <div class="col-md-3 d-grid">
+                <button type="submit" class="btn <?= h($clockButtonClass) ?> fw-semibold"><?= h($clockButtonLabel) ?></button>
+            </div>
+        </form>
+    </div>
 
     <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
@@ -1121,6 +1248,24 @@ require __DIR__ . '/partials/header.php';
     modalElement.addEventListener('hidden.bs.modal', () => {
         imageElement.src = '';
     });
+})();
+
+(() => {
+    const modalElement = document.getElementById('shopfloorAnnouncementAcknowledgeModal');
+    if (!modalElement || typeof bootstrap === 'undefined') {
+        return;
+    }
+
+    const announcementModal = bootstrap.Modal.getOrCreateInstance(modalElement, {
+        backdrop: 'static',
+        keyboard: false
+    });
+
+    modalElement.addEventListener('hide.bs.modal', (event) => {
+        event.preventDefault();
+    });
+
+    announcementModal.show();
 })();
 </script>
 
