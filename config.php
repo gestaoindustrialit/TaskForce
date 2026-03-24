@@ -705,6 +705,24 @@ $pdo->exec(
 );
 
 $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_absence_time_allocations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        work_date TEXT NOT NULL,
+        absence_request_id INTEGER NOT NULL,
+        absence_code TEXT NOT NULL,
+        allocated_minutes INTEGER NOT NULL DEFAULT 0,
+        updated_by INTEGER,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(absence_request_id) REFERENCES shopfloor_absence_requests(id) ON DELETE CASCADE,
+        FOREIGN KEY(updated_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+$pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_time_allocations_user_day ON shopfloor_absence_time_allocations(user_id, work_date)');
+
+$pdo->exec(
     'CREATE TABLE IF NOT EXISTS shopfloor_vacation_requests (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
