@@ -1166,46 +1166,50 @@ require __DIR__ . '/partials/header.php';
 })();
 
 (() => {
-    const modalElement = document.getElementById('justificationLightbox');
-    const imageElement = document.getElementById('justificationLightboxImage');
-    if (!modalElement || !imageElement || typeof bootstrap === 'undefined') {
-        return;
-    }
+    window.addEventListener('load', () => {
+        const modalElement = document.getElementById('justificationLightbox');
+        const imageElement = document.getElementById('justificationLightboxImage');
+        if (!modalElement || !imageElement || typeof bootstrap === 'undefined') {
+            return;
+        }
 
-    const lightboxModal = new bootstrap.Modal(modalElement);
-    document.querySelectorAll('[data-lightbox-image]').forEach((link) => {
-        link.addEventListener('click', (event) => {
-            event.preventDefault();
-            const imageUrl = link.getAttribute('data-lightbox-image');
-            if (!imageUrl) {
-                return;
-            }
-            imageElement.src = imageUrl;
-            lightboxModal.show();
+        const lightboxModal = new bootstrap.Modal(modalElement);
+        document.querySelectorAll('[data-lightbox-image]').forEach((link) => {
+            link.addEventListener('click', (event) => {
+                event.preventDefault();
+                const imageUrl = link.getAttribute('data-lightbox-image');
+                if (!imageUrl) {
+                    return;
+                }
+                imageElement.src = imageUrl;
+                lightboxModal.show();
+            });
         });
-    });
 
-    modalElement.addEventListener('hidden.bs.modal', () => {
-        imageElement.src = '';
-    });
+        modalElement.addEventListener('hidden.bs.modal', () => {
+            imageElement.src = '';
+        });
+    }, { once: true });
 })();
 
 (() => {
-    const modalElement = document.getElementById('shopfloorAnnouncementAcknowledgeModal');
-    if (!modalElement || typeof bootstrap === 'undefined') {
-        return;
-    }
+    window.addEventListener('load', () => {
+        const modalElement = document.getElementById('shopfloorAnnouncementAcknowledgeModal');
+        if (!modalElement || typeof bootstrap === 'undefined') {
+            return;
+        }
 
-    const announcementModal = bootstrap.Modal.getOrCreateInstance(modalElement, {
-        backdrop: 'static',
-        keyboard: false
-    });
+        const announcementModal = bootstrap.Modal.getOrCreateInstance(modalElement, {
+            backdrop: 'static',
+            keyboard: false
+        });
 
-    modalElement.addEventListener('hide.bs.modal', (event) => {
-        event.preventDefault();
-    });
+        modalElement.addEventListener('hide.bs.modal', (event) => {
+            event.preventDefault();
+        });
 
-    announcementModal.show();
+        announcementModal.show();
+    }, { once: true });
 })();
 </script>
 
