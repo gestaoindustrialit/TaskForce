@@ -502,7 +502,7 @@ $pdo->exec(
         code TEXT,
         reason_code TEXT,
         sage_code TEXT,
-        label TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL,
         color TEXT NOT NULL DEFAULT "#2563eb",
         show_in_shopfloor INTEGER NOT NULL DEFAULT 1,
         is_active INTEGER NOT NULL DEFAULT 1,
@@ -532,6 +532,52 @@ if (!in_array('show_in_shopfloor', $absenceReasonColumns, true)) {
     $pdo->exec('ALTER TABLE shopfloor_absence_reasons ADD COLUMN show_in_shopfloor INTEGER NOT NULL DEFAULT 1');
 }
 
+$absenceReasonsCreateStmt = $pdo->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'shopfloor_absence_reasons' LIMIT 1");
+$absenceReasonsCreateSql = $absenceReasonsCreateStmt ? (string) ($absenceReasonsCreateStmt->fetchColumn() ?: '') : '';
+if ($absenceReasonsCreateSql !== '' && stripos($absenceReasonsCreateSql, 'label TEXT NOT NULL UNIQUE') !== false) {
+    $pdo->exec('PRAGMA foreign_keys = OFF');
+    try {
+        $pdo->beginTransaction();
+        $pdo->exec('ALTER TABLE shopfloor_absence_reasons RENAME TO shopfloor_absence_reasons_legacy');
+        $pdo->exec(
+            'CREATE TABLE shopfloor_absence_reasons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reason_type TEXT NOT NULL DEFAULT "Ausência",
+                code TEXT,
+                reason_code TEXT,
+                sage_code TEXT,
+                label TEXT NOT NULL,
+                color TEXT NOT NULL DEFAULT "#2563eb",
+                show_in_shopfloor INTEGER NOT NULL DEFAULT 1,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_by INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+            )'
+        );
+        $pdo->exec('INSERT INTO shopfloor_absence_reasons(id, reason_type, code, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by, created_at) SELECT id, reason_type, code, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by, created_at FROM shopfloor_absence_reasons_legacy');
+        $pdo->commit();
+
+        try {
+            $pdo->exec('DROP TABLE shopfloor_absence_reasons_legacy');
+        } catch (PDOException $dropException) {
+            if (stripos((string) $dropException->getMessage(), 'locked') === false) {
+                throw $dropException;
+            }
+        }
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        if (stripos((string) $exception->getMessage(), 'locked') === false) {
+            throw $exception;
+        }
+    } finally {
+        $pdo->exec('PRAGMA foreign_keys = ON');
+    }
+}
+
 $pdo->exec("UPDATE shopfloor_absence_reasons SET color = '#2563eb' WHERE color IS NULL OR TRIM(color) = ''");
 $pdo->exec("UPDATE shopfloor_absence_reasons SET reason_type = 'Ausência' WHERE reason_type IS NULL OR TRIM(reason_type) = ''");
 $pdo->exec('UPDATE shopfloor_absence_reasons SET reason_code = COALESCE(NULLIF(TRIM(reason_code), ""), NULLIF(TRIM(code), ""))');
@@ -550,15 +596,36 @@ if (!$absenceReasonCodeIndexExists) {
     $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_reasons_reason_code ON shopfloor_absence_reasons(reason_code)');
 }
 
-$defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(reason_type, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, 1, NULL)');
-foreach ([
-    ['Ausência', 'MOT-001', '001', 'Falta sem perda de remuneração', '#0d6efd'],
-    ['Ausência', 'MOT-002', '002', 'Consulta médica', '#198754'],
-    ['Ausência', 'MOT-003', '003', 'Acompanhamento familiar', '#fd7e14'],
-    ['Ausência', 'MOT-004', '004', 'Formação externa', '#6f42c1'],
-    ['Ausência', 'MOT-005', '005', 'Outro motivo justificado', '#6c757d']
-] as $defaultAbsenceReason) {
-    $defaultAbsenceReasonStmt->execute($defaultAbsenceReason);
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS app_settings (
+        setting_key TEXT PRIMARY KEY,
+        setting_value TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )'
+);
+$absenceReasonSeedKey = 'shopfloor_absence_reasons_seeded';
+$absenceReasonSeedStmt = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1');
+$absenceReasonSeedStmt->execute([$absenceReasonSeedKey]);
+$absenceReasonSeedState = $absenceReasonSeedStmt->fetchColumn();
+$absenceReasonCountStmt = $pdo->query('SELECT COUNT(*) FROM shopfloor_absence_reasons');
+$absenceReasonCount = (int) ($absenceReasonCountStmt ? $absenceReasonCountStmt->fetchColumn() : 0);
+
+if ($absenceReasonSeedState === false && $absenceReasonCount === 0) {
+    $defaultAbsenceReasonStmt = $pdo->prepare('INSERT OR IGNORE INTO shopfloor_absence_reasons(reason_type, reason_code, sage_code, label, color, show_in_shopfloor, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, 1, NULL)');
+    foreach ([
+        ['Ausência', 'MOT-001', '001', 'Falta sem perda de remuneração', '#0d6efd'],
+        ['Ausência', 'MOT-002', '002', 'Consulta médica', '#198754'],
+        ['Ausência', 'MOT-003', '003', 'Acompanhamento familiar', '#fd7e14'],
+        ['Ausência', 'MOT-004', '004', 'Formação externa', '#6f42c1'],
+        ['Ausência', 'MOT-005', '005', 'Outro motivo justificado', '#6c757d']
+    ] as $defaultAbsenceReason) {
+        $defaultAbsenceReasonStmt->execute($defaultAbsenceReason);
+    }
+}
+
+if ($absenceReasonSeedState === false) {
+    $absenceReasonSeedInsertStmt = $pdo->prepare('INSERT INTO app_settings(setting_key, setting_value) VALUES (?, ?)');
+    $absenceReasonSeedInsertStmt->execute([$absenceReasonSeedKey, '1']);
 }
 
 $pdo->exec(
