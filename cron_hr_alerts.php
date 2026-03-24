@@ -221,8 +221,8 @@ try {
         'SELECT id, name, alert_type, send_time, weekdays_mask, schedule_frequency, monthly_day, selected_user_ids, last_sent_at
          FROM hr_alerts
          WHERE is_active = 1
-           AND send_time = ?
-         ORDER BY id ASC'
+           AND send_time <= ?
+         ORDER BY send_time ASC, id ASC'
     );
     $alertStmt->execute([$currentTime]);
     $alerts = $alertStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -231,8 +231,9 @@ try {
         $pdo,
         'hr.alerts.cron.started',
         'Execução do cron de alertas RH iniciada.',
-        ['time' => $currentTime, 'alerts_due_by_time' => is_array($alerts) ? count($alerts) : 0]
+        ['time' => $currentTime, 'criteria' => 'send_time <= now', 'alerts_due_by_time' => is_array($alerts) ? count($alerts) : 0]
     );
+    cron_log_line('CRON RH START time=' . $currentTime . ' alerts_due_by_time=' . (is_array($alerts) ? count($alerts) : 0));
 
     if (!is_array($alerts)) {
         $alerts = [];
@@ -339,6 +340,7 @@ try {
         'Execução do cron de alertas RH concluída.',
         ['processed_alerts' => $processedAlerts]
     );
+    cron_log_line('CRON RH FINISH processed_alerts=' . $processedAlerts);
 
     echo 'Alertas RH processados: ' . $processedAlerts . PHP_EOL;
 } catch (Throwable $exception) {
