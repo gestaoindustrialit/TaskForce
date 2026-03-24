@@ -619,6 +619,65 @@ body {
     grid-column: auto;
 }
 
+.shopfloor-reason-select {
+    font-size: 0.9rem;
+}
+
+.shopfloor-reason-select option {
+    font-size: 0.85rem;
+}
+
+.shopfloor-reason-picker {
+    position: relative;
+}
+
+.shopfloor-reason-picker-toggle {
+    font-size: 0.9rem;
+}
+
+.shopfloor-reason-picker-menu {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    left: 0;
+    right: 0;
+    z-index: 15;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    background: #ffffff;
+    padding: 0.5rem;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.15);
+}
+
+.shopfloor-reason-picker-search {
+    font-size: 0.82rem;
+    margin-bottom: 0.45rem;
+}
+
+.shopfloor-reason-picker-list {
+    max-height: 260px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.shopfloor-reason-option {
+    border: 0;
+    background: transparent;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.84rem;
+    padding: 0.35rem 0.3rem;
+    border-radius: 0.35rem;
+    color: #0f172a;
+}
+
+.shopfloor-reason-option:hover {
+    background: #eff6ff;
+}
+
 .shopfloor-table {
     --bs-table-bg: #ffffff;
     --bs-table-color: #0f172a;

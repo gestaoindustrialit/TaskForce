@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 require_once __DIR__ . '/helpers.php';
 
 function normalize_cron_schedule_frequency(string $value): string
@@ -9,9 +11,11 @@ function normalize_cron_schedule_frequency(string $value): string
 function normalize_cron_monthly_day($value): int
 {
     $day = (int) $value;
+
     if ($day < 1) {
         return 1;
     }
+
     if ($day > 31) {
         return 31;
     }
@@ -19,31 +23,42 @@ function normalize_cron_monthly_day($value): int
     return $day;
 }
 
+function cron_log_line(string $message): void
+{
+    $line = '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL;
+    @file_put_contents(__DIR__ . '/reports_sent.log', $line, FILE_APPEND);
+}
+
 function is_hr_alert_due_today(array $alert, DateTimeImmutable $now): bool
 {
     $scheduleFrequency = normalize_cron_schedule_frequency((string) ($alert['schedule_frequency'] ?? 'weekly'));
+
     if ($scheduleFrequency === 'monthly') {
         $configuredDay = normalize_cron_monthly_day($alert['monthly_day'] ?? 1);
         $lastDayOfMonth = (int) $now->format('t');
         $effectiveDay = min($configuredDay, $lastDayOfMonth);
+
         return (int) $now->format('j') === $effectiveDay;
     }
 
     $weekday = (string) ((int) $now->format('N'));
-    $days = array_filter(explode(',', (string) ($alert['weekdays_mask'] ?? '')));
+    $days = array_values(array_filter(array_map('trim', explode(',', (string) ($alert['weekdays_mask'] ?? '')))));
+
     return in_array($weekday, $days, true);
 }
 
 function has_hr_alert_been_sent_today(array $alert, DateTimeImmutable $now): bool
 {
     $lastSentAt = trim((string) ($alert['last_sent_at'] ?? ''));
+
     if ($lastSentAt === '') {
         return false;
     }
 
     try {
         $lastSent = new DateTimeImmutable($lastSentAt);
-    } catch (Exception $exception) {
+    } catch (Throwable $exception) {
+        cron_log_line('Data inválida em last_sent_at no alerta #' . (int) ($alert['id'] ?? 0) . ': ' . $lastSentAt);
         return false;
     }
 
@@ -58,9 +73,10 @@ function fetch_alert_recipient_users(PDO $pdo, array $selectedUserIds): array
               AND email_notifications_active = 1
               AND pin_only_login = 0
               AND TRIM(email) <> ""';
+
     $params = [];
 
-    if ($selectedUserIds) {
+    if ($selectedUserIds !== []) {
         $placeholders = implode(',', array_fill(0, count($selectedUserIds), '?'));
         $sql .= ' AND id IN (' . $placeholders . ')';
         $params = $selectedUserIds;
@@ -71,7 +87,9 @@ function fetch_alert_recipient_users(PDO $pdo, array $selectedUserIds): array
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
 
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    return is_array($users) ? $users : [];
 }
 
 function fetch_selected_users_missing_delivery_requirements(PDO $pdo, array $selectedUserIds): array
@@ -118,11 +136,7 @@ $now = new DateTimeImmutable('now');
 $currentTime = $now->format('H:i');
 $today = $now->format('Y-m-d');
 
-$stmt = $pdo->prepare('SELECT id, name, alert_type, recipient_email, send_time, weekdays_mask, schedule_frequency, monthly_day, selected_user_ids, last_sent_at FROM hr_alerts WHERE is_active = 1 AND send_time <= ?');
-$stmt->execute([$currentTime]);
-$alerts = $stmt->fetchAll(PDO::FETCH_ASSOC);
-$processedAlerts = 0;
-$markSentStmt = $pdo->prepare('UPDATE hr_alerts SET last_sent_at = ? WHERE id = ?');
+    $placeholders = implode(',', array_fill(0, count($selectedUserIds), '?'));
 
 log_hr_alert_cron_event(
     $pdo,
@@ -187,6 +201,7 @@ foreach ($alerts as $alert) {
             );
             continue;
         }
+    }
 
         $markSentStmt->execute([$now->format('Y-m-d H:i:s'), (int) $alert['id']]);
         log_hr_alert_cron_event(
@@ -199,41 +214,105 @@ foreach ($alerts as $alert) {
         continue;
     }
 
-    $subject = '[TaskForce RH] ' . $alert['name'];
-    $body = "Alerta RH: {$alert['name']}\nData/Hora: " . $now->format('d/m/Y H:i') . "\n\n";
+    $ids = array_map('intval', array_map('trim', explode(',', $raw)));
+    $ids = array_values(array_filter($ids, static fn(int $id): bool => $id > 0));
+    $ids = array_values(array_unique($ids));
 
-    if ($alert['alert_type'] === 'absences_daily') {
-        $absStmt = $pdo->prepare(
-            'SELECT u.name, v.start_date, v.end_date, v.status
-             FROM hr_vacation_events v
-             INNER JOIN users u ON u.id = v.user_id
-             WHERE ? BETWEEN v.start_date AND v.end_date
-             ORDER BY u.name COLLATE NOCASE ASC'
-        );
-        $absStmt->execute([$today]);
-        $rows = $absStmt->fetchAll(PDO::FETCH_ASSOC);
+    return $ids;
+}
 
-        if (count($rows) === 0) {
-            $body .= "Sem ausências previstas para hoje ({$today}).\n";
-        } else {
-            $body .= "Ausências previstas para hoje:\n";
-            foreach ($rows as $row) {
-                $body .= '- ' . $row['name'] . ' (' . $row['start_date'] . ' a ' . $row['end_date'] . ', ' . $row['status'] . ")\n";
-            }
+function build_absences_daily_body(PDO $pdo, array $alert, DateTimeImmutable $now): string
+{
+    $today = $now->format('Y-m-d');
+
+    $body = "Alerta RH: " . (string) ($alert['name'] ?? 'Sem nome') . PHP_EOL;
+    $body .= "Data/Hora: " . $now->format('d/m/Y H:i') . PHP_EOL . PHP_EOL;
+
+    $absStmt = $pdo->prepare(
+        'SELECT u.name, v.start_date, v.end_date, v.status
+         FROM hr_vacation_events v
+         INNER JOIN users u ON u.id = v.user_id
+         WHERE ? BETWEEN v.start_date AND v.end_date
+         ORDER BY u.name COLLATE NOCASE ASC'
+    );
+    $absStmt->execute([$today]);
+
+    $rows = $absStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!is_array($rows) || count($rows) === 0) {
+        $body .= "Sem ausências previstas para hoje (" . $today . ")." . PHP_EOL;
+        return $body;
+    }
+
+    $body .= "Ausências previstas para hoje:" . PHP_EOL;
+    foreach ($rows as $row) {
+        $body .= '- '
+            . (string) ($row['name'] ?? 'Sem nome')
+            . ' (' . (string) ($row['start_date'] ?? '')
+            . ' a ' . (string) ($row['end_date'] ?? '')
+            . ', ' . (string) ($row['status'] ?? '') . ')'
+            . PHP_EOL;
+    }
+
+    return $body;
+}
+
+function build_generic_alert_body(array $alert, DateTimeImmutable $now): string
+{
+    $body = "Alerta RH: " . (string) ($alert['name'] ?? 'Sem nome') . PHP_EOL;
+    $body .= "Data/Hora: " . $now->format('d/m/Y H:i') . PHP_EOL . PHP_EOL;
+    $body .= "Tipo de alerta: " . (string) ($alert['alert_type'] ?? 'desconhecido') . PHP_EOL;
+
+    return $body;
+}
+
+function send_standard_alert_to_users(array $users, string $subject, string $body, int $alertId): bool
+{
+    $deliveredToAtLeastOneRecipient = false;
+
+    foreach ($users as $user) {
+        $recipientEmail = trim((string) ($user['email'] ?? ''));
+        $recipientName = trim((string) ($user['name'] ?? 'Sem nome'));
+
+        if ($recipientEmail === '') {
+            cron_log_line('ALERTA #' . $alertId . ' ignorou destinatário sem email: ' . $recipientName);
+            continue;
         }
-    } else {
-        $body .= "Tipo de alerta: {$alert['alert_type']}\n";
+
+        $sent = deliver_report($recipientEmail, $subject, $body);
+
+        if ($sent) {
+            $deliveredToAtLeastOneRecipient = true;
+            cron_log_line('ALERTA #' . $alertId . ' enviado com sucesso para ' . $recipientEmail);
+            continue;
+        }
+
+        cron_log_line('ALERTA #' . $alertId . ' falhou para ' . $recipientEmail);
     }
 
     $headers = taskforce_default_mail_headers();
     $deliveredToAtLeastOneRecipient = false;
     foreach ($users as $user) {
-        $recipientEmail = (string) ($user['email'] ?? '');
+        $recipientEmail = trim((string) ($user['email'] ?? ''));
+        $recipientName = trim((string) ($user['name'] ?? 'Sem nome'));
+
         if ($recipientEmail === '') {
+            cron_log_line('ALERTA #' . $alertId . ' attendance_monthly_map ignorou destinatário sem email: ' . $recipientName);
             continue;
         }
 
-        $sent = @mail($recipientEmail, $subject, $body, $headers);
+        try {
+            $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
+        } catch (Throwable $exception) {
+            cron_log_line(
+                'ALERTA #' . $alertId
+                . ' erro ao gerar mapa mensal para ' . $recipientName
+                . ': ' . $exception->getMessage()
+            );
+            continue;
+        }
+
+        $subject = (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens');
+        $body = (string) ($report['body'] ?? '');
 
         if (!$sent) {
             $line = '[' . date('Y-m-d H:i:s') . '] ALERTA ' . $alert['id'] . ' para ' . $recipientEmail . PHP_EOL . $subject . PHP_EOL . $body . PHP_EOL;

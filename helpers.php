@@ -345,15 +345,27 @@ function status_label(string $status): string
     };
 }
 
+
 function deliver_report(string $email, string $subject, string $body): bool
 {
     $headers = taskforce_default_mail_headers();
     $sent = @mail($email, $subject, $body, $headers);
 
-    if (!$sent) {
-        $logLine = sprintf("[%s] TO:%s | %s\n%s\n---\n", date('Y-m-d H:i:s'), $email, $subject, $body);
-        file_put_contents(__DIR__ . '/reports_sent.log', $logLine, FILE_APPEND);
+    if (!$sent && $phpErrorMessage !== '') {
+        $logLines[] = 'PHP ERROR: ' . $phpErrorMessage;
     }
+
+    $logLines[] = 'HEADERS:';
+    $logLines[] = $headers;
+    $logLines[] = 'BODY:';
+    $logLines[] = $body;
+    $logLines[] = str_repeat('-', 80);
+
+    @file_put_contents(
+        __DIR__ . '/reports_sent.log',
+        implode(PHP_EOL, $logLines) . PHP_EOL,
+        FILE_APPEND
+    );
 
     return $sent;
 }
