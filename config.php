@@ -188,6 +188,9 @@ if (!in_array('sms_notifications_active', $userColumns, true)) {
 if (!in_array('profession', $userColumns, true)) {
     $pdo->exec('ALTER TABLE users ADD COLUMN profession TEXT');
 }
+if (!in_array('last_login_at', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN last_login_at DATETIME');
+}
 if (!in_array('category', $userColumns, true)) {
     $pdo->exec('ALTER TABLE users ADD COLUMN category TEXT');
 }
@@ -758,6 +761,17 @@ $pdo->exec(
         announcement_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(announcement_id, user_id),
+        FOREIGN KEY(announcement_id) REFERENCES shopfloor_announcements(id) ON DELETE CASCADE,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_announcement_acknowledgements (
+        announcement_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        acknowledged_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY(announcement_id, user_id),
         FOREIGN KEY(announcement_id) REFERENCES shopfloor_announcements(id) ON DELETE CASCADE,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
