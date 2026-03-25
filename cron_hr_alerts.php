@@ -34,6 +34,30 @@ function log_hr_alert_cron_event(PDO $pdo, string $eventType, string $descriptio
     try {
         log_app_event($pdo, null, $eventType, $description, $context);
     } catch (Throwable $exception) {
+        try {
+            static $fallbackUserId = null;
+            static $fallbackResolved = false;
+
+            if (!$fallbackResolved) {
+                $fallbackResolved = true;
+
+                $userIdStmt = $pdo->query('SELECT id FROM users WHERE is_active = 1 AND is_admin = 1 ORDER BY id ASC LIMIT 1');
+                $fallbackUserId = (int) ($userIdStmt ? $userIdStmt->fetchColumn() : 0);
+
+                if ($fallbackUserId <= 0) {
+                    $anyUserStmt = $pdo->query('SELECT id FROM users WHERE is_active = 1 ORDER BY id ASC LIMIT 1');
+                    $fallbackUserId = (int) ($anyUserStmt ? $anyUserStmt->fetchColumn() : 0);
+                }
+            }
+
+            if ($fallbackUserId > 0) {
+                log_app_event($pdo, $fallbackUserId, $eventType, $description, $context + ['log_user_fallback' => true]);
+                return;
+            }
+        } catch (Throwable $innerException) {
+            cron_log_line('LOG_FALHA_FALLBACK ' . $eventType . ' | ' . $innerException->getMessage());
+        }
+
         cron_log_line('LOG_FALHA ' . $eventType . ' | ' . $description . ' | ' . $exception->getMessage());
     }
 }
@@ -84,6 +108,21 @@ function has_hr_alert_been_sent_today(array $alert, DateTimeImmutable $now): boo
     }
 
     return $lastSent->format('Y-m-d') === $now->format('Y-m-d');
+}
+
+function has_hr_alert_reached_send_time(array $alert, string $currentTime): bool
+{
+    $configured = trim((string) ($alert['send_time'] ?? ''));
+    if ($configured === '') {
+        return false;
+    }
+
+    $normalizedConfigured = substr($configured, 0, 5);
+    if (!preg_match('/^\d{2}:\d{2}$/', $normalizedConfigured)) {
+        return false;
+    }
+
+    return $normalizedConfigured <= $currentTime;
 }
 
 function fetch_alert_recipient_users(PDO $pdo, array $selectedUserIds): array
@@ -256,19 +295,18 @@ try {
         'SELECT id, name, alert_type, send_time, weekdays_mask, schedule_frequency, monthly_day, selected_user_ids, last_sent_at
          FROM hr_alerts
          WHERE is_active = 1
-           AND send_time <= ?
          ORDER BY send_time ASC, id ASC'
     );
-    $alertStmt->execute([$currentTime]);
+    $alertStmt->execute();
     $alerts = $alertStmt->fetchAll(PDO::FETCH_ASSOC);
 
     log_hr_alert_cron_event(
         $pdo,
         'hr.alerts.cron.started',
         'Execução do cron de alertas RH iniciada.',
-        ['time' => $currentTime, 'criteria' => 'send_time <= now', 'alerts_due_by_time' => is_array($alerts) ? count($alerts) : 0]
+        ['time' => $currentTime, 'criteria' => 'all active alerts', 'active_alerts' => is_array($alerts) ? count($alerts) : 0]
     );
-    cron_log_line('CRON RH START time=' . $currentTime . ' alerts_due_by_time=' . (is_array($alerts) ? count($alerts) : 0));
+    cron_log_line('CRON RH START time=' . $currentTime . ' active_alerts=' . (is_array($alerts) ? count($alerts) : 0));
 
     if (!is_array($alerts)) {
         $alerts = [];
@@ -282,19 +320,21 @@ try {
             continue;
         }
 
+        $isDueByTime = has_hr_alert_reached_send_time($alert, $currentTime);
         $isDueToday = is_hr_alert_due_today($alert, $now);
         $alreadySentToday = has_hr_alert_been_sent_today($alert, $now);
-        if (!$isDueToday || $alreadySentToday) {
+        if (!$isDueByTime || !$isDueToday || $alreadySentToday) {
             cron_log_line(
                 'ALERTA ' . $alertId
-                . ' ignorado pelo gatilho: due_today=' . ($isDueToday ? '1' : '0')
+                . ' ignorado pelo gatilho: due_by_time=' . ($isDueByTime ? '1' : '0')
+                . ' due_today=' . ($isDueToday ? '1' : '0')
                 . ' already_sent_today=' . ($alreadySentToday ? '1' : '0')
             );
             log_hr_alert_cron_event(
                 $pdo,
                 'hr.alerts.trigger.skipped',
                 'Alerta RH não elegível no gatilho do cron.',
-                ['alert_id' => $alertId, 'due_today' => $isDueToday, 'already_sent_today' => $alreadySentToday]
+                ['alert_id' => $alertId, 'due_by_time' => $isDueByTime, 'due_today' => $isDueToday, 'already_sent_today' => $alreadySentToday]
             );
             continue;
         }
