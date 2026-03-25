@@ -575,9 +575,67 @@ function taskforce_smtp_send_mail(string $recipient, string $subject, string $bo
     }
 }
 
-function deliver_report(string $email, string $subject, string $body): bool
+function taskforce_build_mail_payload(string $subject, string $textBody, ?string $htmlBody = null, array $attachments = []): array
 {
     $headers = taskforce_default_mail_headers();
+    $normalizedAttachments = [];
+    foreach ($attachments as $attachment) {
+        if (!is_array($attachment)) {
+            continue;
+        }
+        $name = trim((string) ($attachment['name'] ?? ''));
+        $mime = trim((string) ($attachment['mime'] ?? 'application/octet-stream'));
+        $content = (string) ($attachment['content'] ?? '');
+        if ($name === '' || $content === '') {
+            continue;
+        }
+        $normalizedAttachments[] = ['name' => $name, 'mime' => $mime, 'content' => $content];
+    }
+
+    if ($htmlBody === null && !$normalizedAttachments) {
+        return ['headers' => $headers, 'body' => $textBody];
+    }
+
+    $mixedBoundary = 'tf_mixed_' . bin2hex(random_bytes(8));
+    $alternativeBoundary = 'tf_alt_' . bin2hex(random_bytes(8));
+    $headers .= "\r\nMIME-Version: 1.0";
+    $headers .= "\r\nContent-Type: multipart/mixed; boundary=\"" . $mixedBoundary . '"';
+
+    $message = '--' . $mixedBoundary . "\r\n";
+    $message .= 'Content-Type: multipart/alternative; boundary="' . $alternativeBoundary . '"' . "\r\n\r\n";
+
+    $message .= '--' . $alternativeBoundary . "\r\n";
+    $message .= "Content-Type: text/plain; charset=UTF-8\r\n";
+    $message .= "Content-Transfer-Encoding: 8bit\r\n\r\n";
+    $message .= $textBody . "\r\n\r\n";
+
+    if ($htmlBody !== null) {
+        $message .= '--' . $alternativeBoundary . "\r\n";
+        $message .= "Content-Type: text/html; charset=UTF-8\r\n";
+        $message .= "Content-Transfer-Encoding: 8bit\r\n\r\n";
+        $message .= $htmlBody . "\r\n\r\n";
+    }
+
+    $message .= '--' . $alternativeBoundary . "--\r\n";
+
+    foreach ($normalizedAttachments as $attachment) {
+        $message .= '--' . $mixedBoundary . "\r\n";
+        $message .= 'Content-Type: ' . $attachment['mime'] . '; name="' . addslashes($attachment['name']) . '"' . "\r\n";
+        $message .= 'Content-Disposition: attachment; filename="' . addslashes($attachment['name']) . '"' . "\r\n";
+        $message .= "Content-Transfer-Encoding: base64\r\n\r\n";
+        $message .= chunk_split(base64_encode($attachment['content'])) . "\r\n";
+    }
+
+    $message .= '--' . $mixedBoundary . "--\r\n";
+
+    return ['headers' => $headers, 'body' => $message];
+}
+
+function deliver_report(string $email, string $subject, string $body, ?string $htmlBody = null, array $attachments = []): bool
+{
+    $payload = taskforce_build_mail_payload($subject, $body, $htmlBody, $attachments);
+    $headers = $payload['headers'];
+    $mailBody = $payload['body'];
     $logLines = [
         '[' . date('Y-m-d H:i:s') . '] DELIVERY ATTEMPT',
         'TO: ' . $email,
@@ -592,7 +650,7 @@ function deliver_report(string $email, string $subject, string $body): bool
     });
 
     try {
-        $sent = @mail($email, $subject, $body, $headers);
+        $sent = @mail($email, $subject, $mailBody, $headers);
     } finally {
         restore_error_handler();
     }
@@ -611,7 +669,7 @@ function deliver_report(string $email, string $subject, string $body): bool
         $logLines[] = 'MAIL_ERROR: ' . $phpErrorMessage;
     }
 
-    $smtpAttempt = taskforce_smtp_send_mail($email, $subject, $body, $headers);
+    $smtpAttempt = taskforce_smtp_send_mail($email, $subject, $mailBody, $headers);
     if (!empty($smtpAttempt['sent'])) {
         $logLines[] = 'TRANSPORT_FALLBACK: smtp';
         $logLines[] = 'RESULT_FALLBACK: SUCCESS';
@@ -626,7 +684,7 @@ function deliver_report(string $email, string $subject, string $body): bool
     $logLines[] = 'HEADERS:';
     $logLines[] = $headers;
     $logLines[] = 'BODY:';
-    $logLines[] = $body;
+    $logLines[] = $mailBody;
     $logLines[] = str_repeat('-', 80);
     taskforce_write_report_log($logLines);
 
@@ -654,13 +712,76 @@ function taskforce_format_minutes_signed(int $minutes): string
     return sprintf('%s%02d:%02d', $prefix, intdiv($absMinutes, 60), $absMinutes % 60);
 }
 
+function taskforce_month_label_pt(DateTimeImmutable $date): string
+{
+    $months = [
+        1 => 'Janeiro',
+        2 => 'Fevereiro',
+        3 => 'Março',
+        4 => 'Abril',
+        5 => 'Maio',
+        6 => 'Junho',
+        7 => 'Julho',
+        8 => 'Agosto',
+        9 => 'Setembro',
+        10 => 'Outubro',
+        11 => 'Novembro',
+        12 => 'Dezembro',
+    ];
+
+    $month = (int) $date->format('n');
+    return ($months[$month] ?? '') . ' de ' . $date->format('Y');
+}
+
+function taskforce_generate_basic_pdf(array $lines): string
+{
+    $escapedLines = [];
+    foreach ($lines as $line) {
+        $safeLine = str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], (string) $line);
+        $escapedLines[] = '(' . $safeLine . ') Tj';
+    }
+
+    $content = "BT\n/F1 9 Tf\n36 806 Td\n11 TL\n";
+    foreach ($escapedLines as $index => $line) {
+        if ($index > 0) {
+            $content .= "T*\n";
+        }
+        $content .= $line . "\n";
+    }
+    $content .= "ET\n";
+    $contentLength = strlen($content);
+
+    $objects = [];
+    $objects[] = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+    $objects[] = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
+    $objects[] = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n";
+    $objects[] = "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n";
+    $objects[] = "5 0 obj\n<< /Length " . $contentLength . " >>\nstream\n" . $content . "endstream\nendobj\n";
+
+    $pdf = "%PDF-1.4\n";
+    $offsets = [0];
+    foreach ($objects as $object) {
+        $offsets[] = strlen($pdf);
+        $pdf .= $object;
+    }
+    $xrefOffset = strlen($pdf);
+    $pdf .= "xref\n0 " . (count($objects) + 1) . "\n";
+    $pdf .= "0000000000 65535 f \n";
+    for ($i = 1; $i <= count($objects); $i++) {
+        $pdf .= sprintf('%010d 00000 n ', $offsets[$i]) . "\n";
+    }
+    $pdf .= "trailer\n<< /Size " . (count($objects) + 1) . " /Root 1 0 R >>\nstartxref\n" . $xrefOffset . "\n%%EOF";
+
+    return $pdf;
+}
+
 function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, DateTimeImmutable $referenceDate): array
 {
     $periodStart = $referenceDate->modify('first day of previous month')->setTime(0, 0, 0);
     $periodEnd = $referenceDate->modify('last day of previous month')->setTime(23, 59, 59);
     $periodStartDate = $periodStart->format('Y-m-d');
     $periodEndDate = $periodEnd->format('Y-m-d');
-    $reportMonthLabel = ucfirst(strftime('%B de %Y', $periodStart->getTimestamp()));
+    $reportMonthLabel = taskforce_month_label_pt($periodStart);
 
     $scheduleStmt = $pdo->prepare(
         'SELECT s.name, s.start_time, s.end_time, s.second_start_time, s.second_end_time, s.break_minutes, s.weekdays_mask
@@ -880,9 +1001,60 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     $lines[] = '- Este relatório é informativo e reflete os registos validados/guardados no TaskForce.';
     $lines[] = '- Caso identifique alguma divergência, contacte RH para análise/retificação.';
 
+    $logoPath = app_setting($pdo, 'logo_report_dark', '');
+    $logoUrl = '';
+    if ($logoPath !== '') {
+        $logoUrl = app_base_url() . '/' . ltrim($logoPath, '/');
+    }
+
+    $rowsHtml = '';
+    foreach ($rows as $row) {
+        $rowsHtml .= '<tr>'
+            . '<td>' . h($row['date']) . '</td>'
+            . '<td>' . h($row['weekday']) . '</td>'
+            . '<td>' . h($row['type']) . '</td>'
+            . '<td>' . h(implode(' ', $row['slots'])) . '</td>'
+            . '<td>' . h($row['bh']) . '</td>'
+            . '<td>' . h($row['justification']) . '</td>'
+            . '</tr>';
+    }
+
+    $htmlBody = '<!doctype html><html><head><meta charset="utf-8"><style>'
+        . '@import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700&display=swap");'
+        . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;font-size:12px;margin:24px;}'
+        . 'h1{font-size:20px;margin:0 0 8px;}'
+        . '.meta{margin:2px 0;}'
+        . 'table{width:100%;border-collapse:collapse;margin-top:16px;font-size:11px;}'
+        . 'th,td{border:1px solid #d1d5db;padding:6px;vertical-align:top;}'
+        . 'th{background:#f3f4f6;}'
+        . '</style></head><body>'
+        . '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">'
+        . '<div><h1>Mapa mensal de picagens</h1>'
+        . '<p class="meta"><strong>Período:</strong> ' . h($periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y')) . '</p>'
+        . '<p class="meta"><strong>Colaborador:</strong> ' . h((string) ($user['name'] ?? '')) . '</p>'
+        . '<p class="meta"><strong>Mês de referência:</strong> ' . h($reportMonthLabel) . '</p></div>'
+        . ($logoUrl !== '' ? '<img src="' . h($logoUrl) . '" alt="Logótipo empresa" style="max-height:64px">' : '')
+        . '</div>'
+        . '<table><thead><tr><th>Data</th><th>Dia</th><th>Tipo</th><th>Picagens</th><th>BH</th><th>Justificação</th></tr></thead><tbody>'
+        . $rowsHtml
+        . '</tbody></table>'
+        . '<p style="margin-top:12px"><strong>Resumo mensal:</strong><br>'
+        . 'Dias com picagens: ' . $daysWithEntries . ' · '
+        . 'Dias totalmente validados: ' . $daysValidated . ' · '
+        . 'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes) . ' · '
+        . 'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes) . ' · '
+        . 'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias'
+        . '</p>'
+        . '</body></html>';
+
+    $pdfContent = taskforce_generate_basic_pdf($lines);
+
     return [
         'subject' => '[TaskForce RH] Mapa mensal de picagens - ' . (string) ($user['name'] ?? '') . ' - ' . $periodStart->format('m/Y'),
         'body' => implode(PHP_EOL, $lines),
+        'html_body' => $htmlBody,
+        'pdf_filename' => 'mapa-mensal-' . preg_replace('/[^a-z0-9\-]+/i', '-', strtolower((string) ($user['name'] ?? 'colaborador'))) . '-' . $periodStart->format('Y-m') . '.pdf',
+        'pdf_content' => $pdfContent,
         'period_start' => $periodStartDate,
         'period_end' => $periodEndDate,
         'report_month_label' => $reportMonthLabel,
