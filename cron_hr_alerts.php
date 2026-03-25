@@ -418,7 +418,9 @@ try {
     );
     cron_log_line('CRON RH FINISH processed_alerts=' . $processedAlerts);
 
-    echo 'Alertas RH processados: ' . $processedAlerts . PHP_EOL;
+    if (PHP_SAPI === 'cli') {
+        echo 'Alertas RH processados: ' . $processedAlerts . PHP_EOL;
+    }
 } catch (Throwable $exception) {
     cron_log_line('Erro fatal no cron_hr_alerts.php: ' . $exception->getMessage());
 
