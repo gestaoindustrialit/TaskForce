@@ -775,6 +775,140 @@ function taskforce_generate_basic_pdf(array $lines): string
     return $pdf;
 }
 
+function taskforce_pdf_from_jpeg(string $jpegData, int $widthPx, int $heightPx): string
+{
+    $pageWidthPt = 595.28;
+    $pageHeightPt = 841.89;
+
+    $objects = [];
+    $objects[] = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+    $objects[] = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
+    $objects[] = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {$pageWidthPt} {$pageHeightPt}] /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n";
+    $objects[] = "4 0 obj\n<< /Type /XObject /Subtype /Image /Width {$widthPx} /Height {$heightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " . strlen($jpegData) . " >>\nstream\n{$jpegData}\nendstream\nendobj\n";
+
+    $content = "q\n{$pageWidthPt} 0 0 {$pageHeightPt} 0 0 cm\n/Im1 Do\nQ\n";
+    $objects[] = "5 0 obj\n<< /Length " . strlen($content) . " >>\nstream\n{$content}endstream\nendobj\n";
+
+    $pdf = "%PDF-1.4\n";
+    $offsets = [0];
+    foreach ($objects as $object) {
+        $offsets[] = strlen($pdf);
+        $pdf .= $object;
+    }
+    $xrefOffset = strlen($pdf);
+    $pdf .= "xref\n0 " . (count($objects) + 1) . "\n0000000000 65535 f \n";
+    for ($i = 1; $i <= count($objects); $i++) {
+        $pdf .= sprintf('%010d 00000 n ', $offsets[$i]) . "\n";
+    }
+    $pdf .= "trailer\n<< /Size " . (count($objects) + 1) . " /Root 1 0 R >>\nstartxref\n{$xrefOffset}\n%%EOF";
+
+    return $pdf;
+}
+
+function taskforce_generate_monthly_layout_pdf(array $reportData): string
+{
+    if (!extension_loaded('gd')) {
+        return taskforce_generate_basic_pdf($reportData['lines'] ?? []);
+    }
+
+    $width = 1240;
+    $height = 1754;
+    $image = imagecreatetruecolor($width, $height);
+    $white = imagecolorallocate($image, 255, 255, 255);
+    $text = imagecolorallocate($image, 31, 41, 55);
+    $muted = imagecolorallocate($image, 75, 85, 99);
+    $border = imagecolorallocate($image, 209, 213, 219);
+    $headerBg = imagecolorallocate($image, 243, 244, 246);
+    imagefill($image, 0, 0, $white);
+
+    $fontPath = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
+    if (!is_file($fontPath)) {
+        $fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+    }
+
+    $y = 70;
+    imagettftext($image, 30, 0, 60, $y, $text, $fontPath, 'Mapa mensal de picagens');
+    $y += 46;
+    imagettftext($image, 16, 0, 60, $y, $muted, $fontPath, 'Período: ' . (string) ($reportData['period'] ?? ''));
+    $y += 30;
+    imagettftext($image, 16, 0, 60, $y, $muted, $fontPath, 'Colaborador: ' . (string) ($reportData['employee'] ?? ''));
+    $y += 30;
+    imagettftext($image, 16, 0, 60, $y, $muted, $fontPath, 'Mês de referência: ' . (string) ($reportData['month'] ?? ''));
+
+    $logoPath = (string) ($reportData['logo_path'] ?? '');
+    if ($logoPath !== '' && is_file($logoPath)) {
+        $logoExt = strtolower(pathinfo($logoPath, PATHINFO_EXTENSION));
+        $logoImage = match ($logoExt) {
+            'jpg', 'jpeg' => @imagecreatefromjpeg($logoPath),
+            'png' => @imagecreatefrompng($logoPath),
+            'webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($logoPath) : false,
+            default => false,
+        };
+        if ($logoImage !== false) {
+            $targetW = 220;
+            $targetH = 90;
+            imagecopyresampled($image, $logoImage, $width - 300, 40, 0, 0, $targetW, $targetH, imagesx($logoImage), imagesy($logoImage));
+            imagedestroy($logoImage);
+        }
+    }
+
+    $y = 220;
+    $columns = [
+        ['Data', 120],
+        ['Dia', 70],
+        ['Tipo', 120],
+        ['Picagens', 530],
+        ['BH', 90],
+        ['Justificação', 250],
+    ];
+    $x = 60;
+    foreach ($columns as [$label, $w]) {
+        imagefilledrectangle($image, $x, $y, $x + $w, $y + 38, $headerBg);
+        imagerectangle($image, $x, $y, $x + $w, $y + 38, $border);
+        imagettftext($image, 14, 0, $x + 8, $y + 25, $text, $fontPath, $label);
+        $x += $w;
+    }
+    $y += 38;
+
+    foreach (($reportData['rows'] ?? []) as $row) {
+        if ($y > 1460) {
+            break;
+        }
+        $cells = [
+            (string) ($row['date'] ?? ''),
+            (string) ($row['weekday'] ?? ''),
+            (string) ($row['type'] ?? ''),
+            (string) implode(' ', (array) ($row['slots'] ?? [])),
+            (string) ($row['bh'] ?? ''),
+            (string) ($row['justification'] ?? ''),
+        ];
+        $x = 60;
+        foreach ($columns as $index => $column) {
+            [, $w] = $column;
+            imagerectangle($image, $x, $y, $x + $w, $y + 32, $border);
+            $txt = mb_substr($cells[$index], 0, $index === 3 ? 60 : 30);
+            imagettftext($image, 12, 0, $x + 7, $y + 22, $text, $fontPath, $txt);
+            $x += $w;
+        }
+        $y += 32;
+    }
+
+    $y += 26;
+    imagettftext($image, 18, 0, 60, $y, $text, $fontPath, 'Resumo mensal');
+    $y += 30;
+    foreach ((array) ($reportData['summary'] ?? []) as $summaryLine) {
+        imagettftext($image, 14, 0, 60, $y, $muted, $fontPath, (string) $summaryLine);
+        $y += 24;
+    }
+
+    ob_start();
+    imagejpeg($image, null, 88);
+    $jpeg = (string) ob_get_clean();
+    imagedestroy($image);
+
+    return taskforce_pdf_from_jpeg($jpeg, $width, $height);
+}
+
 function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, DateTimeImmutable $referenceDate): array
 {
     $periodStart = $referenceDate->modify('first day of previous month')->setTime(0, 0, 0);
@@ -1047,7 +1181,28 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         . '</p>'
         . '</body></html>';
 
-    $pdfContent = taskforce_generate_basic_pdf($lines);
+    $logoFilePath = '';
+    if ($logoPath !== '') {
+        $candidatePath = __DIR__ . '/' . ltrim($logoPath, '/');
+        if (is_file($candidatePath)) {
+            $logoFilePath = $candidatePath;
+        }
+    }
+    $pdfContent = taskforce_generate_monthly_layout_pdf([
+        'period' => $periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y'),
+        'employee' => (string) ($user['name'] ?? ''),
+        'month' => $reportMonthLabel,
+        'rows' => $rows,
+        'summary' => [
+            'Dias com picagens: ' . $daysWithEntries,
+            'Dias totalmente validados: ' . $daysValidated,
+            'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes),
+            'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes),
+            'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
+        ],
+        'logo_path' => $logoFilePath,
+        'lines' => $lines,
+    ]);
 
     return [
         'subject' => '[TaskForce RH] Mapa mensal de picagens - ' . (string) ($user['name'] ?? '') . ' - ' . $periodStart->format('m/Y'),

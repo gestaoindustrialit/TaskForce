@@ -145,6 +145,72 @@ function fetch_alert_target_users(PDO $pdo, array $selectedUserIds): array
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+function run_alert_now(PDO $pdo, array $alert, int $currentUserId): array
+{
+    $selectedUserIds = parse_alert_selected_users((string) ($alert['selected_user_ids'] ?? ''));
+    $users = fetch_alert_target_users($pdo, $selectedUserIds);
+    if (!$users) {
+        return ['ok' => false, 'message' => 'Sem destinatários elegíveis para envio imediato.'];
+    }
+
+    $now = new DateTimeImmutable('now');
+    $delivered = 0;
+    $failed = 0;
+    foreach ($users as $user) {
+        $recipientEmail = trim((string) ($user['email'] ?? ''));
+        if ($recipientEmail === '') {
+            continue;
+        }
+
+        $sent = false;
+        if ((string) ($alert['alert_type'] ?? '') === 'attendance_monthly_map') {
+            $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
+            $attachments = [];
+            if (!empty($report['pdf_content'])) {
+                $attachments[] = [
+                    'name' => (string) ($report['pdf_filename'] ?? 'mapa-mensal.pdf'),
+                    'mime' => 'application/pdf',
+                    'content' => (string) $report['pdf_content'],
+                ];
+            }
+            $sent = deliver_report(
+                $recipientEmail,
+                (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens'),
+                (string) ($report['body'] ?? ''),
+                (string) ($report['html_body'] ?? ''),
+                $attachments
+            );
+        } else {
+            $subject = '[TaskForce RH] Envio manual - ' . (string) ($alert['name'] ?? 'Alerta');
+            $body = "Este alerta foi executado manualmente em " . $now->format('d/m/Y H:i') . ".\nTipo: " . (string) ($alert['alert_type'] ?? 'desconhecido');
+            $sent = deliver_report($recipientEmail, $subject, $body);
+        }
+
+        if ($sent) {
+            $delivered++;
+        } else {
+            $failed++;
+        }
+    }
+
+    $summary = 'Envio imediato concluído: ' . $delivered . ' com sucesso';
+    if ($failed > 0) {
+        $summary .= ', ' . $failed . ' falhas';
+    }
+
+    try {
+        log_app_event($pdo, $currentUserId, 'hr.alerts.run_now', 'Alerta executado manualmente.', [
+            'alert_id' => (int) ($alert['id'] ?? 0),
+            'delivered' => $delivered,
+            'failed' => $failed,
+        ]);
+    } catch (Throwable $exception) {
+        // Ignorar erro de log.
+    }
+
+    return ['ok' => $delivered > 0, 'message' => $summary];
+}
+
 function render_alert_collaborator_picker(string $pickerId, array $users, array $teams, array $selectedUsers, string $inputName, string $buttonLabel = 'Selecionar colaboradores'): void
 {
     ?>
@@ -309,7 +375,22 @@ unset($listedUser);
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
 
-    if ($action === 'create_alert' || $action === 'update_alert') {
+    if ($action === 'run_alert_now') {
+        $alertId = (int) ($_POST['alert_id'] ?? 0);
+        $stmt = $pdo->prepare('SELECT id, name, alert_type, selected_user_ids FROM hr_alerts WHERE id = ? LIMIT 1');
+        $stmt->execute([$alertId]);
+        $alertRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$alertRow) {
+            $flashError = 'Alerta não encontrado para envio imediato.';
+        } else {
+            $manualRun = run_alert_now($pdo, $alertRow, $userId);
+            if (!empty($manualRun['ok'])) {
+                $flashSuccess = (string) ($manualRun['message'] ?? 'Alerta enviado.');
+            } else {
+                $flashError = (string) ($manualRun['message'] ?? 'Falha no envio imediato do alerta.');
+            }
+        }
+    } elseif ($action === 'create_alert' || $action === 'update_alert') {
         $id = (int) ($_POST['alert_id'] ?? 0);
         $name = trim((string) ($_POST['name'] ?? ''));
         $type = trim((string) ($_POST['alert_type'] ?? 'absences_daily'));
@@ -498,7 +579,7 @@ require __DIR__ . '/partials/header.php';
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-sm align-middle">
-                <thead><tr><th>Nome</th><th>Tipo</th><th>Hora</th><th>Agendamento</th><th>Colaboradores</th><th>Estado</th><th>Editar</th></tr></thead>
+                <thead><tr><th>Nome</th><th>Tipo</th><th>Hora</th><th>Agendamento</th><th>Colaboradores</th><th>Estado</th><th>Ações</th></tr></thead>
                 <tbody>
                     <?php foreach ($alerts as $alert): ?>
                         <?php $mask = array_filter(explode(',', (string) ($alert['weekdays_mask'] ?? ''))); ?>
@@ -516,6 +597,11 @@ require __DIR__ . '/partials/header.php';
                             <td><?= h(format_alert_selected_users_summary($selectedAlertUsers, $userLabelMap)) ?></td>
                             <td><?= (int) $alert['is_active'] === 1 ? '<span class="badge text-bg-success">Ativo</span>' : '<span class="badge text-bg-secondary">Inativo</span>' ?></td>
                             <td>
+                                <form method="post" class="mb-2">
+                                    <input type="hidden" name="action" value="run_alert_now">
+                                    <input type="hidden" name="alert_id" value="<?= (int) $alert['id'] ?>">
+                                    <button class="btn btn-sm btn-outline-primary">Correr agora</button>
+                                </form>
                                 <form method="post" class="row g-2">
                                     <input type="hidden" name="action" value="update_alert">
                                     <input type="hidden" name="alert_id" value="<?= (int) $alert['id'] ?>">
