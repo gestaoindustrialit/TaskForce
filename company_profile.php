@@ -11,6 +11,25 @@ if (!$isAdmin) {
 $flashSuccess = null;
 $flashError = null;
 
+$companyName = '';
+$companyAddress = '';
+$companyEmail = '';
+$companyPhone = '';
+$smtpHost = '';
+$smtpPort = '587';
+$smtpSecure = 'tls';
+$smtpUsername = '';
+$smtpPassword = '';
+$smtpTimeout = '10';
+$mailFromAddress = 'noreply@calcadacorp.ch';
+$mailFromName = 'TaskForce';
+$navbarLogo = null;
+$reportLogo = null;
+$ticketStatuses = [];
+$recurrenceCatalog = [];
+$pendingDepartmentCatalog = [];
+
+try {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$isAdmin) {
         $flashError = 'Apenas administradores podem editar os dados da empresa.';
@@ -204,18 +223,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$companyName = app_setting($pdo, 'company_name', '');
-$companyAddress = app_setting($pdo, 'company_address', '');
-$companyEmail = app_setting($pdo, 'company_email', '');
-$companyPhone = app_setting($pdo, 'company_phone', '');
-$smtpHost = app_setting($pdo, 'smtp_host', '');
-$smtpPort = app_setting($pdo, 'smtp_port', '587');
-$smtpSecure = app_setting($pdo, 'smtp_secure', 'tls');
-$smtpUsername = app_setting($pdo, 'smtp_username', '');
-$smtpPassword = app_setting($pdo, 'smtp_password', '');
-$smtpTimeout = app_setting($pdo, 'smtp_timeout_seconds', '10');
-$mailFromAddress = app_setting($pdo, 'mail_from_address', 'noreply@calcadacorp.ch');
-$mailFromName = app_setting($pdo, 'mail_from_name', 'TaskForce');
+$companyName = (string) app_setting($pdo, 'company_name', '');
+$companyAddress = (string) app_setting($pdo, 'company_address', '');
+$companyEmail = (string) app_setting($pdo, 'company_email', '');
+$companyPhone = (string) app_setting($pdo, 'company_phone', '');
+$smtpHost = (string) app_setting($pdo, 'smtp_host', '');
+$smtpPort = (string) app_setting($pdo, 'smtp_port', '587');
+$smtpSecure = (string) app_setting($pdo, 'smtp_secure', 'tls');
+$smtpUsername = (string) app_setting($pdo, 'smtp_username', '');
+$smtpPassword = (string) app_setting($pdo, 'smtp_password', '');
+$smtpTimeout = (string) app_setting($pdo, 'smtp_timeout_seconds', '10');
+$mailFromAddress = (string) app_setting($pdo, 'mail_from_address', 'noreply@calcadacorp.ch');
+$mailFromName = (string) app_setting($pdo, 'mail_from_name', 'TaskForce');
 $navbarLogo = app_setting($pdo, 'logo_navbar_light');
 $reportLogo = app_setting($pdo, 'logo_report_dark');
 $ticketStatuses = ticket_statuses($pdo);
@@ -223,6 +242,12 @@ $recurrenceCatalog = recurring_task_recurrence_catalog($pdo);
 $pendingDepartmentCatalog = function_exists('pending_ticket_department_catalog')
     ? pending_ticket_department_catalog($pdo)
     : default_pending_ticket_department_options($pdo);
+} catch (Throwable $exception) {
+    $flashError = 'Não foi possível carregar as definições da página. Verifique a configuração e tente novamente.';
+    if (function_exists('taskforce_log_bootstrap_error')) {
+        taskforce_log_bootstrap_error('[TaskForce][company_profile] ' . $exception->getMessage());
+    }
+}
 
 $pageTitle = 'Empresa e Branding';
 require __DIR__ . '/partials/header.php';
