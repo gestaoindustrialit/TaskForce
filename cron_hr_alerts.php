@@ -117,10 +117,17 @@ function has_hr_alert_reached_send_time(array $alert, string $currentTime): bool
         return false;
     }
 
-    $normalizedConfigured = substr($configured, 0, 5);
-    if (!preg_match('/^\d{2}:\d{2}$/', $normalizedConfigured)) {
+    if (!preg_match('/^(\d{1,2}):(\d{2})(?::\d{2})?$/', $configured, $matches)) {
         return false;
     }
+
+    $hours = (int) ($matches[1] ?? -1);
+    $minutes = (int) ($matches[2] ?? -1);
+    if ($hours < 0 || $hours > 23 || $minutes < 0 || $minutes > 59) {
+        return false;
+    }
+
+    $normalizedConfigured = sprintf('%02d:%02d', $hours, $minutes);
 
     return $normalizedConfigured <= $currentTime;
 }
