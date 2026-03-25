@@ -20,6 +20,47 @@ if (!can_access_hr_module($pdo, $userId)) {
     exit('Acesso reservado a administradores e equipa RH.');
 }
 
+$inlineCronNow = new DateTimeImmutable('now');
+$inlineCronLastRunAt = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', ''));
+$inlineCronShouldRun = true;
+
+if ($inlineCronLastRunAt !== '') {
+    try {
+        $lastInlineRun = new DateTimeImmutable($inlineCronLastRunAt);
+        $inlineCronShouldRun = ($inlineCronNow->getTimestamp() - $lastInlineRun->getTimestamp()) >= 60;
+    } catch (Throwable $exception) {
+        $inlineCronShouldRun = true;
+    }
+}
+
+if ($inlineCronShouldRun) {
+    set_app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', $inlineCronNow->format('Y-m-d H:i:s'));
+
+    try {
+        ob_start();
+        require __DIR__ . '/cron_hr_alerts.php';
+        ob_end_clean();
+    } catch (Throwable $exception) {
+        if (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        if (function_exists('log_app_event')) {
+            try {
+                log_app_event(
+                    $pdo,
+                    $userId,
+                    'hr.alerts.inline_cron.failed',
+                    'Execução inline do cron de alertas RH falhou na interface.',
+                    ['error' => $exception->getMessage()]
+                );
+            } catch (Throwable $innerException) {
+                // Ignorar falhas de logging para não bloquear o ecrã.
+            }
+        }
+    }
+}
+
 function parse_alert_selected_users($value): array
 {
     $rawValues = is_array($value) ? $value : array_filter(explode(',', (string) $value));
