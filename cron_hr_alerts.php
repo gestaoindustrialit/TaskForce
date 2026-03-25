@@ -280,8 +280,17 @@ function send_attendance_monthly_map_alert(array $users, PDO $pdo, DateTimeImmut
 
         $subject = (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens');
         $body = (string) ($report['body'] ?? '');
+        $htmlBody = (string) ($report['html_body'] ?? '');
+        $attachments = [];
+        if (!empty($report['pdf_content'])) {
+            $attachments[] = [
+                'name' => (string) ($report['pdf_filename'] ?? 'mapa-mensal.pdf'),
+                'mime' => 'application/pdf',
+                'content' => (string) $report['pdf_content'],
+            ];
+        }
 
-        if (deliver_report($recipientEmail, $subject, $body)) {
+        if (deliver_report($recipientEmail, $subject, $body, $htmlBody !== '' ? $htmlBody : null, $attachments)) {
             $deliveredToAtLeastOneRecipient = true;
             cron_log_line('ALERTA #' . $alertId . ' mapa mensal enviado com sucesso para ' . $recipientEmail);
             continue;
