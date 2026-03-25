@@ -212,6 +212,41 @@ function send_standard_alert_to_users(array $users, string $subject, string $bod
     return $deliveredToAtLeastOneRecipient;
 }
 
+function send_attendance_monthly_map_alert(array $users, PDO $pdo, DateTimeImmutable $now, int $alertId): bool
+{
+    $deliveredToAtLeastOneRecipient = false;
+
+    foreach ($users as $user) {
+        $userId = (int) ($user['id'] ?? 0);
+        $recipientEmail = trim((string) ($user['email'] ?? ''));
+
+        if ($recipientEmail === '') {
+            cron_log_line('ALERTA #' . $alertId . ' ignorou user #' . $userId . ' sem email para mapa mensal.');
+            continue;
+        }
+
+        try {
+            $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
+        } catch (Throwable $exception) {
+            cron_log_line('ALERTA #' . $alertId . ' erro ao gerar mapa mensal para user #' . $userId . ': ' . $exception->getMessage());
+            continue;
+        }
+
+        $subject = (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens');
+        $body = (string) ($report['body'] ?? '');
+
+        if (deliver_report($recipientEmail, $subject, $body)) {
+            $deliveredToAtLeastOneRecipient = true;
+            cron_log_line('ALERTA #' . $alertId . ' mapa mensal enviado com sucesso para ' . $recipientEmail);
+            continue;
+        }
+
+        cron_log_line('ALERTA #' . $alertId . ' mapa mensal falhou para ' . $recipientEmail);
+    }
+
+    return $deliveredToAtLeastOneRecipient;
+}
+
 $now = new DateTimeImmutable('now');
 $currentTime = $now->format('H:i');
 $processedAlerts = 0;
@@ -247,7 +282,20 @@ try {
             continue;
         }
 
-        if (!is_hr_alert_due_today($alert, $now) || has_hr_alert_been_sent_today($alert, $now)) {
+        $isDueToday = is_hr_alert_due_today($alert, $now);
+        $alreadySentToday = has_hr_alert_been_sent_today($alert, $now);
+        if (!$isDueToday || $alreadySentToday) {
+            cron_log_line(
+                'ALERTA ' . $alertId
+                . ' ignorado pelo gatilho: due_today=' . ($isDueToday ? '1' : '0')
+                . ' already_sent_today=' . ($alreadySentToday ? '1' : '0')
+            );
+            log_hr_alert_cron_event(
+                $pdo,
+                'hr.alerts.trigger.skipped',
+                'Alerta RH não elegível no gatilho do cron.',
+                ['alert_id' => $alertId, 'due_today' => $isDueToday, 'already_sent_today' => $alreadySentToday]
+            );
             continue;
         }
 
@@ -282,28 +330,16 @@ try {
 
         $alertType = (string) ($alert['alert_type'] ?? '');
         $deliveredToAtLeastOneRecipient = false;
+        log_hr_alert_cron_event(
+            $pdo,
+            'hr.alerts.delivery.attempt',
+            'Tentativa de envio de alerta RH iniciada.',
+            ['alert_id' => $alertId, 'alert_type' => $alertType, 'recipients' => count($users)]
+        );
+        cron_log_line('ALERTA ' . $alertId . ' tentativa de envio iniciada. type=' . $alertType . ' recipients=' . count($users));
 
         if ($alertType === 'attendance_monthly_map') {
-            foreach ($users as $user) {
-                $recipientEmail = trim((string) ($user['email'] ?? ''));
-                if ($recipientEmail === '') {
-                    continue;
-                }
-
-                try {
-                    $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
-                } catch (Throwable $exception) {
-                    cron_log_line('ALERTA #' . $alertId . ' erro ao gerar mapa mensal para user #' . (int) ($user['id'] ?? 0) . ': ' . $exception->getMessage());
-                    continue;
-                }
-
-                $subject = (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens');
-                $body = (string) ($report['body'] ?? '');
-
-                if (deliver_report($recipientEmail, $subject, $body)) {
-                    $deliveredToAtLeastOneRecipient = true;
-                }
-            }
+            $deliveredToAtLeastOneRecipient = send_attendance_monthly_map_alert($users, $pdo, $now, $alertId);
         } else {
             $subject = '[TaskForce RH] ' . ((string) ($alert['name'] ?? 'Alerta RH'));
             $body = $alertType === 'absences_daily'
