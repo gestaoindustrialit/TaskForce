@@ -417,9 +417,7 @@ function taskforce_default_mail_headers(): string
     $fromAddress = taskforce_mail_from_address();
     $fromName = taskforce_mail_from_name();
 
-    return "MIME-Version: 1.0\r\n"
-        . "Content-Type: text/plain; charset=UTF-8\r\n"
-        . 'From: ' . $fromName . ' <' . $fromAddress . ">\r\n"
+    return 'From: ' . $fromName . ' <' . $fromAddress . ">\r\n"
         . 'Reply-To: ' . $fromAddress . "\r\n";
 }
 
