@@ -319,6 +319,20 @@ function persist_bh_override(PDO $pdo, int $targetUserId, string $workDate, int 
     ]);
 }
 
+function clear_bh_override(PDO $pdo, int $targetUserId, string $workDate, int $actorUserId): void
+{
+    $existingStmt = $pdo->prepare('SELECT id, bh_minutes FROM shopfloor_bh_overrides WHERE user_id = ? AND work_date = ? LIMIT 1');
+    $existingStmt->execute([$targetUserId, $workDate]);
+    $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$existing) {
+        return;
+    }
+
+    $pdo->prepare('DELETE FROM shopfloor_bh_overrides WHERE id = ?')->execute([(int) $existing['id']]);
+    $logOverrideStmt = $pdo->prepare('INSERT INTO shopfloor_bh_override_logs(user_id, work_date, previous_bh_minutes, new_bh_minutes, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)');
+    $logOverrideStmt->execute([$targetUserId, $workDate, (int) $existing['bh_minutes'], null, 'Override removido (valor automático)', $actorUserId]);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
     $action = trim((string) ($_POST['action'] ?? ''));
     $validateDate = trim((string) ($_POST['validate_date'] ?? ''));
@@ -461,11 +475,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
     } elseif (!DateTimeImmutable::createFromFormat('Y-m-d', $validateDate)) {
         $flashError = 'Data inválida para validação.';
     } elseif ($action === 'validate_row' && $validateUserId > 0) {
-        $targetEntriesStmt = $pdo->prepare('SELECT id, entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = ? AND validated_at IS NULL ORDER BY occurred_at ASC');
-        $targetEntriesStmt->execute([$validateUserId, $validateDate]);
-        $targetEntries = $targetEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
+        $pendingEntriesStmt = $pdo->prepare('SELECT id FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = ? AND validated_at IS NULL ORDER BY occurred_at ASC');
+        $pendingEntriesStmt->execute([$validateUserId, $validateDate]);
+        $pendingEntries = $pendingEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
 
-        if (!$targetEntries) {
+        if (!$pendingEntries) {
             $flashError = 'Não existem picagens pendentes para validar.';
         } else {
             $overrideBhValue = trim((string) ($_POST['override_bh_value'] ?? ''));
@@ -473,25 +487,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
 
             $pdo->beginTransaction();
             try {
+                $allEntriesStmt = $pdo->prepare('SELECT id, entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = ? ORDER BY occurred_at ASC');
+                $allEntriesStmt->execute([$validateUserId, $validateDate]);
+                $allEntries = $allEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                $targetSeconds = (8 * 3600) + (15 * 60);
+                $effectiveSeconds = calculate_effective_seconds($allEntries);
+                $absenceAllocatedSeconds = get_absence_allocated_seconds($pdo, $validateUserId, $validateDate);
+                $computedBhSeconds = ($effectiveSeconds - $targetSeconds) + $absenceAllocatedSeconds;
+                $computedBhMinutes = (int) round($computedBhSeconds / 60);
+
                 if ($overrideBhValue !== '') {
                     $overrideMinutes = parse_signed_hhmm_to_minutes($overrideBhValue);
                     if ($overrideMinutes === null) {
                         throw new RuntimeException('Tempo BH inválido. Use formato ±HH:MM.');
                     }
 
-                    persist_bh_override($pdo, $validateUserId, $validateDate, $overrideMinutes, $overrideReason, $userId);
+                    if ($overrideMinutes !== $computedBhMinutes || $overrideReason !== '') {
+                        persist_bh_override($pdo, $validateUserId, $validateDate, $overrideMinutes, $overrideReason, $userId);
+                    } else {
+                        clear_bh_override($pdo, $validateUserId, $validateDate, $userId);
+                    }
                 }
-
-                $targetEntriesStmt->execute([$validateUserId, $validateDate]);
-                $targetEntries = $targetEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
 
                 $stmt = $pdo->prepare('UPDATE shopfloor_time_entries SET validated_by = ?, validated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND date(occurred_at) = ? AND validated_at IS NULL');
                 $stmt->execute([$userId, $validateUserId, $validateDate]);
 
-                $targetSeconds = (8 * 3600) + (15 * 60);
-                $effectiveSeconds = calculate_effective_seconds($targetEntries);
-                $absenceAllocatedSeconds = get_absence_allocated_seconds($pdo, $validateUserId, $validateDate);
-                $computedBhSeconds = ($effectiveSeconds - $targetSeconds) + $absenceAllocatedSeconds;
                 $bhSeconds = get_override_bh_seconds($pdo, $validateUserId, $validateDate) ?? $computedBhSeconds;
                 apply_hour_bank_delta($pdo, $validateUserId, $bhSeconds, $userId, $validateDate);
                 $pdo->commit();
@@ -530,16 +551,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
         if (!$pendingEntries) {
             $flashError = 'Não existem picagens pendentes para validar no dia selecionado.';
         } else {
-            $entriesByUser = [];
+            $usersWithPendingEntries = [];
             foreach ($pendingEntries as $entry) {
                 $entryUserId = (int) ($entry['user_id'] ?? 0);
                 if ($entryUserId <= 0) {
                     continue;
                 }
-                if (!isset($entriesByUser[$entryUserId])) {
-                    $entriesByUser[$entryUserId] = [];
-                }
-                $entriesByUser[$entryUserId][] = $entry;
+                $usersWithPendingEntries[$entryUserId] = true;
             }
 
             $pdo->beginTransaction();
@@ -552,8 +570,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
                 $pdo->prepare($sqlValidate)->execute($validateParams);
 
                 $targetSeconds = (8 * 3600) + (15 * 60);
-                foreach ($entriesByUser as $entryUserId => $userEntries) {
-                    $effectiveSeconds = calculate_effective_seconds($userEntries);
+                foreach (array_keys($usersWithPendingEntries) as $entryUserId) {
+                    $allEntriesStmt = $pdo->prepare('SELECT entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = ? ORDER BY occurred_at ASC');
+                    $allEntriesStmt->execute([(int) $entryUserId, $validateDate]);
+                    $allEntries = $allEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
+                    $effectiveSeconds = calculate_effective_seconds($allEntries);
                     $absenceAllocatedSeconds = get_absence_allocated_seconds($pdo, (int) $entryUserId, $validateDate);
                     $computedBhSeconds = ($effectiveSeconds - $targetSeconds) + $absenceAllocatedSeconds;
                     $bhSeconds = get_override_bh_seconds($pdo, (int) $entryUserId, $validateDate) ?? $computedBhSeconds;
@@ -1204,12 +1225,12 @@ require __DIR__ . '/partials/header.php';
                             <td class="text-end">
                                 <?php if ($row['status'] === 'Validado'): ?>
                                     <div class="d-inline-flex gap-1 align-items-center">
-                                        <span class="text-success small"><i class="bi bi-check-circle-fill me-1"></i>Validado</span>
+                                        <span class="text-success small" title="Validado" aria-label="Validado"><i class="bi bi-check-circle-fill"></i></span>
                                         <form method="post" class="d-inline">
                                             <input type="hidden" name="action" value="reopen_row">
                                             <input type="hidden" name="validate_date" value="<?= h($row['date']) ?>">
                                             <input type="hidden" name="validate_user_id" value="<?= (int) $row['user_id'] ?>">
-                                            <button class="btn btn-outline-primary btn-sm" type="submit"><i class="bi bi-pencil me-1"></i>Voltar a editar</button>
+                                            <button class="btn btn-outline-primary btn-sm" type="submit" title="Voltar a editar" aria-label="Voltar a editar"><i class="bi bi-pencil"></i></button>
                                         </form>
                                     </div>
                                 <?php else: ?>
