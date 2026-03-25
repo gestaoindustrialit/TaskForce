@@ -34,6 +34,30 @@ function log_hr_alert_cron_event(PDO $pdo, string $eventType, string $descriptio
     try {
         log_app_event($pdo, null, $eventType, $description, $context);
     } catch (Throwable $exception) {
+        try {
+            static $fallbackUserId = null;
+            static $fallbackResolved = false;
+
+            if (!$fallbackResolved) {
+                $fallbackResolved = true;
+
+                $userIdStmt = $pdo->query('SELECT id FROM users WHERE is_active = 1 AND is_admin = 1 ORDER BY id ASC LIMIT 1');
+                $fallbackUserId = (int) ($userIdStmt ? $userIdStmt->fetchColumn() : 0);
+
+                if ($fallbackUserId <= 0) {
+                    $anyUserStmt = $pdo->query('SELECT id FROM users WHERE is_active = 1 ORDER BY id ASC LIMIT 1');
+                    $fallbackUserId = (int) ($anyUserStmt ? $anyUserStmt->fetchColumn() : 0);
+                }
+            }
+
+            if ($fallbackUserId > 0) {
+                log_app_event($pdo, $fallbackUserId, $eventType, $description, $context + ['log_user_fallback' => true]);
+                return;
+            }
+        } catch (Throwable $innerException) {
+            cron_log_line('LOG_FALHA_FALLBACK ' . $eventType . ' | ' . $innerException->getMessage());
+        }
+
         cron_log_line('LOG_FALHA ' . $eventType . ' | ' . $description . ' | ' . $exception->getMessage());
     }
 }
@@ -84,6 +108,28 @@ function has_hr_alert_been_sent_today(array $alert, DateTimeImmutable $now): boo
     }
 
     return $lastSent->format('Y-m-d') === $now->format('Y-m-d');
+}
+
+function has_hr_alert_reached_send_time(array $alert, string $currentTime): bool
+{
+    $configured = trim((string) ($alert['send_time'] ?? ''));
+    if ($configured === '') {
+        return false;
+    }
+
+    if (!preg_match('/^(\d{1,2}):(\d{2})(?::\d{2})?$/', $configured, $matches)) {
+        return false;
+    }
+
+    $hours = (int) ($matches[1] ?? -1);
+    $minutes = (int) ($matches[2] ?? -1);
+    if ($hours < 0 || $hours > 23 || $minutes < 0 || $minutes > 59) {
+        return false;
+    }
+
+    $normalizedConfigured = sprintf('%02d:%02d', $hours, $minutes);
+
+    return $normalizedConfigured <= $currentTime;
 }
 
 function fetch_alert_recipient_users(PDO $pdo, array $selectedUserIds): array
@@ -212,6 +258,41 @@ function send_standard_alert_to_users(array $users, string $subject, string $bod
     return $deliveredToAtLeastOneRecipient;
 }
 
+function send_attendance_monthly_map_alert(array $users, PDO $pdo, DateTimeImmutable $now, int $alertId): bool
+{
+    $deliveredToAtLeastOneRecipient = false;
+
+    foreach ($users as $user) {
+        $userId = (int) ($user['id'] ?? 0);
+        $recipientEmail = trim((string) ($user['email'] ?? ''));
+
+        if ($recipientEmail === '') {
+            cron_log_line('ALERTA #' . $alertId . ' ignorou user #' . $userId . ' sem email para mapa mensal.');
+            continue;
+        }
+
+        try {
+            $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
+        } catch (Throwable $exception) {
+            cron_log_line('ALERTA #' . $alertId . ' erro ao gerar mapa mensal para user #' . $userId . ': ' . $exception->getMessage());
+            continue;
+        }
+
+        $subject = (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens');
+        $body = (string) ($report['body'] ?? '');
+
+        if (deliver_report($recipientEmail, $subject, $body)) {
+            $deliveredToAtLeastOneRecipient = true;
+            cron_log_line('ALERTA #' . $alertId . ' mapa mensal enviado com sucesso para ' . $recipientEmail);
+            continue;
+        }
+
+        cron_log_line('ALERTA #' . $alertId . ' mapa mensal falhou para ' . $recipientEmail);
+    }
+
+    return $deliveredToAtLeastOneRecipient;
+}
+
 $now = new DateTimeImmutable('now');
 $currentTime = $now->format('H:i');
 $processedAlerts = 0;
@@ -221,19 +302,18 @@ try {
         'SELECT id, name, alert_type, send_time, weekdays_mask, schedule_frequency, monthly_day, selected_user_ids, last_sent_at
          FROM hr_alerts
          WHERE is_active = 1
-           AND send_time <= ?
          ORDER BY send_time ASC, id ASC'
     );
-    $alertStmt->execute([$currentTime]);
+    $alertStmt->execute();
     $alerts = $alertStmt->fetchAll(PDO::FETCH_ASSOC);
 
     log_hr_alert_cron_event(
         $pdo,
         'hr.alerts.cron.started',
         'Execução do cron de alertas RH iniciada.',
-        ['time' => $currentTime, 'criteria' => 'send_time <= now', 'alerts_due_by_time' => is_array($alerts) ? count($alerts) : 0]
+        ['time' => $currentTime, 'criteria' => 'all active alerts', 'active_alerts' => is_array($alerts) ? count($alerts) : 0]
     );
-    cron_log_line('CRON RH START time=' . $currentTime . ' alerts_due_by_time=' . (is_array($alerts) ? count($alerts) : 0));
+    cron_log_line('CRON RH START time=' . $currentTime . ' active_alerts=' . (is_array($alerts) ? count($alerts) : 0));
 
     if (!is_array($alerts)) {
         $alerts = [];
@@ -247,7 +327,22 @@ try {
             continue;
         }
 
-        if (!is_hr_alert_due_today($alert, $now) || has_hr_alert_been_sent_today($alert, $now)) {
+        $isDueByTime = has_hr_alert_reached_send_time($alert, $currentTime);
+        $isDueToday = is_hr_alert_due_today($alert, $now);
+        $alreadySentToday = has_hr_alert_been_sent_today($alert, $now);
+        if (!$isDueByTime || !$isDueToday || $alreadySentToday) {
+            cron_log_line(
+                'ALERTA ' . $alertId
+                . ' ignorado pelo gatilho: due_by_time=' . ($isDueByTime ? '1' : '0')
+                . ' due_today=' . ($isDueToday ? '1' : '0')
+                . ' already_sent_today=' . ($alreadySentToday ? '1' : '0')
+            );
+            log_hr_alert_cron_event(
+                $pdo,
+                'hr.alerts.trigger.skipped',
+                'Alerta RH não elegível no gatilho do cron.',
+                ['alert_id' => $alertId, 'due_by_time' => $isDueByTime, 'due_today' => $isDueToday, 'already_sent_today' => $alreadySentToday]
+            );
             continue;
         }
 
@@ -282,28 +377,16 @@ try {
 
         $alertType = (string) ($alert['alert_type'] ?? '');
         $deliveredToAtLeastOneRecipient = false;
+        log_hr_alert_cron_event(
+            $pdo,
+            'hr.alerts.delivery.attempt',
+            'Tentativa de envio de alerta RH iniciada.',
+            ['alert_id' => $alertId, 'alert_type' => $alertType, 'recipients' => count($users)]
+        );
+        cron_log_line('ALERTA ' . $alertId . ' tentativa de envio iniciada. type=' . $alertType . ' recipients=' . count($users));
 
         if ($alertType === 'attendance_monthly_map') {
-            foreach ($users as $user) {
-                $recipientEmail = trim((string) ($user['email'] ?? ''));
-                if ($recipientEmail === '') {
-                    continue;
-                }
-
-                try {
-                    $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
-                } catch (Throwable $exception) {
-                    cron_log_line('ALERTA #' . $alertId . ' erro ao gerar mapa mensal para user #' . (int) ($user['id'] ?? 0) . ': ' . $exception->getMessage());
-                    continue;
-                }
-
-                $subject = (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens');
-                $body = (string) ($report['body'] ?? '');
-
-                if (deliver_report($recipientEmail, $subject, $body)) {
-                    $deliveredToAtLeastOneRecipient = true;
-                }
-            }
+            $deliveredToAtLeastOneRecipient = send_attendance_monthly_map_alert($users, $pdo, $now, $alertId);
         } else {
             $subject = '[TaskForce RH] ' . ((string) ($alert['name'] ?? 'Alerta RH'));
             $body = $alertType === 'absences_daily'
@@ -342,7 +425,9 @@ try {
     );
     cron_log_line('CRON RH FINISH processed_alerts=' . $processedAlerts);
 
-    echo 'Alertas RH processados: ' . $processedAlerts . PHP_EOL;
+    if (PHP_SAPI === 'cli') {
+        echo 'Alertas RH processados: ' . $processedAlerts . PHP_EOL;
+    }
 } catch (Throwable $exception) {
     cron_log_line('Erro fatal no cron_hr_alerts.php: ' . $exception->getMessage());
 
