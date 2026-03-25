@@ -22,12 +22,15 @@ if (!can_access_hr_module($pdo, $userId)) {
 
 $inlineCronNow = new DateTimeImmutable('now');
 $inlineCronLastRunAt = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', ''));
+$inlineCronRunsPerDay = (int) app_setting($pdo, 'hr_alerts_inline_cron_runs_per_day', '1440');
+$inlineCronRunsPerDay = max(1, min(1440, $inlineCronRunsPerDay));
+$inlineCronIntervalSeconds = max(60, (int) floor(86400 / $inlineCronRunsPerDay));
 $inlineCronShouldRun = true;
 
 if ($inlineCronLastRunAt !== '') {
     try {
         $lastInlineRun = new DateTimeImmutable($inlineCronLastRunAt);
-        $inlineCronShouldRun = ($inlineCronNow->getTimestamp() - $lastInlineRun->getTimestamp()) >= 60;
+        $inlineCronShouldRun = ($inlineCronNow->getTimestamp() - $lastInlineRun->getTimestamp()) >= $inlineCronIntervalSeconds;
     } catch (Throwable $exception) {
         $inlineCronShouldRun = true;
     }
