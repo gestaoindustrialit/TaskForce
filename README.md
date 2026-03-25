@@ -59,3 +59,24 @@ php cron_hr_alerts.php
 ```
 
 Se `mail()` não estiver configurado no ambiente, os relatórios/alertas ficam registados em `reports_sent.log`.
+
+### SMTP autenticado (fallback ao `mail()`)
+
+Quando o servidor não tem `sendmail`/`mail()` ativo, pode configurar SMTP com variáveis de ambiente:
+
+```bash
+export TASKFORCE_SMTP_HOST="smtp.seudominio.com"
+export TASKFORCE_SMTP_PORT="587"
+export TASKFORCE_SMTP_SECURE="tls"   # tls | ssl | vazio
+export TASKFORCE_SMTP_USER="noreply@calcadacorp.ch"
+export TASKFORCE_SMTP_PASS="***"
+```
+
+Opcionalmente:
+
+```bash
+export TASKFORCE_MAIL_FROM_ADDRESS="noreply@calcadacorp.ch"
+export TASKFORCE_MAIL_FROM_NAME="TaskForce"
+```
+
+Todas as tentativas de entrega (sucesso/falha) ficam registadas em `reports_sent.log`.
