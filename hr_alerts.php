@@ -175,13 +175,13 @@ function run_alert_now(PDO $pdo, array $alert, int $currentUserId): array
             }
             $sent = deliver_report(
                 $recipientEmail,
-                (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens'),
+                (string) ($report['subject'] ?? '[RH] Mapa mensal de picagens'),
                 (string) ($report['body'] ?? ''),
                 (string) ($report['html_body'] ?? ''),
                 $attachments
             );
         } else {
-            $subject = '[TaskForce RH] Envio manual - ' . (string) ($alert['name'] ?? 'Alerta');
+            $subject = '[RH] Envio manual - ' . (string) ($alert['name'] ?? 'Alerta');
             $body = "Este alerta foi executado manualmente em " . $now->format('d/m/Y H:i') . ".\nTipo: " . (string) ($alert['alert_type'] ?? 'desconhecido');
             $sent = deliver_report($recipientEmail, $subject, $body);
         }
@@ -537,7 +537,6 @@ require __DIR__ . '/partials/header.php';
 </style>
 <a href="hr.php" class="btn btn-link px-0">&larr; Voltar ao módulo RH</a>
 <h1 class="h3 mb-3">Alertas RH por e-mail</h1>
-<p class="text-muted">Agora pode configurar alertas com execução semanal ou mensal. Para o mapa mensal de picagens, defina explicitamente o dia do mês em que pretende o envio.</p>
 
 <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
