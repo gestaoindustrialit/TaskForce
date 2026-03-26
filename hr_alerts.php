@@ -127,7 +127,6 @@ function fetch_alert_target_users(PDO $pdo, array $selectedUserIds): array
             FROM users
             WHERE is_active = 1
               AND email_notifications_active = 1
-              AND pin_only_login = 0
               AND TRIM(email) <> ""';
     $params = [];
 

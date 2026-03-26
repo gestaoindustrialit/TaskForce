@@ -944,11 +944,6 @@ function taskforce_generate_pdf_from_html(string $html): ?string
         return null;
     }
 
-    $wkhtmlPath = trim((string) @shell_exec('command -v wkhtmltopdf 2>/dev/null'));
-    if ($wkhtmlPath === '') {
-        return null;
-    }
-
     $tmpDir = sys_get_temp_dir();
     $htmlFile = @tempnam($tmpDir, 'tf_html_');
     $pdfFile = @tempnam($tmpDir, 'tf_pdf_');
@@ -966,11 +961,38 @@ function taskforce_generate_pdf_from_html(string $html): ?string
         return null;
     }
 
-    $command = escapeshellarg($wkhtmlPath)
-        . ' --quiet --encoding utf-8 --page-size A4 '
-        . escapeshellarg($htmlFile) . ' '
-        . escapeshellarg($pdfFile) . ' 2>&1';
-    @shell_exec($command);
+    $generated = false;
+
+    $wkhtmlPath = trim((string) @shell_exec('command -v wkhtmltopdf 2>/dev/null'));
+    if ($wkhtmlPath !== '') {
+        $command = escapeshellarg($wkhtmlPath)
+            . ' --quiet --encoding utf-8 --page-size A4 '
+            . escapeshellarg($htmlFile) . ' '
+            . escapeshellarg($pdfFile) . ' 2>&1';
+        @shell_exec($command);
+        $generated = true;
+    } else {
+        $chromeCandidates = ['chromium-browser', 'chromium', 'google-chrome', 'google-chrome-stable'];
+        foreach ($chromeCandidates as $chromeCandidate) {
+            $chromePath = trim((string) @shell_exec('command -v ' . escapeshellarg($chromeCandidate) . ' 2>/dev/null'));
+            if ($chromePath === '') {
+                continue;
+            }
+
+            $command = escapeshellarg($chromePath)
+                . ' --headless --disable-gpu --no-sandbox --no-pdf-header-footer '
+                . '--print-to-pdf=' . escapeshellarg($pdfFile) . ' '
+                . escapeshellarg('file://' . $htmlFile) . ' 2>&1';
+            @shell_exec($command);
+            $generated = true;
+            break;
+        }
+    }
+
+    if (!$generated) {
+        $cleanup();
+        return null;
+    }
 
     $pdfBinary = @file_get_contents($pdfFile);
     $cleanup();
@@ -984,8 +1006,8 @@ function taskforce_generate_pdf_from_html(string $html): ?string
 
 function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, DateTimeImmutable $referenceDate): array
 {
-    $periodStart = $referenceDate->modify('first day of previous month')->setTime(0, 0, 0);
-    $periodEnd = $referenceDate->modify('last day of previous month')->setTime(23, 59, 59);
+    $periodStart = $referenceDate->modify('first day of this month')->setTime(0, 0, 0);
+    $periodEnd = $referenceDate->modify('last day of this month')->setTime(23, 59, 59);
     $periodStartDate = $periodStart->format('Y-m-d');
     $periodEndDate = $periodEnd->format('Y-m-d');
     $reportMonthLabel = taskforce_month_label_pt($periodStart);
