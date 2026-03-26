@@ -592,7 +592,7 @@ function taskforce_build_mail_payload(string $subject, string $textBody, ?string
         if ($name === '' || $content === '') {
             continue;
         }
-        $safeName = preg_replace('/[^\w.\-]+/u', '_', basename($name));
+        $safeName = preg_replace('/[^A-Za-z0-9_.-]+/', '_', basename($name));
         if ($safeName === null || $safeName === '') {
             $safeName = 'anexo.bin';
         }
@@ -902,7 +902,10 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
         foreach ($columns as $index => $column) {
             [, $w] = $column;
             imagerectangle($image, $x, $y, $x + $w, $y + 32, $border);
-            $txt = mb_substr($cells[$index], 0, $index === 3 ? 60 : 30);
+            $limit = $index === 3 ? 60 : 30;
+            $txt = function_exists('mb_substr')
+                ? mb_substr($cells[$index], 0, $limit)
+                : substr($cells[$index], 0, $limit);
             imagettftext($image, 12, 0, $x + 7, $y + 22, $text, $fontPath, $txt);
             $x += $w;
         }
