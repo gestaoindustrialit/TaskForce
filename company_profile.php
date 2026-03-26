@@ -23,6 +23,7 @@ $smtpPassword = '';
 $smtpTimeout = '10';
 $mailFromAddress = 'noreply@calcadacorp.ch';
 $mailFromName = 'TaskForce';
+$hrAlertsCronRunsPerDay = '1440';
 $navbarLogo = null;
 $reportLogo = null;
 $ticketStatuses = [];
@@ -46,6 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $smtpTimeout = (int) ($_POST['smtp_timeout_seconds'] ?? 10);
         $mailFromAddress = trim((string) ($_POST['mail_from_address'] ?? ''));
         $mailFromName = trim((string) ($_POST['mail_from_name'] ?? ''));
+        $hrAlertsCronRunsPerDay = (int) ($_POST['hr_alerts_inline_cron_runs_per_day'] ?? 1440);
 
         $statusValues = $_POST['ticket_status_value'] ?? [];
         $statusLabels = $_POST['ticket_status_label'] ?? [];
@@ -169,6 +171,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($smtpTimeout < 3 || $smtpTimeout > 120) {
             $smtpTimeout = 10;
         }
+        if ($hrAlertsCronRunsPerDay < 1) {
+            $hrAlertsCronRunsPerDay = 1;
+        } elseif ($hrAlertsCronRunsPerDay > 1440) {
+            $hrAlertsCronRunsPerDay = 1440;
+        }
 
         if ($companyEmail !== '' && filter_var($companyEmail, FILTER_VALIDATE_EMAIL) === false) {
             $flashError = 'Indique um email válido para a empresa.';
@@ -199,6 +206,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_app_setting($pdo, 'smtp_timeout_seconds', (string) $smtpTimeout);
             set_app_setting($pdo, 'mail_from_address', $mailFromAddress);
             set_app_setting($pdo, 'mail_from_name', $mailFromName);
+            set_app_setting($pdo, 'hr_alerts_inline_cron_runs_per_day', (string) $hrAlertsCronRunsPerDay);
             set_app_setting($pdo, 'ticket_statuses_json', json_encode(array_values($ticketStatuses), JSON_UNESCAPED_UNICODE));
             set_app_setting($pdo, 'recurring_task_recurrences_json', json_encode(array_values($recurrenceCatalog), JSON_UNESCAPED_UNICODE));
             set_app_setting($pdo, 'pending_ticket_departments_json', json_encode(array_values($pendingDepartmentCatalog), JSON_UNESCAPED_UNICODE));
@@ -235,6 +243,7 @@ $smtpPassword = (string) app_setting($pdo, 'smtp_password', '');
 $smtpTimeout = (string) app_setting($pdo, 'smtp_timeout_seconds', '10');
 $mailFromAddress = (string) app_setting($pdo, 'mail_from_address', 'noreply@calcadacorp.ch');
 $mailFromName = (string) app_setting($pdo, 'mail_from_name', 'TaskForce');
+$hrAlertsCronRunsPerDay = (string) app_setting($pdo, 'hr_alerts_inline_cron_runs_per_day', '1440');
 $navbarLogo = app_setting($pdo, 'logo_navbar_light');
 $reportLogo = app_setting($pdo, 'logo_report_dark');
 $ticketStatuses = ticket_statuses($pdo);
@@ -318,6 +327,11 @@ require __DIR__ . '/partials/header.php';
             <div class="col-md-3">
                 <label class="form-label">Nome remetente</label>
                 <input class="form-control" name="mail_from_name" value="<?= h($mailFromName) ?>" <?= !$isAdmin ? 'readonly' : '' ?>>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Verificações alertas RH por dia</label>
+                <input class="form-control" type="number" min="1" max="1440" name="hr_alerts_inline_cron_runs_per_day" value="<?= h((string) $hrAlertsCronRunsPerDay) ?>" <?= !$isAdmin ? 'readonly' : '' ?>>
+                <p class="small text-muted mb-0 mt-1">Define quantas vezes por dia o sistema verifica se existem envios de alertas RH por executar (1 a 1440).</p>
             </div>
 
             <div class="col-md-6">
