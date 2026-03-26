@@ -1278,12 +1278,9 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     $ralewayFontCss = '@import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700&display=swap");';
     $ralewayFontFile = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
     if (is_file($ralewayFontFile)) {
-        $fontBinary = @file_get_contents($ralewayFontFile);
-        if (is_string($fontBinary) && $fontBinary !== '') {
-            $ralewayFontCss = '@font-face{font-family:"Raleway";font-style:normal;font-weight:400;src:url("data:font/ttf;base64,'
-                . base64_encode($fontBinary)
-                . '") format("truetype");}';
-        }
+        $ralewayFontCss = '@font-face{font-family:"Raleway";font-style:normal;font-weight:400;src:url("file://'
+            . str_replace('\\', '/', $ralewayFontFile)
+            . '") format("truetype");}';
     }
 
     $rowsHtml = '';
