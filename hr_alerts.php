@@ -175,13 +175,13 @@ function run_alert_now(PDO $pdo, array $alert, int $currentUserId): array
             }
             $sent = deliver_report(
                 $recipientEmail,
-                (string) ($report['subject'] ?? '[RH] Mapa mensal de picagens'),
+                (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens'),
                 (string) ($report['body'] ?? ''),
                 (string) ($report['html_body'] ?? ''),
                 $attachments
             );
         } else {
-            $subject = '[RH] Envio manual - ' . (string) ($alert['name'] ?? 'Alerta');
+            $subject = '[TaskForce RH] Envio manual - ' . (string) ($alert['name'] ?? 'Alerta');
             $body = "Este alerta foi executado manualmente em " . $now->format('d/m/Y H:i') . ".\nTipo: " . (string) ($alert['alert_type'] ?? 'desconhecido');
             $sent = deliver_report($recipientEmail, $subject, $body);
         }

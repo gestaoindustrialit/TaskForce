@@ -600,7 +600,12 @@ function taskforce_build_mail_payload(string $subject, string $textBody, ?string
     }
 
     if ($normalizedHtmlBody === null && !$normalizedAttachments) {
-        return ['headers' => $headers, 'body' => $textBody];
+        return [
+            'headers' => "MIME-Version: 1.0\r\n"
+                . "Content-Type: text/plain; charset=UTF-8\r\n"
+                . $headers,
+            'body' => $textBody,
+        ];
     }
 
     try {
@@ -611,8 +616,9 @@ function taskforce_build_mail_payload(string $subject, string $textBody, ?string
         $mixedBoundary = 'tf_mixed_' . $seed;
         $alternativeBoundary = 'tf_alt_' . $seed;
     }
-    $headers .= "\r\nMIME-Version: 1.0";
-    $headers .= "\r\nContent-Type: multipart/mixed; boundary=\"" . $mixedBoundary . '"';
+    $headers = "MIME-Version: 1.0\r\n"
+        . 'Content-Type: multipart/mixed; boundary="' . $mixedBoundary . '"' . "\r\n"
+        . $headers;
 
     $message = '--' . $mixedBoundary . "\r\n";
     $message .= 'Content-Type: multipart/alternative; boundary="' . $alternativeBoundary . '"' . "\r\n\r\n";
