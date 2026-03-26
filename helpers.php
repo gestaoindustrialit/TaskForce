@@ -938,6 +938,50 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
     return taskforce_pdf_from_jpeg($jpeg, $width, $height);
 }
 
+function taskforce_generate_pdf_from_html(string $html): ?string
+{
+    if (!function_exists('shell_exec') || trim($html) === '') {
+        return null;
+    }
+
+    $wkhtmlPath = trim((string) @shell_exec('command -v wkhtmltopdf 2>/dev/null'));
+    if ($wkhtmlPath === '') {
+        return null;
+    }
+
+    $tmpDir = sys_get_temp_dir();
+    $htmlFile = @tempnam($tmpDir, 'tf_html_');
+    $pdfFile = @tempnam($tmpDir, 'tf_pdf_');
+    if ($htmlFile === false || $pdfFile === false) {
+        return null;
+    }
+
+    $cleanup = static function () use ($htmlFile, $pdfFile): void {
+        @unlink($htmlFile);
+        @unlink($pdfFile);
+    };
+
+    if (@file_put_contents($htmlFile, $html) === false) {
+        $cleanup();
+        return null;
+    }
+
+    $command = escapeshellarg($wkhtmlPath)
+        . ' --quiet --encoding utf-8 --page-size A4 '
+        . escapeshellarg($htmlFile) . ' '
+        . escapeshellarg($pdfFile) . ' 2>&1';
+    @shell_exec($command);
+
+    $pdfBinary = @file_get_contents($pdfFile);
+    $cleanup();
+
+    if (!is_string($pdfBinary) || $pdfBinary === '' || strncmp($pdfBinary, '%PDF', 4) !== 0) {
+        return null;
+    }
+
+    return $pdfBinary;
+}
+
 function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, DateTimeImmutable $referenceDate): array
 {
     $periodStart = $referenceDate->modify('first day of previous month')->setTime(0, 0, 0);
@@ -1217,7 +1261,9 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
             $logoFilePath = $candidatePath;
         }
     }
-    $pdfContent = taskforce_generate_monthly_layout_pdf([
+    $pdfContent = taskforce_generate_pdf_from_html($htmlBody);
+    if ($pdfContent === null) {
+        $pdfContent = taskforce_generate_monthly_layout_pdf([
         'period' => $periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y'),
         'employee' => (string) ($user['name'] ?? ''),
         'month' => $reportMonthLabel,
@@ -1231,7 +1277,8 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         ],
         'logo_path' => $logoFilePath,
         'lines' => $lines,
-    ]);
+        ]);
+    }
 
     return [
         'subject' => '[TaskForce RH] Mapa mensal de picagens - ' . (string) ($user['name'] ?? '') . ' - ' . $periodStart->format('m/Y'),
