@@ -830,8 +830,16 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
         return taskforce_generate_basic_pdf($reportData['lines'] ?? []);
     }
 
-    $width = 1240;
-    $height = 1754;
+    $fontPath = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
+    if (!is_file($fontPath)) {
+        $fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+    }
+    $canUseTtf = function_exists('imagettftext') && is_file($fontPath);
+    $layoutScale = $canUseTtf ? 1.0 : 0.5;
+    $scale = static fn(float $value): int => (int) round($value * $layoutScale);
+    $width = $scale(1240);
+    $height = $scale(1754);
+
     $image = imagecreatetruecolor($width, $height);
     $white = imagecolorallocate($image, 255, 255, 255);
     $text = imagecolorallocate($image, 31, 41, 55);
@@ -839,12 +847,6 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
     $border = imagecolorallocate($image, 209, 213, 219);
     $headerBg = imagecolorallocate($image, 243, 244, 246);
     imagefill($image, 0, 0, $white);
-
-    $fontPath = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
-    if (!is_file($fontPath)) {
-        $fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
-    }
-    $canUseTtf = function_exists('imagettftext') && is_file($fontPath);
     $toRenderableText = static function (string $value): string {
         if (!function_exists('iconv')) {
             return $value;
@@ -859,26 +861,24 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
             return;
         }
 
-        $font = 2;
-        if ($size >= 26) {
+        $font = 3;
+        if ($size >= 18) {
             $font = 5;
-        } elseif ($size >= 18) {
-            $font = 4;
         } elseif ($size >= 14) {
-            $font = 3;
+            $font = 4;
         }
 
         imagestring($image, $font, $x, $y - imagefontheight($font), $toRenderableText($text), $color);
     };
 
-    $y = 70;
-    $drawText($image, 30, 60, $y, $text, 'Mapa mensal de picagens');
-    $y += 46;
-    $drawText($image, 16, 60, $y, $muted, 'Período: ' . (string) ($reportData['period'] ?? ''));
-    $y += 30;
-    $drawText($image, 16, 60, $y, $muted, 'Colaborador: ' . (string) ($reportData['employee'] ?? ''));
-    $y += 30;
-    $drawText($image, 16, 60, $y, $muted, 'Mês de referência: ' . (string) ($reportData['month'] ?? ''));
+    $y = $scale(70);
+    $drawText($image, $scale(30), $scale(60), $y, $text, 'Mapa mensal de picagens');
+    $y += $scale(46);
+    $drawText($image, $scale(16), $scale(60), $y, $muted, 'Período: ' . (string) ($reportData['period'] ?? ''));
+    $y += $scale(30);
+    $drawText($image, $scale(16), $scale(60), $y, $muted, 'Colaborador: ' . (string) ($reportData['employee'] ?? ''));
+    $y += $scale(30);
+    $drawText($image, $scale(16), $scale(60), $y, $muted, 'Mês de referência: ' . (string) ($reportData['month'] ?? ''));
 
     $logoPath = (string) ($reportData['logo_path'] ?? '');
     if ($logoPath !== '' && is_file($logoPath)) {
@@ -890,33 +890,33 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
             default => false,
         };
         if ($logoImage !== false) {
-            $targetW = 220;
-            $targetH = 90;
-            imagecopyresampled($image, $logoImage, $width - 300, 40, 0, 0, $targetW, $targetH, imagesx($logoImage), imagesy($logoImage));
+            $targetW = $scale(220);
+            $targetH = $scale(90);
+            imagecopyresampled($image, $logoImage, $width - $scale(300), $scale(40), 0, 0, $targetW, $targetH, imagesx($logoImage), imagesy($logoImage));
             imagedestroy($logoImage);
         }
     }
 
-    $y = 220;
+    $y = $scale(220);
     $columns = [
-        ['Data', 120],
-        ['Dia', 70],
-        ['Tipo', 120],
-        ['Picagens', 530],
-        ['BH', 90],
-        ['Justificação', 250],
+        ['Data', $scale(120)],
+        ['Dia', $scale(70)],
+        ['Tipo', $scale(120)],
+        ['Picagens', $scale(530)],
+        ['BH', $scale(90)],
+        ['Justificação', $scale(250)],
     ];
-    $x = 60;
+    $x = $scale(60);
     foreach ($columns as [$label, $w]) {
-        imagefilledrectangle($image, $x, $y, $x + $w, $y + 38, $headerBg);
-        imagerectangle($image, $x, $y, $x + $w, $y + 38, $border);
-        $drawText($image, 14, $x + 8, $y + 25, $text, $label);
+        imagefilledrectangle($image, $x, $y, $x + $w, $y + $scale(38), $headerBg);
+        imagerectangle($image, $x, $y, $x + $w, $y + $scale(38), $border);
+        $drawText($image, $scale(14), $x + $scale(8), $y + $scale(25), $text, $label);
         $x += $w;
     }
-    $y += 38;
+    $y += $scale(38);
 
     foreach (($reportData['rows'] ?? []) as $row) {
-        if ($y > 1460) {
+        if ($y > $scale(1460)) {
             break;
         }
         $cells = [
@@ -927,26 +927,26 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
             (string) ($row['bh'] ?? ''),
             (string) ($row['justification'] ?? ''),
         ];
-        $x = 60;
+        $x = $scale(60);
         foreach ($columns as $index => $column) {
             [, $w] = $column;
-            imagerectangle($image, $x, $y, $x + $w, $y + 32, $border);
+            imagerectangle($image, $x, $y, $x + $w, $y + $scale(32), $border);
             $limit = $index === 3 ? 60 : 30;
             $txt = function_exists('mb_substr')
                 ? mb_substr($cells[$index], 0, $limit)
                 : substr($cells[$index], 0, $limit);
-            $drawText($image, 12, $x + 7, $y + 22, $text, $txt);
+            $drawText($image, $scale(12), $x + $scale(7), $y + $scale(22), $text, $txt);
             $x += $w;
         }
-        $y += 32;
+        $y += $scale(32);
     }
 
-    $y += 26;
-    $drawText($image, 18, 60, $y, $text, 'Resumo mensal');
-    $y += 30;
+    $y += $scale(26);
+    $drawText($image, $scale(18), $scale(60), $y, $text, 'Resumo mensal');
+    $y += $scale(30);
     foreach ((array) ($reportData['summary'] ?? []) as $summaryLine) {
-        $drawText($image, 14, 60, $y, $muted, (string) $summaryLine);
-        $y += 24;
+        $drawText($image, $scale(14), $scale(60), $y, $muted, (string) $summaryLine);
+        $y += $scale(24);
     }
 
     ob_start();
