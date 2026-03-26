@@ -826,7 +826,7 @@ function taskforce_pdf_from_jpeg(string $jpegData, int $widthPx, int $heightPx):
 
 function taskforce_generate_monthly_layout_pdf(array $reportData): string
 {
-    if (!extension_loaded('gd') || !function_exists('imagecreatetruecolor') || !function_exists('imagettftext')) {
+    if (!extension_loaded('gd') || !function_exists('imagecreatetruecolor')) {
         return taskforce_generate_basic_pdf($reportData['lines'] ?? []);
     }
 
@@ -844,18 +844,41 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
     if (!is_file($fontPath)) {
         $fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
     }
-    if (!is_file($fontPath)) {
-        return taskforce_generate_basic_pdf($reportData['lines'] ?? []);
-    }
+    $canUseTtf = function_exists('imagettftext') && is_file($fontPath);
+    $toRenderableText = static function (string $value): string {
+        if (!function_exists('iconv')) {
+            return $value;
+        }
+
+        $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        return $converted !== false ? $converted : $value;
+    };
+    $drawText = static function ($image, int $size, int $x, int $y, int $color, string $text) use ($canUseTtf, $fontPath, $toRenderableText): void {
+        if ($canUseTtf) {
+            imagettftext($image, $size, 0, $x, $y, $color, $fontPath, $text);
+            return;
+        }
+
+        $font = 2;
+        if ($size >= 26) {
+            $font = 5;
+        } elseif ($size >= 18) {
+            $font = 4;
+        } elseif ($size >= 14) {
+            $font = 3;
+        }
+
+        imagestring($image, $font, $x, $y - imagefontheight($font), $toRenderableText($text), $color);
+    };
 
     $y = 70;
-    imagettftext($image, 30, 0, 60, $y, $text, $fontPath, 'Mapa mensal de picagens');
+    $drawText($image, 30, 60, $y, $text, 'Mapa mensal de picagens');
     $y += 46;
-    imagettftext($image, 16, 0, 60, $y, $muted, $fontPath, 'Período: ' . (string) ($reportData['period'] ?? ''));
+    $drawText($image, 16, 60, $y, $muted, 'Período: ' . (string) ($reportData['period'] ?? ''));
     $y += 30;
-    imagettftext($image, 16, 0, 60, $y, $muted, $fontPath, 'Colaborador: ' . (string) ($reportData['employee'] ?? ''));
+    $drawText($image, 16, 60, $y, $muted, 'Colaborador: ' . (string) ($reportData['employee'] ?? ''));
     $y += 30;
-    imagettftext($image, 16, 0, 60, $y, $muted, $fontPath, 'Mês de referência: ' . (string) ($reportData['month'] ?? ''));
+    $drawText($image, 16, 60, $y, $muted, 'Mês de referência: ' . (string) ($reportData['month'] ?? ''));
 
     $logoPath = (string) ($reportData['logo_path'] ?? '');
     if ($logoPath !== '' && is_file($logoPath)) {
@@ -887,7 +910,7 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
     foreach ($columns as [$label, $w]) {
         imagefilledrectangle($image, $x, $y, $x + $w, $y + 38, $headerBg);
         imagerectangle($image, $x, $y, $x + $w, $y + 38, $border);
-        imagettftext($image, 14, 0, $x + 8, $y + 25, $text, $fontPath, $label);
+        $drawText($image, 14, $x + 8, $y + 25, $text, $label);
         $x += $w;
     }
     $y += 38;
@@ -912,17 +935,17 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
             $txt = function_exists('mb_substr')
                 ? mb_substr($cells[$index], 0, $limit)
                 : substr($cells[$index], 0, $limit);
-            imagettftext($image, 12, 0, $x + 7, $y + 22, $text, $fontPath, $txt);
+            $drawText($image, 12, $x + 7, $y + 22, $text, $txt);
             $x += $w;
         }
         $y += 32;
     }
 
     $y += 26;
-    imagettftext($image, 18, 0, 60, $y, $text, $fontPath, 'Resumo mensal');
+    $drawText($image, 18, 60, $y, $text, 'Resumo mensal');
     $y += 30;
     foreach ((array) ($reportData['summary'] ?? []) as $summaryLine) {
-        imagettftext($image, 14, 0, 60, $y, $muted, $fontPath, (string) $summaryLine);
+        $drawText($image, 14, 60, $y, $muted, (string) $summaryLine);
         $y += 24;
     }
 
