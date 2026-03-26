@@ -138,7 +138,6 @@ function fetch_alert_recipient_users(PDO $pdo, array $selectedUserIds): array
             FROM users
             WHERE is_active = 1
               AND email_notifications_active = 1
-              AND pin_only_login = 0
               AND TRIM(email) <> ""';
 
     $params = [];
@@ -177,7 +176,6 @@ function fetch_selected_users_missing_delivery_requirements(PDO $pdo, array $sel
     foreach ($rows as $row) {
         $isEligible = (int) ($row['is_active'] ?? 0) === 1
             && (int) ($row['email_notifications_active'] ?? 0) === 1
-            && (int) ($row['pin_only_login'] ?? 0) === 0
             && trim((string) ($row['email'] ?? '')) !== '';
 
         if (!$isEligible) {

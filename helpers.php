@@ -826,12 +826,20 @@ function taskforce_pdf_from_jpeg(string $jpegData, int $widthPx, int $heightPx):
 
 function taskforce_generate_monthly_layout_pdf(array $reportData): string
 {
-    if (!extension_loaded('gd') || !function_exists('imagecreatetruecolor') || !function_exists('imagettftext')) {
+    if (!extension_loaded('gd') || !function_exists('imagecreatetruecolor')) {
         return taskforce_generate_basic_pdf($reportData['lines'] ?? []);
     }
 
-    $width = 1240;
-    $height = 1754;
+    $fontPath = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
+    if (!is_file($fontPath)) {
+        $fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+    }
+    $canUseTtf = function_exists('imagettftext') && is_file($fontPath);
+    $layoutScale = $canUseTtf ? 1.0 : 0.5;
+    $scale = static fn(float $value): int => (int) round($value * $layoutScale);
+    $width = $scale(1240);
+    $height = $scale(1754);
+
     $image = imagecreatetruecolor($width, $height);
     $white = imagecolorallocate($image, 255, 255, 255);
     $text = imagecolorallocate($image, 31, 41, 55);
@@ -839,23 +847,38 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
     $border = imagecolorallocate($image, 209, 213, 219);
     $headerBg = imagecolorallocate($image, 243, 244, 246);
     imagefill($image, 0, 0, $white);
+    $toRenderableText = static function (string $value): string {
+        if (!function_exists('iconv')) {
+            return $value;
+        }
 
-    $fontPath = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
-    if (!is_file($fontPath)) {
-        $fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
-    }
-    if (!is_file($fontPath)) {
-        return taskforce_generate_basic_pdf($reportData['lines'] ?? []);
-    }
+        $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        return $converted !== false ? $converted : $value;
+    };
+    $drawText = static function ($image, int $size, int $x, int $y, int $color, string $text) use ($canUseTtf, $fontPath, $toRenderableText): void {
+        if ($canUseTtf) {
+            imagettftext($image, $size, 0, $x, $y, $color, $fontPath, $text);
+            return;
+        }
 
-    $y = 70;
-    imagettftext($image, 30, 0, 60, $y, $text, $fontPath, 'Mapa mensal de picagens');
-    $y += 46;
-    imagettftext($image, 16, 0, 60, $y, $muted, $fontPath, 'Período: ' . (string) ($reportData['period'] ?? ''));
-    $y += 30;
-    imagettftext($image, 16, 0, 60, $y, $muted, $fontPath, 'Colaborador: ' . (string) ($reportData['employee'] ?? ''));
-    $y += 30;
-    imagettftext($image, 16, 0, 60, $y, $muted, $fontPath, 'Mês de referência: ' . (string) ($reportData['month'] ?? ''));
+        $font = 3;
+        if ($size >= 18) {
+            $font = 5;
+        } elseif ($size >= 14) {
+            $font = 4;
+        }
+
+        imagestring($image, $font, $x, $y - imagefontheight($font), $toRenderableText($text), $color);
+    };
+
+    $y = $scale(70);
+    $drawText($image, $scale(30), $scale(60), $y, $text, 'Mapa mensal de picagens');
+    $y += $scale(46);
+    $drawText($image, $scale(16), $scale(60), $y, $muted, 'Período: ' . (string) ($reportData['period'] ?? ''));
+    $y += $scale(30);
+    $drawText($image, $scale(16), $scale(60), $y, $muted, 'Colaborador: ' . (string) ($reportData['employee'] ?? ''));
+    $y += $scale(30);
+    $drawText($image, $scale(16), $scale(60), $y, $muted, 'Mês de referência: ' . (string) ($reportData['month'] ?? ''));
 
     $logoPath = (string) ($reportData['logo_path'] ?? '');
     if ($logoPath !== '' && is_file($logoPath)) {
@@ -867,33 +890,40 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
             default => false,
         };
         if ($logoImage !== false) {
-            $targetW = 220;
-            $targetH = 90;
-            imagecopyresampled($image, $logoImage, $width - 300, 40, 0, 0, $targetW, $targetH, imagesx($logoImage), imagesy($logoImage));
+            $maxTargetW = $scale(220);
+            $maxTargetH = $scale(90);
+            $sourceW = max(1, imagesx($logoImage));
+            $sourceH = max(1, imagesy($logoImage));
+            $ratio = min($maxTargetW / $sourceW, $maxTargetH / $sourceH);
+            $targetW = max(1, (int) round($sourceW * $ratio));
+            $targetH = max(1, (int) round($sourceH * $ratio));
+            $targetX = $width - $scale(300) + (int) floor(($maxTargetW - $targetW) / 2);
+            $targetY = $scale(40) + (int) floor(($maxTargetH - $targetH) / 2);
+            imagecopyresampled($image, $logoImage, $targetX, $targetY, 0, 0, $targetW, $targetH, $sourceW, $sourceH);
             imagedestroy($logoImage);
         }
     }
 
-    $y = 220;
+    $y = $scale(220);
     $columns = [
-        ['Data', 120],
-        ['Dia', 70],
-        ['Tipo', 120],
-        ['Picagens', 530],
-        ['BH', 90],
-        ['Justificação', 250],
+        ['Data', $scale(120)],
+        ['Dia', $scale(70)],
+        ['Tipo', $scale(120)],
+        ['Picagens', $scale(530)],
+        ['BH', $scale(90)],
+        ['Justificação', $scale(250)],
     ];
-    $x = 60;
+    $x = $scale(60);
     foreach ($columns as [$label, $w]) {
-        imagefilledrectangle($image, $x, $y, $x + $w, $y + 38, $headerBg);
-        imagerectangle($image, $x, $y, $x + $w, $y + 38, $border);
-        imagettftext($image, 14, 0, $x + 8, $y + 25, $text, $fontPath, $label);
+        imagefilledrectangle($image, $x, $y, $x + $w, $y + $scale(38), $headerBg);
+        imagerectangle($image, $x, $y, $x + $w, $y + $scale(38), $border);
+        $drawText($image, $scale(14), $x + $scale(8), $y + $scale(25), $text, $label);
         $x += $w;
     }
-    $y += 38;
+    $y += $scale(38);
 
     foreach (($reportData['rows'] ?? []) as $row) {
-        if ($y > 1460) {
+        if ($y > $scale(1460)) {
             break;
         }
         $cells = [
@@ -904,26 +934,26 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
             (string) ($row['bh'] ?? ''),
             (string) ($row['justification'] ?? ''),
         ];
-        $x = 60;
+        $x = $scale(60);
         foreach ($columns as $index => $column) {
             [, $w] = $column;
-            imagerectangle($image, $x, $y, $x + $w, $y + 32, $border);
+            imagerectangle($image, $x, $y, $x + $w, $y + $scale(32), $border);
             $limit = $index === 3 ? 60 : 30;
             $txt = function_exists('mb_substr')
                 ? mb_substr($cells[$index], 0, $limit)
                 : substr($cells[$index], 0, $limit);
-            imagettftext($image, 12, 0, $x + 7, $y + 22, $text, $fontPath, $txt);
+            $drawText($image, $scale(12), $x + $scale(7), $y + $scale(22), $text, $txt);
             $x += $w;
         }
-        $y += 32;
+        $y += $scale(32);
     }
 
-    $y += 26;
-    imagettftext($image, 18, 0, 60, $y, $text, $fontPath, 'Resumo mensal');
-    $y += 30;
+    $y += $scale(26);
+    $drawText($image, $scale(18), $scale(60), $y, $text, 'Resumo mensal');
+    $y += $scale(30);
     foreach ((array) ($reportData['summary'] ?? []) as $summaryLine) {
-        imagettftext($image, 14, 0, 60, $y, $muted, $fontPath, (string) $summaryLine);
-        $y += 24;
+        $drawText($image, $scale(14), $scale(60), $y, $muted, (string) $summaryLine);
+        $y += $scale(24);
     }
 
     ob_start();
@@ -944,11 +974,6 @@ function taskforce_generate_pdf_from_html(string $html): ?string
         return null;
     }
 
-    $wkhtmlPath = trim((string) @shell_exec('command -v wkhtmltopdf 2>/dev/null'));
-    if ($wkhtmlPath === '') {
-        return null;
-    }
-
     $tmpDir = sys_get_temp_dir();
     $htmlFile = @tempnam($tmpDir, 'tf_html_');
     $pdfFile = @tempnam($tmpDir, 'tf_pdf_');
@@ -966,11 +991,48 @@ function taskforce_generate_pdf_from_html(string $html): ?string
         return null;
     }
 
-    $command = escapeshellarg($wkhtmlPath)
-        . ' --quiet --encoding utf-8 --page-size A4 '
-        . escapeshellarg($htmlFile) . ' '
-        . escapeshellarg($pdfFile) . ' 2>&1';
-    @shell_exec($command);
+    $generated = false;
+
+    $wkhtmlPath = trim((string) @shell_exec('command -v wkhtmltopdf 2>/dev/null'));
+    if ($wkhtmlPath !== '') {
+        $command = escapeshellarg($wkhtmlPath)
+            . ' --quiet --encoding utf-8 --page-size A4 '
+            . escapeshellarg($htmlFile) . ' '
+            . escapeshellarg($pdfFile) . ' 2>&1';
+        @shell_exec($command);
+        $generated = true;
+    } else {
+        $chromeCandidates = [
+            'chromium-browser',
+            'chromium',
+            'chromium-headless-shell',
+            'google-chrome',
+            'google-chrome-stable',
+            'chrome',
+            'microsoft-edge',
+            'microsoft-edge-stable',
+            'msedge',
+        ];
+        foreach ($chromeCandidates as $chromeCandidate) {
+            $chromePath = trim((string) @shell_exec('command -v ' . escapeshellarg($chromeCandidate) . ' 2>/dev/null'));
+            if ($chromePath === '') {
+                continue;
+            }
+
+            $command = escapeshellarg($chromePath)
+                . ' --headless --disable-gpu --no-sandbox --no-pdf-header-footer '
+                . '--print-to-pdf=' . escapeshellarg($pdfFile) . ' '
+                . escapeshellarg('file://' . $htmlFile) . ' 2>&1';
+            @shell_exec($command);
+            $generated = true;
+            break;
+        }
+    }
+
+    if (!$generated) {
+        $cleanup();
+        return null;
+    }
 
     $pdfBinary = @file_get_contents($pdfFile);
     $cleanup();
@@ -984,8 +1046,8 @@ function taskforce_generate_pdf_from_html(string $html): ?string
 
 function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, DateTimeImmutable $referenceDate): array
 {
-    $periodStart = $referenceDate->modify('first day of previous month')->setTime(0, 0, 0);
-    $periodEnd = $referenceDate->modify('last day of previous month')->setTime(23, 59, 59);
+    $periodStart = $referenceDate->modify('first day of this month')->setTime(0, 0, 0);
+    $periodEnd = $referenceDate->modify('last day of this month')->setTime(23, 59, 59);
     $periodStartDate = $periodStart->format('Y-m-d');
     $periodEndDate = $periodEnd->format('Y-m-d');
     $reportMonthLabel = taskforce_month_label_pt($periodStart);
@@ -1213,6 +1275,16 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     if ($logoPath !== '') {
         $logoUrl = app_base_url() . '/' . ltrim($logoPath, '/');
     }
+    $ralewayFontCss = '@import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700&display=swap");';
+    $ralewayFontFile = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
+    if (is_file($ralewayFontFile)) {
+        $fontBinary = @file_get_contents($ralewayFontFile);
+        if (is_string($fontBinary) && $fontBinary !== '') {
+            $ralewayFontCss = '@font-face{font-family:"Raleway";font-style:normal;font-weight:400;src:url("data:font/ttf;base64,'
+                . base64_encode($fontBinary)
+                . '") format("truetype");}';
+        }
+    }
 
     $rowsHtml = '';
     foreach ($rows as $row) {
@@ -1227,7 +1299,7 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     }
 
     $htmlBody = '<!doctype html><html><head><meta charset="utf-8"><style>'
-        . '@import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700&display=swap");'
+        . $ralewayFontCss
         . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;font-size:12px;margin:24px;}'
         . 'h1{font-size:20px;margin:0 0 8px;}'
         . '.meta{margin:2px 0;}'
