@@ -890,9 +890,16 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
             default => false,
         };
         if ($logoImage !== false) {
-            $targetW = $scale(220);
-            $targetH = $scale(90);
-            imagecopyresampled($image, $logoImage, $width - $scale(300), $scale(40), 0, 0, $targetW, $targetH, imagesx($logoImage), imagesy($logoImage));
+            $maxTargetW = $scale(220);
+            $maxTargetH = $scale(90);
+            $sourceW = max(1, imagesx($logoImage));
+            $sourceH = max(1, imagesy($logoImage));
+            $ratio = min($maxTargetW / $sourceW, $maxTargetH / $sourceH);
+            $targetW = max(1, (int) round($sourceW * $ratio));
+            $targetH = max(1, (int) round($sourceH * $ratio));
+            $targetX = $width - $scale(300) + (int) floor(($maxTargetW - $targetW) / 2);
+            $targetY = $scale(40) + (int) floor(($maxTargetH - $targetH) / 2);
+            imagecopyresampled($image, $logoImage, $targetX, $targetY, 0, 0, $targetW, $targetH, $sourceW, $sourceH);
             imagedestroy($logoImage);
         }
     }
@@ -995,7 +1002,17 @@ function taskforce_generate_pdf_from_html(string $html): ?string
         @shell_exec($command);
         $generated = true;
     } else {
-        $chromeCandidates = ['chromium-browser', 'chromium', 'google-chrome', 'google-chrome-stable'];
+        $chromeCandidates = [
+            'chromium-browser',
+            'chromium',
+            'chromium-headless-shell',
+            'google-chrome',
+            'google-chrome-stable',
+            'chrome',
+            'microsoft-edge',
+            'microsoft-edge-stable',
+            'msedge',
+        ];
         foreach ($chromeCandidates as $chromeCandidate) {
             $chromePath = trim((string) @shell_exec('command -v ' . escapeshellarg($chromeCandidate) . ' 2>/dev/null'));
             if ($chromePath === '') {
@@ -1258,6 +1275,16 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     if ($logoPath !== '') {
         $logoUrl = app_base_url() . '/' . ltrim($logoPath, '/');
     }
+    $ralewayFontCss = '@import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700&display=swap");';
+    $ralewayFontFile = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
+    if (is_file($ralewayFontFile)) {
+        $fontBinary = @file_get_contents($ralewayFontFile);
+        if (is_string($fontBinary) && $fontBinary !== '') {
+            $ralewayFontCss = '@font-face{font-family:"Raleway";font-style:normal;font-weight:400;src:url("data:font/ttf;base64,'
+                . base64_encode($fontBinary)
+                . '") format("truetype");}';
+        }
+    }
 
     $rowsHtml = '';
     foreach ($rows as $row) {
@@ -1272,7 +1299,7 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     }
 
     $htmlBody = '<!doctype html><html><head><meta charset="utf-8"><style>'
-        . '@import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700&display=swap");'
+        . $ralewayFontCss
         . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;font-size:12px;margin:24px;}'
         . 'h1{font-size:20px;margin:0 0 8px;}'
         . '.meta{margin:2px 0;}'
