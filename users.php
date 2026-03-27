@@ -23,6 +23,7 @@ foreach ($departmentOptions as $departmentOption) {
 
 $flashSuccess = null;
 $flashError = null;
+$bulkImportSummary = null;
 
 function find_user_conflict(PDO $pdo, string $field, string $value, ?int $excludeUserId = null): ?array
 {
@@ -59,6 +60,232 @@ function build_user_conflict_message(string $field, string $value, ?array $exist
     }
 
     return $message . '.';
+}
+
+
+
+function normalize_bulk_header(string $value): string
+{
+    $value = trim(mb_strtolower($value, 'UTF-8'));
+    $ascii = function_exists('iconv') ? @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value) : $value;
+    if ($ascii !== false) {
+        $value = strtolower($ascii);
+    }
+
+    $value = preg_replace('/[^a-z0-9]+/', '_', $value) ?? '';
+    return trim($value, '_');
+}
+
+function spreadsheet_column_index(string $cellRef): int
+{
+    if (!preg_match('/([A-Z]+)/', strtoupper($cellRef), $matches)) {
+        return 0;
+    }
+
+    $letters = $matches[1];
+    $index = 0;
+    $length = strlen($letters);
+    for ($i = 0; $i < $length; $i++) {
+        $index = ($index * 26) + (ord($letters[$i]) - 64);
+    }
+
+    return $index - 1;
+}
+
+function parse_csv_rows(string $filePath): array
+{
+    $handle = fopen($filePath, 'rb');
+    if ($handle === false) {
+        throw new RuntimeException('Não foi possível ler o ficheiro CSV.');
+    }
+
+    $rows = [];
+    while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
+        $rows[] = array_map(static fn ($value) => trim((string) $value), $row);
+    }
+    fclose($handle);
+
+    return $rows;
+}
+
+function parse_spreadsheetml_rows(string $filePath): array
+{
+    $xml = simplexml_load_file($filePath);
+    if (!$xml) {
+        throw new RuntimeException('Não foi possível ler o ficheiro Excel (.xls XML).');
+    }
+
+    $xml->registerXPathNamespace('ss', 'urn:schemas-microsoft-com:office:spreadsheet');
+    $rows = [];
+    foreach ($xml->xpath('//ss:Worksheet[1]/ss:Table/ss:Row') as $rowNode) {
+        $row = [];
+        $columnIndex = 0;
+        foreach ($rowNode->Cell as $cell) {
+            $attributes = $cell->attributes('urn:schemas-microsoft-com:office:spreadsheet');
+            if (isset($attributes['Index'])) {
+                $columnIndex = max(0, ((int) $attributes['Index']) - 1);
+            }
+
+            $valueNodes = $cell->xpath('./ss:Data');
+            $value = $valueNodes && isset($valueNodes[0]) ? trim((string) $valueNodes[0]) : trim((string) $cell);
+            $row[$columnIndex] = $value;
+            $columnIndex++;
+        }
+
+        if ($row !== []) {
+            ksort($row);
+            $rows[] = array_values($row);
+        }
+    }
+
+    return $rows;
+}
+
+function parse_xlsx_rows(string $filePath): array
+{
+    $zip = new ZipArchive();
+    if ($zip->open($filePath) !== true) {
+        throw new RuntimeException('Não foi possível abrir o ficheiro .xlsx.');
+    }
+
+    $sharedStrings = [];
+    $sharedXml = $zip->getFromName('xl/sharedStrings.xml');
+    if ($sharedXml !== false) {
+        $shared = simplexml_load_string($sharedXml);
+        if ($shared) {
+            foreach ($shared->si as $item) {
+                $textParts = [];
+                if (isset($item->t)) {
+                    $textParts[] = (string) $item->t;
+                }
+                foreach ($item->r as $run) {
+                    $textParts[] = (string) $run->t;
+                }
+                $sharedStrings[] = implode('', $textParts);
+            }
+        }
+    }
+
+    $sheetXml = $zip->getFromName('xl/worksheets/sheet1.xml');
+    $zip->close();
+    if ($sheetXml === false) {
+        throw new RuntimeException('O ficheiro .xlsx não contém a primeira folha esperada.');
+    }
+
+    $sheet = simplexml_load_string($sheetXml);
+    if (!$sheet) {
+        throw new RuntimeException('Não foi possível ler os dados da folha Excel.');
+    }
+
+    $sheet->registerXPathNamespace('a', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
+    $rows = [];
+    foreach ($sheet->xpath('//a:sheetData/a:row') as $rowNode) {
+        $row = [];
+        foreach ($rowNode->c as $cell) {
+            $ref = (string) ($cell['r'] ?? 'A1');
+            $type = (string) ($cell['t'] ?? '');
+            $valueNode = $cell->v;
+            $value = $valueNode !== null ? (string) $valueNode : '';
+            if ($type === 's') {
+                $value = $sharedStrings[(int) $value] ?? '';
+            } elseif ($type === 'inlineStr') {
+                $value = (string) ($cell->is->t ?? '');
+            }
+            $row[spreadsheet_column_index($ref)] = trim($value);
+        }
+
+        if ($row !== []) {
+            ksort($row);
+            $rows[] = array_values($row);
+        }
+    }
+
+    return $rows;
+}
+
+function parse_uploaded_user_rows(array $file): array
+{
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('Selecione um ficheiro Excel válido para importar.');
+    }
+
+    $tmpPath = (string) ($file['tmp_name'] ?? '');
+    $originalName = (string) ($file['name'] ?? '');
+    $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+
+    return match ($extension) {
+        'csv' => parse_csv_rows($tmpPath),
+        'xlsx' => parse_xlsx_rows($tmpPath),
+        'xls', 'xml' => parse_spreadsheetml_rows($tmpPath),
+        default => throw new RuntimeException('Formato não suportado. Use .xlsx, .xls (XML 2003) ou .csv.'),
+    };
+}
+
+function parse_binary_flag(string $value): int
+{
+    $normalized = normalize_bulk_header($value);
+    if ($normalized === '' || in_array($normalized, ['1', 'sim', 'yes', 'true', 'ativo'], true)) {
+        return 1;
+    }
+    if (in_array($normalized, ['0', 'nao', 'no', 'false', 'inativo'], true)) {
+        return 0;
+    }
+
+    throw new RuntimeException('Campos booleanos devem ser 1/0, sim/não ou true/false.');
+}
+
+function output_users_template(): void
+{
+    $content = <<<'XML'
+<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Worksheet ss:Name="Utilizadores">
+  <Table>
+   <Row>
+    <Cell><Data ss:Type="String">name</Data></Cell>
+    <Cell><Data ss:Type="String">username</Data></Cell>
+    <Cell><Data ss:Type="String">email</Data></Cell>
+    <Cell><Data ss:Type="String">password</Data></Cell>
+    <Cell><Data ss:Type="String">access_profile</Data></Cell>
+    <Cell><Data ss:Type="String">user_type</Data></Cell>
+    <Cell><Data ss:Type="String">is_admin</Data></Cell>
+    <Cell><Data ss:Type="String">is_active</Data></Cell>
+    <Cell><Data ss:Type="String">department_id</Data></Cell>
+    <Cell><Data ss:Type="String">schedule_id</Data></Cell>
+    <Cell><Data ss:Type="String">hire_date</Data></Cell>
+    <Cell><Data ss:Type="String">phone</Data></Cell>
+   </Row>
+   <Row>
+    <Cell><Data ss:Type="String">João Silva</Data></Cell>
+    <Cell><Data ss:Type="String">joao.silva</Data></Cell>
+    <Cell><Data ss:Type="String">joao.silva@empresa.pt</Data></Cell>
+    <Cell><Data ss:Type="String">Temp1234!</Data></Cell>
+    <Cell><Data ss:Type="String">Utilizador</Data></Cell>
+    <Cell><Data ss:Type="String">Funcionário</Data></Cell>
+    <Cell><Data ss:Type="String">0</Data></Cell>
+    <Cell><Data ss:Type="String">1</Data></Cell>
+    <Cell><Data ss:Type="String">1</Data></Cell>
+    <Cell><Data ss:Type="String">1</Data></Cell>
+    <Cell><Data ss:Type="String">2026-01-10</Data></Cell>
+    <Cell><Data ss:Type="String">912345678</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+</Workbook>
+XML;
+
+    header('Content-Type: application/vnd.ms-excel; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="template_utilizadores.xls"');
+    echo $content;
+    exit;
+}
+
+if (isset($_GET['download']) && $_GET['download'] === 'bulk-template') {
+    output_users_template();
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -259,6 +486,183 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+
+    if ($action === 'bulk_import_users') {
+        try {
+            $rawRows = parse_uploaded_user_rows($_FILES['bulk_file'] ?? []);
+            if (!$rawRows) {
+                throw new RuntimeException('O ficheiro está vazio.');
+            }
+
+            $headerRow = array_shift($rawRows);
+            $headerMap = [];
+            foreach ($headerRow as $index => $header) {
+                $normalized = normalize_bulk_header((string) $header);
+                if ($normalized !== '') {
+                    $headerMap[$normalized] = $index;
+                }
+            }
+
+            foreach (['name', 'username', 'email', 'password'] as $requiredHeader) {
+                if (!array_key_exists($requiredHeader, $headerMap)) {
+                    throw new RuntimeException('O template deve conter as colunas obrigatórias: name, username, email, password.');
+                }
+            }
+
+            $existingEmails = [];
+            foreach ($pdo->query('SELECT email FROM users')->fetchAll(PDO::FETCH_COLUMN) as $existingEmail) {
+                $normalizedEmail = mb_strtolower(trim((string) $existingEmail), 'UTF-8');
+                if ($normalizedEmail !== '') {
+                    $existingEmails[$normalizedEmail] = true;
+                }
+            }
+
+            $existingUsernames = [];
+            foreach ($pdo->query('SELECT username FROM users')->fetchAll(PDO::FETCH_COLUMN) as $existingUsername) {
+                $normalizedUsername = mb_strtolower(trim((string) $existingUsername), 'UTF-8');
+                if ($normalizedUsername !== '') {
+                    $existingUsernames[$normalizedUsername] = true;
+                }
+            }
+
+            $scheduleIds = [];
+            foreach ($scheduleOptions as $scheduleOption) {
+                $scheduleIds[(int) $scheduleOption['id']] = true;
+            }
+
+            $processed = [];
+            $errors = [];
+            $pendingEmails = [];
+            $pendingUsernames = [];
+            $insertStmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, pin_code_hash, pin_code, pin_only_login, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+
+            $pdo->beginTransaction();
+            foreach ($rawRows as $rowIndex => $row) {
+                $lineNumber = $rowIndex + 2;
+                $rowData = [];
+                foreach ($headerMap as $header => $index) {
+                    $rowData[$header] = trim((string) ($row[$index] ?? ''));
+                }
+                if (implode('', $rowData) === '') {
+                    continue;
+                }
+
+                $name = trim((string) ($rowData['name'] ?? ''));
+                $username = trim((string) ($rowData['username'] ?? ''));
+                $email = trim((string) ($rowData['email'] ?? ''));
+                $password = (string) ($rowData['password'] ?? '');
+                if ($name === '' || $username === '' || $email === '' || $password === '') {
+                    $errors[] = 'Linha ' . $lineNumber . ': name, username, email e password são obrigatórios.';
+                    continue;
+                }
+                if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                    $errors[] = 'Linha ' . $lineNumber . ': email inválido.';
+                    continue;
+                }
+
+                $normalizedEmail = mb_strtolower($email, 'UTF-8');
+                $normalizedUsername = mb_strtolower($username, 'UTF-8');
+                if (isset($existingEmails[$normalizedEmail]) || isset($pendingEmails[$normalizedEmail])) {
+                    $errors[] = 'Linha ' . $lineNumber . ': email já existe.';
+                    continue;
+                }
+                if (isset($existingUsernames[$normalizedUsername]) || isset($pendingUsernames[$normalizedUsername])) {
+                    $errors[] = 'Linha ' . $lineNumber . ': username já existe.';
+                    continue;
+                }
+
+                try {
+                    $isAdminValue = parse_binary_flag((string) ($rowData['is_admin'] ?? '0'));
+                    $isActiveValue = parse_binary_flag((string) ($rowData['is_active'] ?? '1'));
+                } catch (RuntimeException $exception) {
+                    $errors[] = 'Linha ' . $lineNumber . ': ' . $exception->getMessage();
+                    continue;
+                }
+
+                $accessProfile = trim((string) ($rowData['access_profile'] ?? 'Utilizador'));
+                if (!in_array($accessProfile, $accessProfileOptions, true)) {
+                    $accessProfile = 'Utilizador';
+                }
+                $userType = trim((string) ($rowData['user_type'] ?? 'Funcionário'));
+                if (!in_array($userType, $userTypeOptions, true)) {
+                    $userType = 'Funcionário';
+                }
+
+                $departmentId = (int) ($rowData['department_id'] ?? 0);
+                $department = trim((string) ($rowData['department'] ?? ''));
+                if ($departmentId > 0 && isset($departmentNameById[$departmentId])) {
+                    $department = $departmentNameById[$departmentId];
+                } elseif ($departmentId > 0 && !isset($departmentNameById[$departmentId])) {
+                    $errors[] = 'Linha ' . $lineNumber . ': department_id inválido.';
+                    continue;
+                }
+
+                $scheduleId = (int) ($rowData['schedule_id'] ?? 0);
+                if ($scheduleId > 0 && !isset($scheduleIds[$scheduleId])) {
+                    $errors[] = 'Linha ' . $lineNumber . ': schedule_id inválido.';
+                    continue;
+                }
+
+                $hireDate = trim((string) ($rowData['hire_date'] ?? ''));
+                if ($hireDate !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $hireDate)) {
+                    $errors[] = 'Linha ' . $lineNumber . ': hire_date deve estar no formato YYYY-MM-DD.';
+                    continue;
+                }
+
+                $insertStmt->execute([
+                    $name,
+                    $username,
+                    $email,
+                    password_hash($password, PASSWORD_DEFAULT),
+                    $isAdminValue,
+                    $accessProfile,
+                    $isActiveValue,
+                    0,
+                    null,
+                    null,
+                    0,
+                    $userType,
+                    trim((string) ($rowData['user_number'] ?? '')),
+                    trim((string) ($rowData['title'] ?? '')),
+                    trim((string) ($rowData['short_name'] ?? '')),
+                    build_initials($name),
+                    1,
+                    0,
+                    trim((string) ($rowData['profession'] ?? '')),
+                    trim((string) ($rowData['category'] ?? '')),
+                    trim((string) ($rowData['manager_name'] ?? '')),
+                    $department,
+                    $departmentId > 0 ? $departmentId : null,
+                    $scheduleId > 0 ? $scheduleId : null,
+                    $hireDate,
+                    trim((string) ($rowData['termination_date'] ?? '')),
+                    'Europe/Lisbon',
+                    trim((string) ($rowData['phone'] ?? '')),
+                    trim((string) ($rowData['mobile'] ?? '')),
+                    trim((string) ($rowData['notes'] ?? '')),
+                    0,
+                ]);
+
+                $pendingEmails[$normalizedEmail] = true;
+                $pendingUsernames[$normalizedUsername] = true;
+                $processed[] = ['name' => $name, 'email' => $email, 'username' => $username];
+            }
+
+            if ($errors !== []) {
+                $pdo->rollBack();
+                $flashError = 'A importação foi cancelada porque existem erros no ficheiro.';
+            } else {
+                $pdo->commit();
+                $flashSuccess = 'Importação de utilizadores concluída com sucesso.';
+            }
+            $bulkImportSummary = ['processed' => $processed, 'errors' => $errors];
+        } catch (Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $flashError = $exception->getMessage();
+        }
+    }
 }
 
 $page = max(1, (int) ($_GET['page'] ?? 1));
@@ -288,11 +692,29 @@ require __DIR__ . '/partials/header.php';
 <div class="card shadow-sm soft-card">
     <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center">
         <h1 class="h4 mb-0">Utilizadores</h1>
-        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#userModal">Novo utilizador</button>
+        <div class="d-flex gap-2">
+            <a class="btn btn-sm btn-outline-secondary" href="users.php?download=bulk-template"><i class="bi bi-download"></i> Template Excel</a>
+            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#bulkImportUsersModal"><i class="bi bi-upload"></i> Importar</button>
+            <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#userModal">Novo utilizador</button>
+        </div>
     </div>
     <div class="card-body px-4 pb-4">
         <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
         <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
+        <?php if ($bulkImportSummary): ?>
+            <div class="alert <?= !empty($bulkImportSummary['errors']) ? 'alert-warning' : 'alert-info' ?>">
+                <strong>Resumo da importação:</strong>
+                <div>Registos processados: <?= count($bulkImportSummary['processed']) ?></div>
+                <div>Erros: <?= count($bulkImportSummary['errors']) ?></div>
+                <?php if (!empty($bulkImportSummary['errors'])): ?>
+                    <ul class="mb-0 mt-2">
+                        <?php foreach ($bulkImportSummary['errors'] as $bulkError): ?>
+                            <li><?= h((string) $bulkError) ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
 
         <div class="table-responsive">
             <table class="table table-sm align-middle">
@@ -347,6 +769,25 @@ require __DIR__ . '/partials/header.php';
         <option value="<?= h((string) $departmentOption) ?>"></option>
     <?php endforeach; ?>
 </datalist>
+
+
+<div class="modal fade" id="bulkImportUsersModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form class="modal-content" method="post" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="bulk_import_users">
+            <div class="modal-header"><h5 class="modal-title">Importar utilizadores em bulk</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <p class="small text-muted">Faça download do template, preencha os utilizadores e carregue o ficheiro (.xlsx, .xls XML 2003 ou .csv).</p>
+                <label class="form-label">Ficheiro de importação</label>
+                <input class="form-control" type="file" name="bulk_file" accept=".xlsx,.xls,.xml,.csv" required>
+            </div>
+            <div class="modal-footer">
+                <a class="btn btn-outline-secondary" href="users.php?download=bulk-template">Download template</a>
+                <button class="btn btn-primary">Importar utilizadores</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <div class="modal fade" id="userModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">

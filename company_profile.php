@@ -228,6 +228,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ? 'Dados da empresa e logotipos atualizados com sucesso.'
                 : 'Dados da empresa atualizados com sucesso.';
         }
+    } elseif (($_POST['action'] ?? '') === 'reset_hr_operational_data') {
+        $confirmation = trim((string) ($_POST['reset_confirmation'] ?? ''));
+        if (mb_strtoupper($confirmation, 'UTF-8') !== 'RESET') {
+            $flashError = 'Para confirmar a limpeza dos dados, escreva RESET no campo de confirmação.';
+        } else {
+            $tablesToReset = [
+                'shopfloor_absence_time_allocations',
+                'shopfloor_justifications',
+                'shopfloor_absence_requests',
+                'shopfloor_vacation_requests',
+                'shopfloor_time_entries',
+                'shopfloor_hour_banks',
+                'shopfloor_bh_overrides',
+                'shopfloor_bh_override_logs',
+                'hr_hour_bank_logs',
+                'hr_vacation_events',
+                'hr_vacation_balances',
+                'hr_calendar_events',
+            ];
+
+            try {
+                $pdo->beginTransaction();
+                $deletedRows = 0;
+                foreach ($tablesToReset as $tableName) {
+                    $deletedRows += (int) $pdo->exec('DELETE FROM ' . $tableName);
+                }
+                $pdo->commit();
+                log_app_event($pdo, $userId, 'company_profile.reset_hr_operational_data', 'Limpeza total de picagens e pedidos de ausências/férias.', ['deleted_rows' => $deletedRows]);
+                $flashSuccess = $deletedRows > 0
+                    ? 'Limpeza concluída: foram removidos ' . $deletedRows . ' registos de picagens, ausências e férias.'
+                    : 'Não existiam registos de picagens, ausências ou férias para limpar.';
+            } catch (Throwable $exception) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                $flashError = 'Não foi possível concluir a limpeza dos dados operacionais.';
+            }
+        }
     }
 }
 
@@ -429,6 +467,35 @@ require __DIR__ . '/partials/header.php';
         <?php endif; ?>
     </div>
 </form>
+
+<?php if ($isAdmin): ?>
+<form method="post" class="card shadow-sm border-danger-subtle mt-3">
+    <input type="hidden" name="action" value="reset_hr_operational_data">
+    <div class="card-body">
+        <h2 class="h5 text-danger">Zona de limpeza para nova empresa</h2>
+        <p class="small text-muted mb-2">
+            Esta ação elimina todos os registos operacionais de picagens e pedidos de ausências/férias para preparar uma implementação nova.
+        </p>
+        <ul class="small text-muted mb-3">
+            <li>Picagens (Shopfloor)</li>
+            <li>Pedidos e justificações de ausências</li>
+            <li>Pedidos e eventos de férias</li>
+            <li>Saldos e movimentos de banco de horas</li>
+        </ul>
+        <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">Confirmação</label>
+                <input class="form-control" name="reset_confirmation" placeholder="Escreva RESET para confirmar" required>
+            </div>
+            <div class="col-md-8">
+                <button class="btn btn-outline-danger" onclick="return confirm('Confirma a eliminação total de picagens e pedidos de ausências/férias? Esta ação é irreversível.');">
+                    Eliminar dados de picagens e ausências/férias
+                </button>
+            </div>
+        </div>
+    </div>
+</form>
+<?php endif; ?>
 
 <?php if ($isAdmin): ?>
 <script>
