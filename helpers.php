@@ -1295,6 +1295,16 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
             . '</tr>';
     }
 
+    $userNumberLabel = (string) ($user['user_number'] ?? '');
+    if ($userNumberLabel === '') {
+        $userNumberLabel = '—';
+    }
+
+    $departmentLabel = (string) ($user['department'] ?? '');
+    if ($departmentLabel === '') {
+        $departmentLabel = '—';
+    }
+
     $htmlBody = '<!doctype html><html><head><meta charset="utf-8"><style>'
         . $ralewayFontCss
         . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;font-size:12px;margin:24px;}'
@@ -1319,14 +1329,15 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         . '</tr></table>'
         . '<table><thead><tr><th>Data</th><th>Dia</th><th>Tipo</th><th>Picagens</th><th>BH</th><th>Justificação</th></tr></thead><tbody>'
         . $rowsHtml
-        . '</tbody></table>'
-        . '<p style="margin-top:12px"><strong>Resumo mensal:</strong><br>'
+        . '</tbody></table></div>'
+        . '<div class="summary"><b>Resumo mensal:</b><br>'
         . 'Dias com picagens: ' . $daysWithEntries . ' · '
         . 'Dias totalmente validados: ' . $daysValidated . ' · '
         . 'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes) . ' · '
         . 'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes) . ' · '
         . 'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias'
-        . '</p>'
+        . '</div>'
+        . '</div>'
         . '</body></html>';
 
     $logoFilePath = '';
