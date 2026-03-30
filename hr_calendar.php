@@ -11,6 +11,36 @@ if (!can_access_hr_module($pdo, $userId)) {
 $flashSuccess = null;
 $flashError = null;
 
+
+function output_calendar_csv_template(): void
+{
+    $rows = [
+        ['título', 'tipo', 'data_inicio', 'data_fim', 'cor'],
+        ['Ano Novo', 'Feriado', date('Y') . '-01-01', date('Y') . '-01-01', '#d63384'],
+        ['Ponte da empresa', 'Ponte', date('Y') . '-12-24', date('Y') . '-12-24', '#fd7e14'],
+        ['Férias coletivas', 'Férias', date('Y') . '-08-01', date('Y') . '-08-15', '#198754'],
+    ];
+
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="template_calendario_rh.csv"');
+
+    $output = fopen('php://output', 'wb');
+    if ($output === false) {
+        exit;
+    }
+
+    fwrite($output, "\xEF\xBB\xBF");
+    foreach ($rows as $row) {
+        fputcsv($output, $row);
+    }
+    fclose($output);
+    exit;
+}
+
+if (isset($_GET['download']) && $_GET['download'] === 'csv-template') {
+    output_calendar_csv_template();
+}
+
 $year = (int) ($_GET['year'] ?? date('Y'));
 $month = (int) ($_GET['month'] ?? date('n'));
 if ($year < 2000 || $year > 2100) {
@@ -163,7 +193,10 @@ require __DIR__ . '/partials/header.php';
                     <select class="form-select" name="default_type">
                         <option>Feriado</option><option>Ponte</option><option>Férias</option><option>Outros</option>
                     </select>
-                    <small class="text-muted">CSV: título,tipo,data_inicio,data_fim,cor</small>
+                    <div class="d-flex justify-content-between align-items-center gap-2">
+                        <small class="text-muted">CSV: título,tipo,data_inicio,data_fim,cor</small>
+                        <a class="btn btn-sm btn-outline-secondary" href="hr_calendar.php?download=csv-template"><i class="bi bi-download"></i> Template CSV</a>
+                    </div>
                     <button class="btn btn-outline-dark">Importar</button>
                 </form>
             </div>
