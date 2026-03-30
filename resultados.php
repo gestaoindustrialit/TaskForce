@@ -966,6 +966,18 @@ require __DIR__ . '/partials/header.php';
         opacity: 1;
     }
 
+    .results-table .results-entry-display {
+        font-size: 0.82rem;
+        min-height: 1.8rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        border: 1px solid #dee2e6;
+        border-radius: 0.25rem;
+        background: #fff;
+    }
+
     .results-table .results-bh-input {
         width: 5.4rem;
         max-width: 5.4rem;
@@ -987,6 +999,12 @@ require __DIR__ . '/partials/header.php';
 
     .results-table .badge {
         font-size: 0.77rem;
+    }
+
+    .results-validation-modal-entry-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.75rem;
     }
 </style>
 <h1 class="h3 mb-3">Resultados de picagens</h1>
@@ -1149,7 +1167,7 @@ require __DIR__ . '/partials/header.php';
                     <?php $isPendingRow = $canValidateResults && $row['status'] !== 'Validado'; ?>
                     <?php $rowFormId = 'validate-row-' . (int) $row['user_id'] . '-' . str_replace('-', '', (string) $row['date']); ?>
                     <?php $existingEntryCount = (int) ($row['entries_count'] ?? count($row['entries'])); ?>
-                    <tr class="js-results-row" data-user-id="<?= (int) $row['user_id'] ?>" data-work-date="<?= h($row['date']) ?>">
+                    <tr class="js-results-row" data-user-id="<?= (int) $row['user_id'] ?>" data-work-date="<?= h($row['date']) ?>" data-absence-allocated-seconds="<?= (int) ($row['absence_allocated_seconds'] ?? 0) ?>">
                         <td><span class="badge <?= $row['status'] === 'Validado' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= h($row['status']) ?></span></td>
                         <td><?= h($row['type_label']) ?></td>
                         <td><?= h(format_date_pt($row['date'])) ?></td>
@@ -1158,29 +1176,19 @@ require __DIR__ . '/partials/header.php';
                         <?php for ($entryIdx = 0; $entryIdx < $maxEntryCount; $entryIdx++): ?>
                             <?php $entryPoint = $row['entries'][$entryIdx] ?? null; ?>
                             <td class="results-entry-col">
+                                <span class="results-entry-display js-results-entry-display"><?= h((string) ($entryPoint['time'] ?? '--:--')) ?></span>
                                 <?php if ($canValidateResults): ?>
                                     <input
-                                        type="text"
+                                        type="hidden"
                                         inputmode="numeric"
                                         pattern="^([01]\d|2[0-3]):([0-5]\d)$"
-                                        class="form-control form-control-sm results-entry-input<?= $isPendingRow ? ' js-entry-time' : '' ?>"
+                                        class="results-entry-input<?= $isPendingRow ? ' js-entry-time' : '' ?>"
                                         value="<?= h((string) ($entryPoint['time'] ?? '')) ?>"
                                         data-entry-id="<?= (int) ($entryPoint['id'] ?? 0) ?>"
                                         data-slot-index="<?= (int) ($entryIdx + 1) ?>"
                                         data-entry-date="<?= h($row['date']) ?>"
                                         data-target-user-id="<?= (int) $row['user_id'] ?>"
-                                        placeholder="--:--"
                                         <?= $entryPoint || $isPendingRow ? '' : 'disabled' ?>
-                                    >
-                                <?php elseif ($entryPoint): ?>
-                                    <?= h((string) $entryPoint['time']) ?>
-                                <?php else: ?>
-                                    <input
-                                        type="text"
-                                        class="form-control form-control-sm results-entry-input"
-                                        value=""
-                                        placeholder="--:--"
-                                        disabled
                                     >
                                 <?php endif; ?>
                             </td>
@@ -1191,8 +1199,9 @@ require __DIR__ . '/partials/header.php';
                             <?php $bhClass = $row['bh_seconds'] < 0 ? 'text-danger' : ($row['bh_seconds'] > 0 ? 'text-success' : 'text-muted'); ?>
                             <?php if ($canValidateResults): ?>
                                 <div class="d-flex mt-1 align-items-center gap-1">
-                                    <input type="text" class="form-control form-control-sm results-bh-input js-results-bh-input <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM" data-default-value="<?= h($row['bh']) ?>" data-auto-bh="<?= h($row['bh']) ?>" data-is-override="<?= $row['bh_is_override'] ? '1' : '0' ?>" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
-                                    <input type="text" class="form-control form-control-sm results-bh-reason" name="override_reason" value="<?= h((string) $row['bh_reason']) ?>" placeholder="Motivo" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
+                                    <span class="badge text-bg-light border">BH <?= h($row['bh']) ?></span>
+                                    <input type="hidden" class="form-control form-control-sm results-bh-input js-results-bh-input <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM" data-default-value="<?= h($row['bh']) ?>" data-auto-bh="<?= h($row['bh']) ?>" data-is-override="<?= $row['bh_is_override'] ? '1' : '0' ?>" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
+                                    <input type="hidden" class="form-control form-control-sm results-bh-reason" name="override_reason" value="<?= h((string) $row['bh_reason']) ?>" placeholder="Motivo" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
                                     <?php if (!empty($row['absence_options'])): ?>
                                         <?php
                                             $allocation = $row['absence_allocation'] ?? null;
@@ -1234,7 +1243,17 @@ require __DIR__ . '/partials/header.php';
                                         </form>
                                     </div>
                                 <?php else: ?>
-                                    <button class="btn btn-outline-success btn-sm" type="submit" form="<?= h($rowFormId) ?>">Validar</button>
+                                    <div class="d-inline-flex gap-1">
+                                        <button
+                                            type="button"
+                                            class="btn btn-outline-primary btn-sm js-open-validation-modal"
+                                            data-row-form-id="<?= h($rowFormId) ?>"
+                                            data-user-name="<?= h((string) $row['user_name']) ?>"
+                                            data-user-number="<?= h($row['user_number'] !== '' ? $row['user_number'] : (string) $row['user_id']) ?>"
+                                            data-work-date="<?= h($row['date']) ?>"
+                                        ><i class="bi bi-pencil-square"></i></button>
+                                        <button class="btn btn-outline-success btn-sm" type="submit" form="<?= h($rowFormId) ?>">Validar</button>
+                                    </div>
                                     <form method="post" id="<?= h($rowFormId) ?>" class="d-none">
                                         <input type="hidden" name="action" value="validate_row">
                                         <input type="hidden" name="validate_date" value="<?= h($row['date']) ?>">
@@ -1253,6 +1272,38 @@ require __DIR__ . '/partials/header.php';
 <?php endif; ?>
 
 <?php if ($canValidateResults): ?>
+<div class="modal fade" id="rowValidationModal" tabindex="-1" aria-labelledby="rowValidationModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h2 class="modal-title fs-5" id="rowValidationModalLabel">Validar tempo do dia</h2>
+                    <p class="text-muted small mb-0 js-row-validation-context"></p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 px-3 small d-none js-row-validation-absence-info"></div>
+                <div class="results-validation-modal-entry-grid mb-3 js-row-validation-entries"></div>
+                <div class="row g-2">
+                    <div class="col-md-4">
+                        <label class="form-label">Tempo BH (±HH:MM)</label>
+                        <input type="text" class="form-control js-row-validation-bh" placeholder="+00:00">
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">Motivo (opcional)</label>
+                        <input type="text" class="form-control js-row-validation-reason" placeholder="Ex.: ajuste manual acordado com RH">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-dark js-row-validation-save">Guardar alterações</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="absenceAllocationModal" tabindex="-1" aria-labelledby="absenceAllocationModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -1285,6 +1336,122 @@ require __DIR__ . '/partials/header.php';
 
 <script>
 (() => {
+    const validationModalElement = document.getElementById('rowValidationModal');
+    if (validationModalElement && window.bootstrap) {
+        const validationModal = new bootstrap.Modal(validationModalElement);
+        const contextEl = validationModalElement.querySelector('.js-row-validation-context');
+        const entriesRoot = validationModalElement.querySelector('.js-row-validation-entries');
+        const bhInput = validationModalElement.querySelector('.js-row-validation-bh');
+        const reasonInput = validationModalElement.querySelector('.js-row-validation-reason');
+        const absenceInfo = validationModalElement.querySelector('.js-row-validation-absence-info');
+        const saveButton = validationModalElement.querySelector('.js-row-validation-save');
+        const state = { row: null, initialBh: '' };
+
+        const renderEntries = (row) => {
+            entriesRoot.innerHTML = '';
+            row.querySelectorAll('.js-entry-time').forEach((input) => {
+                const slot = Number(input.dataset.slotIndex || '0');
+                const prefix = slot % 2 === 1 ? 'Entrada' : 'Saída';
+                const order = Math.ceil(slot / 2);
+                const fieldWrap = document.createElement('div');
+                fieldWrap.innerHTML = `<label class="form-label">${prefix} ${order}</label>`;
+                const field = document.createElement('input');
+                field.type = 'text';
+                field.className = 'form-control';
+                field.placeholder = '--:--';
+                field.value = (input.value || '').trim();
+                field.dataset.sourceSlot = String(slot);
+                field.addEventListener('input', () => {
+                    const sourceInput = row.querySelector(`.js-entry-time[data-slot-index="${slot}"]`);
+                    if (!sourceInput) return;
+                    sourceInput.value = field.value.trim();
+                    const display = sourceInput.closest('td')?.querySelector('.js-results-entry-display');
+                    if (display) {
+                        display.textContent = field.value.trim() || '--:--';
+                    }
+                });
+                fieldWrap.appendChild(field);
+                entriesRoot.appendChild(fieldWrap);
+            });
+        };
+
+        document.querySelectorAll('.js-open-validation-modal').forEach((button) => {
+            button.addEventListener('click', () => {
+                const row = button.closest('.js-results-row');
+                if (!row) return;
+                state.row = row;
+                contextEl.textContent = `${button.dataset.userName || ''} (${button.dataset.userNumber || ''}) · ${button.dataset.workDate || ''}`;
+                bhInput.value = (row.querySelector('.js-results-bh-input')?.value || '').trim();
+                state.initialBh = bhInput.value;
+                reasonInput.value = (row.querySelector('.results-bh-reason')?.value || '').trim();
+                const absenceSeconds = Number(row.dataset.absenceAllocatedSeconds || '0');
+                if (absenceInfo) {
+                    if (absenceSeconds > 0) {
+                        const hours = Math.floor(absenceSeconds / 3600);
+                        const minutes = Math.floor((absenceSeconds % 3600) / 60);
+                        absenceInfo.textContent = `Ausência comunicada para o dia: +${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} no cálculo do Tempo BH.`;
+                        absenceInfo.classList.remove('d-none');
+                    } else {
+                        absenceInfo.classList.add('d-none');
+                        absenceInfo.textContent = '';
+                    }
+                }
+                renderEntries(row);
+                validationModal.show();
+            });
+        });
+
+        saveButton?.addEventListener('click', async () => {
+            if (!state.row) return;
+            const row = state.row;
+            const entryInputs = Array.from(row.querySelectorAll('.js-entry-time'));
+            for (const input of entryInputs) {
+                const value = (input.value || '').trim();
+                if (value === '' || value === '--:--') {
+                    continue;
+                }
+                const body = new URLSearchParams();
+                body.set('action', 'update_entry_time');
+                body.set('entry_id', input.dataset.entryId || '0');
+                body.set('slot_index', input.dataset.slotIndex || '0');
+                body.set('entry_date', input.dataset.entryDate || '');
+                body.set('target_user_id', input.dataset.targetUserId || '0');
+                body.set('entry_time', value);
+                body.set('validate_date', input.dataset.entryDate || '');
+                const response = await fetch('resultados.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: body.toString(),
+                });
+                const result = await response.json();
+                if (!result.ok) {
+                    alert(result.message || 'Não foi possível guardar uma das picagens.');
+                    return;
+                }
+                if (result.entry_id) {
+                    input.dataset.entryId = String(result.entry_id);
+                }
+            }
+
+            const rowBhInput = row.querySelector('.js-results-bh-input');
+            const rowReasonInput = row.querySelector('.results-bh-reason');
+            if (rowBhInput) {
+                if (typeof window.resultsRecalculateRow === 'function') {
+                    window.resultsRecalculateRow(row);
+                }
+                const autoBhValue = (rowBhInput.dataset.autoBh || '').trim();
+                const typedBhValue = (bhInput.value || '').trim();
+                const shouldUseManualBh = typedBhValue !== '' && typedBhValue !== autoBhValue && typedBhValue !== state.initialBh;
+                rowBhInput.value = shouldUseManualBh ? typedBhValue : autoBhValue;
+                rowBhInput.dataset.isOverride = shouldUseManualBh ? '1' : '0';
+            }
+            if (rowReasonInput) {
+                rowReasonInput.value = (reasonInput.value || '').trim();
+            }
+            validationModal.hide();
+        });
+    }
+
     const modalElement = document.getElementById('absenceAllocationModal');
     if (!modalElement || !window.bootstrap) return;
     const modal = new bootstrap.Modal(modalElement);

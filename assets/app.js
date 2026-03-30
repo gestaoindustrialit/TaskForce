@@ -576,7 +576,8 @@ function initResultsPage() {
         effectiveCell.textContent = formatHHMM(effectiveSeconds);
 
         const targetSeconds = Number(targetCell.dataset.targetSeconds || '0');
-        const bhSeconds = effectiveSeconds - targetSeconds;
+        const absenceAllocatedSeconds = Number(row.dataset.absenceAllocatedSeconds || '0');
+        const bhSeconds = (effectiveSeconds - targetSeconds) + absenceAllocatedSeconds;
         const autoBhValue = formatHHMM(bhSeconds, true);
         bhInput.dataset.autoBh = autoBhValue;
 
@@ -596,6 +597,7 @@ function initResultsPage() {
     }
 
     document.querySelectorAll('.js-results-row').forEach((row) => recalculateRow(row));
+    window.resultsRecalculateRow = recalculateRow;
     document.querySelectorAll('.js-results-bh-input').forEach((input) => {
         input.addEventListener('input', () => {
             input.dataset.isOverride = '1';
