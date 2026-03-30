@@ -1295,32 +1295,61 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
             . '</tr>';
     }
 
+    $userNumberLabel = (string) ($user['user_number'] ?? '');
+    if ($userNumberLabel === '') {
+        $userNumberLabel = '—';
+    }
+
+    $departmentLabel = (string) ($user['department'] ?? '');
+    if ($departmentLabel === '') {
+        $departmentLabel = '—';
+    }
+
     $htmlBody = '<!doctype html><html><head><meta charset="utf-8"><style>'
         . $ralewayFontCss
-        . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;font-size:12px;margin:24px;}'
-        . 'h1{font-size:20px;margin:0 0 8px;}'
-        . '.meta{margin:2px 0;}'
-        . 'table{width:100%;border-collapse:collapse;margin-top:16px;font-size:11px;}'
-        . 'th,td{border:1px solid #d1d5db;padding:6px;vertical-align:top;}'
-        . 'th{background:#f3f4f6;}'
+        . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;background:#f8fafc;margin:0;padding:24px;font-size:12px;}'
+        . '.wrap{max-width:1080px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:18px 18px 14px;}'
+        . '.head{width:100%;border-collapse:collapse;}'
+        . '.head td{vertical-align:top;}'
+        . 'h1{font-size:22px;line-height:1.2;margin:0 0 10px;color:#0f172a;}'
+        . '.meta{margin:0 0 3px;font-size:12px;}'
+        . '.meta strong{color:#111827;}'
+        . '.company{margin:0 0 8px;font-size:13px;font-weight:700;color:#1f2937;}'
+        . '.logo{text-align:right;}'
+        . '.logo img{max-height:62px;max-width:180px;}'
+        . '.table-wrap{margin-top:14px;}'
+        . 'table.report{width:100%;border-collapse:collapse;font-size:11px;}'
+        . 'table.report th,table.report td{border:1px solid #d1d5db;padding:6px;vertical-align:top;text-align:left;}'
+        . 'table.report th{background:#f3f4f6;color:#111827;font-weight:700;}'
+        . '.summary{margin-top:12px;padding:10px 12px;border:1px solid #dbeafe;background:#eff6ff;border-radius:8px;font-size:12px;}'
+        . '.summary b{color:#1e3a8a;}'
         . '</style></head><body>'
-        . '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">'
-        . '<div><h1>Mapa mensal de picagens</h1>'
+        . '<div class="wrap">'
+        . '<table class="head" role="presentation"><tr>'
+        . '<td>'
+        . '<p class="company">' . h($companyName) . '</p>'
+        . '<h1>Mapa mensal de picagens</h1>'
         . '<p class="meta"><strong>Período:</strong> ' . h($periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y')) . '</p>'
         . '<p class="meta"><strong>Colaborador:</strong> ' . h((string) ($user['name'] ?? '')) . '</p>'
-        . '<p class="meta"><strong>Mês de referência:</strong> ' . h($reportMonthLabel) . '</p></div>'
-        . ($logoUrl !== '' ? '<img src="' . h($logoUrl) . '" alt="Logótipo empresa" style="max-height:64px">' : '')
-        . '</div>'
-        . '<table><thead><tr><th>Data</th><th>Dia</th><th>Tipo</th><th>Picagens</th><th>BH</th><th>Justificação</th></tr></thead><tbody>'
+        . '<p class="meta"><strong>Número:</strong> ' . h($userNumberLabel) . '</p>'
+        . '<p class="meta"><strong>Departamento:</strong> ' . h($departmentLabel) . '</p>'
+        . '<p class="meta"><strong>Mês de referência:</strong> ' . h($reportMonthLabel) . '</p>'
+        . '</td>'
+        . '<td class="logo" width="190">'
+        . ($logoUrl !== '' ? '<img src="' . h($logoUrl) . '" alt="Logótipo empresa">' : '')
+        . '</td>'
+        . '</tr></table>'
+        . '<div class="table-wrap"><table class="report"><thead><tr><th>Data</th><th>Dia</th><th>Tipo</th><th>Picagens</th><th>BH</th><th>Justificação</th></tr></thead><tbody>'
         . $rowsHtml
-        . '</tbody></table>'
-        . '<p style="margin-top:12px"><strong>Resumo mensal:</strong><br>'
+        . '</tbody></table></div>'
+        . '<div class="summary"><b>Resumo mensal:</b><br>'
         . 'Dias com picagens: ' . $daysWithEntries . ' · '
         . 'Dias totalmente validados: ' . $daysValidated . ' · '
         . 'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes) . ' · '
         . 'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes) . ' · '
         . 'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias'
-        . '</p>'
+        . '</div>'
+        . '</div>'
         . '</body></html>';
 
     $logoFilePath = '';
