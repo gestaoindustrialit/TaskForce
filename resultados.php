@@ -404,6 +404,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
         $workDate = trim((string) ($_POST['work_date'] ?? ''));
         $absenceRequestId = (int) ($_POST['absence_request_id'] ?? 0);
         $absenceCode = trim((string) ($_POST['absence_code'] ?? ''));
+        $absenceReason = trim((string) ($_POST['absence_reason'] ?? ''));
         $allocatedValue = trim((string) ($_POST['allocated_duration'] ?? ''));
         $allocatedMinutes = parse_hhmm_to_minutes($allocatedValue);
 
@@ -424,11 +425,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
         $existingId = $existingStmt->fetchColumn();
 
         if ($existingId) {
-            $updateStmt = $pdo->prepare('UPDATE shopfloor_absence_time_allocations SET absence_request_id = ?, absence_code = ?, allocated_minutes = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
-            $updateStmt->execute([$absenceRequestId, $absenceCode, $allocatedMinutes, $userId, (int) $existingId]);
+            $updateStmt = $pdo->prepare('UPDATE shopfloor_absence_time_allocations SET absence_request_id = ?, absence_code = ?, absence_reason = ?, allocated_minutes = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+            $updateStmt->execute([$absenceRequestId, $absenceCode, $absenceReason, $allocatedMinutes, $userId, (int) $existingId]);
         } else {
-            $insertStmt = $pdo->prepare('INSERT INTO shopfloor_absence_time_allocations(user_id, work_date, absence_request_id, absence_code, allocated_minutes, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)');
-            $insertStmt->execute([$targetUserId, $workDate, $absenceRequestId, $absenceCode, $allocatedMinutes, $userId]);
+            $insertStmt = $pdo->prepare('INSERT INTO shopfloor_absence_time_allocations(user_id, work_date, absence_request_id, absence_code, absence_reason, allocated_minutes, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)');
+            $insertStmt->execute([$targetUserId, $workDate, $absenceRequestId, $absenceCode, $absenceReason, $allocatedMinutes, $userId]);
         }
 
         log_app_event($pdo, $userId, 'shopfloor.absence_time_allocation.save', 'Tempo de ausência relacionado ao dia de picagens.', [
@@ -436,6 +437,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
             'work_date' => $workDate,
             'absence_request_id' => $absenceRequestId,
             'absence_code' => $absenceCode,
+            'absence_reason' => $absenceReason,
             'allocated_minutes' => $allocatedMinutes,
         ]);
 
@@ -822,7 +824,7 @@ if ($selectedUsers) {
     }
 }
 
-$allocationSql = 'SELECT user_id, work_date, absence_request_id, absence_code, allocated_minutes FROM shopfloor_absence_time_allocations WHERE ' . implode(' AND ', $allocationWhere);
+$allocationSql = 'SELECT user_id, work_date, absence_request_id, absence_code, absence_reason, allocated_minutes FROM shopfloor_absence_time_allocations WHERE ' . implode(' AND ', $allocationWhere);
 $allocationStmt = $pdo->prepare($allocationSql);
 $allocationStmt->execute($allocationParams);
 $allocationMap = [];
@@ -831,6 +833,7 @@ foreach ($allocationStmt->fetchAll(PDO::FETCH_ASSOC) as $allocationRow) {
     $allocationMap[$allocationKey] = [
         'absence_request_id' => (int) ($allocationRow['absence_request_id'] ?? 0),
         'absence_code' => (string) ($allocationRow['absence_code'] ?? ''),
+        'absence_reason' => (string) ($allocationRow['absence_reason'] ?? ''),
         'allocated_minutes' => (int) ($allocationRow['allocated_minutes'] ?? 0),
     ];
 }
@@ -844,6 +847,7 @@ foreach ($daily as &$row) {
         $allocation = [
             'absence_request_id' => (int) ($firstAbsence['absence_request_id'] ?? 0),
             'absence_code' => (string) ($firstAbsence['absence_code'] ?? ''),
+            'absence_reason' => (string) ($firstAbsence['reason'] ?? ''),
             'allocated_minutes' => (int) ($firstAbsence['default_minutes'] ?? 0),
         ];
     }
@@ -1168,7 +1172,7 @@ require __DIR__ . '/partials/header.php';
                     <?php $isPendingRow = $canValidateResults && $row['status'] !== 'Validado'; ?>
                     <?php $rowFormId = 'validate-row-' . (int) $row['user_id'] . '-' . str_replace('-', '', (string) $row['date']); ?>
                     <?php $existingEntryCount = (int) ($row['entries_count'] ?? count($row['entries'])); ?>
-                    <tr class="js-results-row" data-user-id="<?= (int) $row['user_id'] ?>" data-work-date="<?= h($row['date']) ?>" data-row-status="<?= h((string) $row['status']) ?>" data-absence-allocated-seconds="<?= (int) ($row['absence_allocated_seconds'] ?? 0) ?>" data-absence-options='<?= h((string) json_encode(array_values((array) ($row['absence_options'] ?? [])), JSON_UNESCAPED_UNICODE)) ?>' data-current-request-id="<?= (int) (($row['absence_allocation']['absence_request_id'] ?? 0)) ?>" data-current-code="<?= h((string) ($row['absence_allocation']['absence_code'] ?? '')) ?>" data-current-minutes="<?= (int) (($row['absence_allocation']['allocated_minutes'] ?? 0)) ?>">
+                    <tr class="js-results-row" data-user-id="<?= (int) $row['user_id'] ?>" data-work-date="<?= h($row['date']) ?>" data-row-status="<?= h((string) $row['status']) ?>" data-absence-allocated-seconds="<?= (int) ($row['absence_allocated_seconds'] ?? 0) ?>" data-absence-options='<?= h((string) json_encode(array_values((array) ($row['absence_options'] ?? [])), JSON_UNESCAPED_UNICODE)) ?>' data-current-request-id="<?= (int) (($row['absence_allocation']['absence_request_id'] ?? 0)) ?>" data-current-code="<?= h((string) ($row['absence_allocation']['absence_code'] ?? '')) ?>" data-current-reason="<?= h((string) ($row['absence_allocation']['absence_reason'] ?? '')) ?>" data-current-minutes="<?= (int) (($row['absence_allocation']['allocated_minutes'] ?? 0)) ?>">
                         <td><span class="badge <?= $row['status'] === 'Validado' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= h($row['status']) ?></span></td>
                         <td><?= h($row['type_label']) ?></td>
                         <td><?= h(format_date_pt($row['date'])) ?></td>
@@ -1293,6 +1297,10 @@ require __DIR__ . '/partials/header.php';
                         <label class="form-label">Tempo associado (HH:MM)</label>
                         <input type="text" class="form-control js-row-validation-absence-duration" placeholder="02:00">
                     </div>
+                    <div class="col-12">
+                        <label class="form-label">Motivo da ausência</label>
+                        <input type="text" class="form-control js-row-validation-absence-reason" placeholder="Ex.: Falta com perda de remuneração">
+                    </div>
                 </div>
                 <p class="small text-muted mt-2 mb-0 js-row-validation-absence-help d-none">O tempo associado é somado ao efectivo para reduzir o Tempo BH negativo.</p>
             </div>
@@ -1323,6 +1331,7 @@ require __DIR__ . '/partials/header.php';
         const absenceFieldsRow = validationModalElement.querySelector('.js-row-validation-absence-fields');
         const absenceCodeSelect = validationModalElement.querySelector('.js-row-validation-absence-code');
         const absenceDurationInput = validationModalElement.querySelector('.js-row-validation-absence-duration');
+        const absenceReasonInput = validationModalElement.querySelector('.js-row-validation-absence-reason');
         const absenceHelp = validationModalElement.querySelector('.js-row-validation-absence-help');
         const state = { row: null, initialBh: '' };
 
@@ -1380,6 +1389,7 @@ require __DIR__ . '/partials/header.php';
                 opt.textContent = buildAbsenceLabel(option);
                 opt.dataset.absenceCode = option.absence_code || '';
                 opt.dataset.defaultMinutes = String(option.default_minutes || 0);
+                opt.dataset.absenceReason = option.reason || '';
                 absenceCodeSelect.appendChild(opt);
             });
 
@@ -1390,6 +1400,19 @@ require __DIR__ . '/partials/header.php';
                 const currentMinutes = parseInt(row.dataset.currentMinutes || selectedOption.dataset.defaultMinutes || '0', 10);
                 absenceDurationInput.value = `${String(Math.floor(currentMinutes / 60)).padStart(2, '0')}:${String(currentMinutes % 60).padStart(2, '0')}`;
             }
+            const currentReason = (row.dataset.currentReason || '').trim();
+            absenceReasonInput.value = currentReason !== ''
+                ? currentReason
+                : (selectedOption?.dataset.absenceReason || '').trim();
+            absenceCodeSelect.onchange = () => {
+                const selectedOnChange = absenceCodeSelect.options[absenceCodeSelect.selectedIndex];
+                if (!selectedOnChange) {
+                    return;
+                }
+                if (absenceReasonInput) {
+                    absenceReasonInput.value = (selectedOnChange.dataset.absenceReason || '').trim();
+                }
+            };
 
             absenceFieldsRow?.classList.remove('d-none');
             absenceHelp?.classList.remove('d-none');
@@ -1408,6 +1431,7 @@ require __DIR__ . '/partials/header.php';
             payload.set('work_date', row.dataset.workDate || '');
             payload.set('absence_request_id', selected.value || '0');
             payload.set('absence_code', selected.dataset.absenceCode || '');
+            payload.set('absence_reason', (absenceReasonInput?.value || '').trim());
             payload.set('allocated_duration', (absenceDurationInput.value || '').trim());
 
             const response = await fetch('resultados.php', {
@@ -1424,6 +1448,7 @@ require __DIR__ . '/partials/header.php';
             const allocatedMinutes = Number(result.allocated_minutes || 0);
             row.dataset.currentRequestId = selected.value;
             row.dataset.currentCode = selected.dataset.absenceCode || '';
+            row.dataset.currentReason = (absenceReasonInput?.value || '').trim();
             row.dataset.currentMinutes = String(allocatedMinutes);
             row.dataset.absenceAllocatedSeconds = String(allocatedMinutes * 60);
             const summary = row.querySelector('.js-row-absence-summary');
