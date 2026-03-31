@@ -85,6 +85,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 safe_log_app_event($pdo, (int) $pendingUser['id'], 'auth.login_failed', 'Tentativa de login com PIN falhada.', ['email' => $email]);
                 $error = 'PIN inválido.';
             }
+
+            if ($action === 'login_password' && $loginMode !== 'password') {
+                $error = 'Este utilizador utiliza autenticação por PIN.';
+            }
+
+            if ($action === 'login_pin' && $loginMode !== 'pin') {
+                $error = 'Este utilizador utiliza autenticação por password.';
+            }
         }
     }
 }
@@ -114,11 +122,36 @@ require __DIR__ . '/partials/header.php';
                 <?php if ($error): ?><div class="alert alert-danger"><?= h($error) ?></div><?php endif; ?>
 
                 <?php if ($loginMode === 'identify'): ?>
-                    <form method="post" class="vstack gap-3">
-                        <input type="hidden" name="action" value="identify_user">
-                        <input class="form-control form-control-lg" type="email" name="email" placeholder="Email" value="<?= h((string) $email) ?>" required>
-                        <button class="btn btn-primary btn-lg">Continuar</button>
+                    <form method="post" class="vstack gap-3" id="identifyOrPasswordForm">
+                        <input type="hidden" name="action" value="identify_user" id="identifyActionInput">
+                        <input class="form-control form-control-lg" type="email" name="email" id="identifyEmailInput" placeholder="Email" value="<?= h((string) $email) ?>" required>
+                        <div id="identifyPasswordWrapper" class="d-none">
+                            <input class="form-control form-control-lg" type="password" name="password" id="identifyPasswordInput" placeholder="Password">
+                        </div>
+                        <button class="btn btn-primary btn-lg" id="identifySubmitButton">Continuar</button>
                     </form>
+                    <script>
+                        (() => {
+                            const emailInput = document.getElementById('identifyEmailInput');
+                            const passwordWrapper = document.getElementById('identifyPasswordWrapper');
+                            const passwordInput = document.getElementById('identifyPasswordInput');
+                            const actionInput = document.getElementById('identifyActionInput');
+                            const submitButton = document.getElementById('identifySubmitButton');
+
+                            const updateLoginFlowByEmail = () => {
+                                const normalizedEmail = (emailInput.value || '').trim().toLowerCase();
+                                const shouldUsePassword = normalizedEmail !== '' && !normalizedEmail.startsWith('shopfloor@');
+
+                                passwordWrapper.classList.toggle('d-none', !shouldUsePassword);
+                                passwordInput.required = shouldUsePassword;
+                                actionInput.value = shouldUsePassword ? 'login_password' : 'identify_user';
+                                submitButton.textContent = shouldUsePassword ? 'Login' : 'Continuar';
+                            };
+
+                            emailInput.addEventListener('input', updateLoginFlowByEmail);
+                            updateLoginFlowByEmail();
+                        })();
+                    </script>
                 <?php elseif ($loginMode === 'password'): ?>
                     <form method="post" class="vstack gap-3">
                         <input type="hidden" name="action" value="login_password">
