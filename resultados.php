@@ -1167,7 +1167,7 @@ require __DIR__ . '/partials/header.php';
                     <?php $isPendingRow = $canValidateResults && $row['status'] !== 'Validado'; ?>
                     <?php $rowFormId = 'validate-row-' . (int) $row['user_id'] . '-' . str_replace('-', '', (string) $row['date']); ?>
                     <?php $existingEntryCount = (int) ($row['entries_count'] ?? count($row['entries'])); ?>
-                    <tr class="js-results-row" data-user-id="<?= (int) $row['user_id'] ?>" data-work-date="<?= h($row['date']) ?>">
+                    <tr class="js-results-row" data-user-id="<?= (int) $row['user_id'] ?>" data-work-date="<?= h($row['date']) ?>" data-absence-allocated-seconds="<?= (int) ($row['absence_allocated_seconds'] ?? 0) ?>">
                         <td><span class="badge <?= $row['status'] === 'Validado' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= h($row['status']) ?></span></td>
                         <td><?= h($row['type_label']) ?></td>
                         <td><?= h(format_date_pt($row['date'])) ?></td>
@@ -1283,6 +1283,7 @@ require __DIR__ . '/partials/header.php';
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
             </div>
             <div class="modal-body">
+                <div class="alert alert-info py-2 px-3 small d-none js-row-validation-absence-info"></div>
                 <div class="results-validation-modal-entry-grid mb-3 js-row-validation-entries"></div>
                 <div class="row g-2">
                     <div class="col-md-4">
@@ -1342,8 +1343,9 @@ require __DIR__ . '/partials/header.php';
         const entriesRoot = validationModalElement.querySelector('.js-row-validation-entries');
         const bhInput = validationModalElement.querySelector('.js-row-validation-bh');
         const reasonInput = validationModalElement.querySelector('.js-row-validation-reason');
+        const absenceInfo = validationModalElement.querySelector('.js-row-validation-absence-info');
         const saveButton = validationModalElement.querySelector('.js-row-validation-save');
-        const state = { row: null };
+        const state = { row: null, initialBh: '' };
 
         const renderEntries = (row) => {
             entriesRoot.innerHTML = '';
@@ -1380,7 +1382,20 @@ require __DIR__ . '/partials/header.php';
                 state.row = row;
                 contextEl.textContent = `${button.dataset.userName || ''} (${button.dataset.userNumber || ''}) · ${button.dataset.workDate || ''}`;
                 bhInput.value = (row.querySelector('.js-results-bh-input')?.value || '').trim();
+                state.initialBh = bhInput.value;
                 reasonInput.value = (row.querySelector('.results-bh-reason')?.value || '').trim();
+                const absenceSeconds = Number(row.dataset.absenceAllocatedSeconds || '0');
+                if (absenceInfo) {
+                    if (absenceSeconds > 0) {
+                        const hours = Math.floor(absenceSeconds / 3600);
+                        const minutes = Math.floor((absenceSeconds % 3600) / 60);
+                        absenceInfo.textContent = `Ausência comunicada para o dia: +${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} no cálculo do Tempo BH.`;
+                        absenceInfo.classList.remove('d-none');
+                    } else {
+                        absenceInfo.classList.add('d-none');
+                        absenceInfo.textContent = '';
+                    }
+                }
                 renderEntries(row);
                 validationModal.show();
             });
@@ -1421,8 +1436,14 @@ require __DIR__ . '/partials/header.php';
             const rowBhInput = row.querySelector('.js-results-bh-input');
             const rowReasonInput = row.querySelector('.results-bh-reason');
             if (rowBhInput) {
-                rowBhInput.value = (bhInput.value || '').trim();
-                rowBhInput.dataset.isOverride = '1';
+                if (typeof window.resultsRecalculateRow === 'function') {
+                    window.resultsRecalculateRow(row);
+                }
+                const autoBhValue = (rowBhInput.dataset.autoBh || '').trim();
+                const typedBhValue = (bhInput.value || '').trim();
+                const shouldUseManualBh = typedBhValue !== '' && typedBhValue !== autoBhValue && typedBhValue !== state.initialBh;
+                rowBhInput.value = shouldUseManualBh ? typedBhValue : autoBhValue;
+                rowBhInput.dataset.isOverride = shouldUseManualBh ? '1' : '0';
             }
             if (rowReasonInput) {
                 rowReasonInput.value = (reasonInput.value || '').trim();
