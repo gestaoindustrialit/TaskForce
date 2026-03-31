@@ -140,7 +140,8 @@ require __DIR__ . '/partials/header.php';
 
                             const updateLoginFlowByEmail = () => {
                                 const normalizedEmail = (emailInput.value || '').trim().toLowerCase();
-                                const shouldUsePassword = normalizedEmail !== '' && !normalizedEmail.startsWith('shopfloor@');
+                                const hasAtSymbol = normalizedEmail.includes('@');
+                                const shouldUsePassword = hasAtSymbol && !normalizedEmail.startsWith('shopfloor@');
 
                                 passwordWrapper.classList.toggle('d-none', !shouldUsePassword);
                                 passwordInput.required = shouldUsePassword;
