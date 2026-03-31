@@ -715,6 +715,7 @@ $pdo->exec(
         work_date TEXT NOT NULL,
         absence_request_id INTEGER NOT NULL,
         absence_code TEXT NOT NULL,
+        absence_reason TEXT NOT NULL DEFAULT "",
         allocated_minutes INTEGER NOT NULL DEFAULT 0,
         updated_by INTEGER,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -725,6 +726,10 @@ $pdo->exec(
     )'
 );
 $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_absence_time_allocations_user_day ON shopfloor_absence_time_allocations(user_id, work_date)');
+$absenceAllocationColumns = $pdo->query('PRAGMA table_info(shopfloor_absence_time_allocations)')->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('absence_reason', $absenceAllocationColumns, true)) {
+    $pdo->exec('ALTER TABLE shopfloor_absence_time_allocations ADD COLUMN absence_reason TEXT NOT NULL DEFAULT ""');
+}
 
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS shopfloor_vacation_requests (
