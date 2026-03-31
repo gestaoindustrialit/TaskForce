@@ -412,10 +412,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
             exit;
         }
 
-        $checkStmt = $pdo->prepare('SELECT id FROM shopfloor_absence_requests WHERE id = ? AND user_id = ? AND status = "Aprovado" AND start_date <= ? AND end_date >= ? LIMIT 1');
+        $checkStmt = $pdo->prepare('SELECT id FROM shopfloor_absence_requests WHERE id = ? AND user_id = ? AND status <> "Rejeitado" AND start_date <= ? AND end_date >= ? LIMIT 1');
         $checkStmt->execute([$absenceRequestId, $targetUserId, $workDate, $workDate]);
         if (!$checkStmt->fetchColumn()) {
-            echo json_encode(['ok' => false, 'message' => 'Ausência não encontrada ou não aprovada para este dia.']);
+            echo json_encode(['ok' => false, 'message' => 'Ausência não encontrada ou indisponível para este dia.']);
             exit;
         }
 
@@ -753,7 +753,7 @@ usort(
 );
 
 $absenceParams = [$endDate, $startDate];
-$absenceWhere = ['a.start_date <= ?', 'a.end_date >= ?', 'a.status = "Aprovado"'];
+$absenceWhere = ['a.start_date <= ?', 'a.end_date >= ?', 'a.status <> "Rejeitado"'];
 if (!$canViewAllResults) {
     $absenceWhere[] = 'a.user_id = ?';
     $absenceParams[] = $userId;
@@ -770,7 +770,7 @@ if ($selectedUsers) {
     }
 }
 
-$absenceSql = 'SELECT a.id, a.user_id, a.start_date, a.end_date, a.reason, a.duration_type, a.duration_hours, u.user_number
+$absenceSql = 'SELECT a.id, a.user_id, a.start_date, a.end_date, a.reason, a.duration_type, a.duration_hours, a.status, u.user_number
     FROM shopfloor_absence_requests a
     INNER JOIN users u ON u.id = a.user_id
     WHERE ' . implode(' AND ', $absenceWhere) . '
@@ -799,6 +799,7 @@ foreach ($approvedAbsences as $absence) {
             'absence_code' => $absenceCode,
             'default_minutes' => $resolvedMinutes,
             'reason' => (string) ($absence['reason'] ?? ''),
+            'status' => (string) ($absence['status'] ?? ''),
         ];
     }
 }
@@ -1167,7 +1168,7 @@ require __DIR__ . '/partials/header.php';
                     <?php $isPendingRow = $canValidateResults && $row['status'] !== 'Validado'; ?>
                     <?php $rowFormId = 'validate-row-' . (int) $row['user_id'] . '-' . str_replace('-', '', (string) $row['date']); ?>
                     <?php $existingEntryCount = (int) ($row['entries_count'] ?? count($row['entries'])); ?>
-                    <tr class="js-results-row" data-user-id="<?= (int) $row['user_id'] ?>" data-work-date="<?= h($row['date']) ?>" data-absence-allocated-seconds="<?= (int) ($row['absence_allocated_seconds'] ?? 0) ?>">
+                    <tr class="js-results-row" data-user-id="<?= (int) $row['user_id'] ?>" data-work-date="<?= h($row['date']) ?>" data-absence-allocated-seconds="<?= (int) ($row['absence_allocated_seconds'] ?? 0) ?>" data-absence-options='<?= h((string) json_encode(array_values((array) ($row['absence_options'] ?? [])), JSON_UNESCAPED_UNICODE)) ?>' data-current-request-id="<?= (int) (($row['absence_allocation']['absence_request_id'] ?? 0)) ?>" data-current-code="<?= h((string) ($row['absence_allocation']['absence_code'] ?? '')) ?>" data-current-minutes="<?= (int) (($row['absence_allocation']['allocated_minutes'] ?? 0)) ?>">
                         <td><span class="badge <?= $row['status'] === 'Validado' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= h($row['status']) ?></span></td>
                         <td><?= h($row['type_label']) ?></td>
                         <td><?= h(format_date_pt($row['date'])) ?></td>
@@ -1202,29 +1203,9 @@ require __DIR__ . '/partials/header.php';
                                     <span class="badge text-bg-light border">BH <?= h($row['bh']) ?></span>
                                     <input type="hidden" class="form-control form-control-sm results-bh-input js-results-bh-input <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM" data-default-value="<?= h($row['bh']) ?>" data-auto-bh="<?= h($row['bh']) ?>" data-is-override="<?= $row['bh_is_override'] ? '1' : '0' ?>" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
                                     <input type="hidden" class="form-control form-control-sm results-bh-reason" name="override_reason" value="<?= h((string) $row['bh_reason']) ?>" placeholder="Motivo" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
-                                    <?php if (!empty($row['absence_options'])): ?>
-                                        <?php
-                                            $allocation = $row['absence_allocation'] ?? null;
-                                            $allocationRequestId = (int) ($allocation['absence_request_id'] ?? 0);
-                                            $allocationCode = (string) ($allocation['absence_code'] ?? '');
-                                            $allocationMinutes = (int) ($allocation['allocated_minutes'] ?? 0);
-                                        ?>
-                                        <button
-                                            type="button"
-                                            class="btn btn-outline-secondary btn-sm js-absence-allocation-trigger"
-                                            title="Relacionar ausência ao tempo em falta"
-                                            data-user-id="<?= (int) $row['user_id'] ?>"
-                                            data-work-date="<?= h((string) $row['date']) ?>"
-                                            data-user-label="<?= h((string) $row['user_name']) ?>"
-                                            data-current-request-id="<?= $allocationRequestId ?>"
-                                            data-current-code="<?= h($allocationCode) ?>"
-                                            data-current-minutes="<?= $allocationMinutes ?>"
-                                            data-absence-options='<?= h((string) json_encode(array_values((array) $row['absence_options']), JSON_UNESCAPED_UNICODE)) ?>'
-                                        ><i class="bi bi-person-bounding-box"></i><i class="bi bi-box-arrow-up-right ms-1"></i></button>
-                                    <?php endif; ?>
                                 </div>
                                 <?php if (!empty($row['absence_allocation'])): ?>
-                                    <div class="small text-muted mt-1">Ausência <?= h((string) ($row['absence_allocation']['absence_code'] ?? '')) ?> · <?= h(format_hhmm_from_minutes((int) ($row['absence_allocation']['allocated_minutes'] ?? 0))) ?></div>
+                                    <div class="small text-muted mt-1 js-row-absence-summary">Ausência <?= h((string) ($row['absence_allocation']['absence_code'] ?? '')) ?> · <?= h(format_hhmm_from_minutes((int) ($row['absence_allocation']['allocated_minutes'] ?? 0))) ?></div>
                                 <?php endif; ?>
                             <?php else: ?>
                                 <input type="text" class="form-control form-control-sm results-bh-input <?= $bhClass ?>" value="<?= h($row['bh']) ?>" readonly>
@@ -1295,37 +1276,22 @@ require __DIR__ . '/partials/header.php';
                         <input type="text" class="form-control js-row-validation-reason" placeholder="Ex.: ajuste manual acordado com RH">
                     </div>
                 </div>
+                <div class="row g-2 mt-1 js-row-validation-absence-fields d-none">
+                    <div class="col-md-8">
+                        <label class="form-label">Código de ausência</label>
+                        <select class="form-select js-row-validation-absence-code"></select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Tempo associado (HH:MM)</label>
+                        <input type="text" class="form-control js-row-validation-absence-duration" placeholder="02:00">
+                    </div>
+                </div>
+                <p class="small text-muted mt-2 mb-0 js-row-validation-absence-help d-none">O tempo associado é somado ao efectivo para reduzir o Tempo BH negativo.</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-dark js-row-validation-save">Guardar alterações</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="modal fade" id="absenceAllocationModal" tabindex="-1" aria-labelledby="absenceAllocationModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 class="modal-title fs-5" id="absenceAllocationModalLabel">Relacionar ausência</h2>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
-            </div>
-            <div class="modal-body">
-                <p class="small text-muted mb-2 js-absence-allocation-context"></p>
-                <div class="mb-2">
-                    <label class="form-label">Código de ausência</label>
-                    <select class="form-select js-absence-allocation-code"></select>
-                </div>
-                <div>
-                    <label class="form-label">Tempo associado (HH:MM)</label>
-                    <input type="text" class="form-control js-absence-allocation-duration" placeholder="02:00">
-                </div>
-                <div class="small text-muted mt-2">O tempo associado é somado ao efectivo para reduzir o Tempo BH negativo.</div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-dark js-absence-allocation-save">Guardar</button>
+                <button type="button" class="btn btn-success js-row-validation-save-validate">Guardar e validar</button>
             </div>
         </div>
     </div>
@@ -1345,6 +1311,11 @@ require __DIR__ . '/partials/header.php';
         const reasonInput = validationModalElement.querySelector('.js-row-validation-reason');
         const absenceInfo = validationModalElement.querySelector('.js-row-validation-absence-info');
         const saveButton = validationModalElement.querySelector('.js-row-validation-save');
+        const saveValidateButton = validationModalElement.querySelector('.js-row-validation-save-validate');
+        const absenceFieldsRow = validationModalElement.querySelector('.js-row-validation-absence-fields');
+        const absenceCodeSelect = validationModalElement.querySelector('.js-row-validation-absence-code');
+        const absenceDurationInput = validationModalElement.querySelector('.js-row-validation-absence-duration');
+        const absenceHelp = validationModalElement.querySelector('.js-row-validation-absence-help');
         const state = { row: null, initialBh: '' };
 
         const renderEntries = (row) => {
@@ -1375,33 +1346,97 @@ require __DIR__ . '/partials/header.php';
             });
         };
 
-        document.querySelectorAll('.js-open-validation-modal').forEach((button) => {
-            button.addEventListener('click', () => {
-                const row = button.closest('.js-results-row');
-                if (!row) return;
-                state.row = row;
-                contextEl.textContent = `${button.dataset.userName || ''} (${button.dataset.userNumber || ''}) · ${button.dataset.workDate || ''}`;
-                bhInput.value = (row.querySelector('.js-results-bh-input')?.value || '').trim();
-                state.initialBh = bhInput.value;
-                reasonInput.value = (row.querySelector('.results-bh-reason')?.value || '').trim();
-                const absenceSeconds = Number(row.dataset.absenceAllocatedSeconds || '0');
-                if (absenceInfo) {
-                    if (absenceSeconds > 0) {
-                        const hours = Math.floor(absenceSeconds / 3600);
-                        const minutes = Math.floor((absenceSeconds % 3600) / 60);
-                        absenceInfo.textContent = `Ausência comunicada para o dia: +${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} no cálculo do Tempo BH.`;
-                        absenceInfo.classList.remove('d-none');
-                    } else {
-                        absenceInfo.classList.add('d-none');
-                        absenceInfo.textContent = '';
-                    }
-                }
-                renderEntries(row);
-                validationModal.show();
-            });
-        });
+        const buildAbsenceLabel = (option) => {
+            const status = (option.status || '').trim();
+            return `${option.absence_code} · ${option.reason || 'Motivo'}${status ? ` (${status})` : ''}`;
+        };
 
-        saveButton?.addEventListener('click', async () => {
+        const renderAbsenceFields = (row) => {
+            const optionsRaw = row.dataset.absenceOptions || '[]';
+            let options = [];
+            try {
+                options = JSON.parse(optionsRaw);
+            } catch (error) {
+                options = [];
+            }
+            absenceCodeSelect.innerHTML = '';
+            if (!Array.isArray(options) || options.length === 0) {
+                absenceFieldsRow?.classList.add('d-none');
+                absenceHelp?.classList.add('d-none');
+                return;
+            }
+
+            options.forEach((option) => {
+                const opt = document.createElement('option');
+                opt.value = String(option.absence_request_id || 0);
+                opt.textContent = buildAbsenceLabel(option);
+                opt.dataset.absenceCode = option.absence_code || '';
+                opt.dataset.defaultMinutes = String(option.default_minutes || 0);
+                absenceCodeSelect.appendChild(opt);
+            });
+
+            const currentRequestId = String(row.dataset.currentRequestId || '');
+            const selectedOption = Array.from(absenceCodeSelect.options).find((opt) => opt.value === currentRequestId) || absenceCodeSelect.options[0];
+            if (selectedOption) {
+                selectedOption.selected = true;
+                const currentMinutes = parseInt(row.dataset.currentMinutes || selectedOption.dataset.defaultMinutes || '0', 10);
+                absenceDurationInput.value = `${String(Math.floor(currentMinutes / 60)).padStart(2, '0')}:${String(currentMinutes % 60).padStart(2, '0')}`;
+            }
+
+            absenceFieldsRow?.classList.remove('d-none');
+            absenceHelp?.classList.remove('d-none');
+        };
+
+        const applyAbsenceAllocation = async (row) => {
+            if (!absenceCodeSelect || !absenceDurationInput || !absenceFieldsRow || absenceFieldsRow.classList.contains('d-none')) {
+                return true;
+            }
+            const selected = absenceCodeSelect.options[absenceCodeSelect.selectedIndex];
+            if (!selected) return true;
+
+            const payload = new URLSearchParams();
+            payload.set('action', 'save_absence_allocation');
+            payload.set('target_user_id', row.dataset.userId || '0');
+            payload.set('work_date', row.dataset.workDate || '');
+            payload.set('absence_request_id', selected.value || '0');
+            payload.set('absence_code', selected.dataset.absenceCode || '');
+            payload.set('allocated_duration', (absenceDurationInput.value || '').trim());
+
+            const response = await fetch('resultados.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+                body: payload.toString(),
+            });
+            const result = await response.json();
+            if (!result.ok) {
+                alert(result.message || 'Não foi possível guardar o tempo da ausência.');
+                return false;
+            }
+
+            const allocatedMinutes = Number(result.allocated_minutes || 0);
+            row.dataset.currentRequestId = selected.value;
+            row.dataset.currentCode = selected.dataset.absenceCode || '';
+            row.dataset.currentMinutes = String(allocatedMinutes);
+            row.dataset.absenceAllocatedSeconds = String(allocatedMinutes * 60);
+            const summary = row.querySelector('.js-row-absence-summary');
+            const hh = String(Math.floor(allocatedMinutes / 60)).padStart(2, '0');
+            const mm = String(allocatedMinutes % 60).padStart(2, '0');
+            const summaryText = `Ausência ${(selected.dataset.absenceCode || '').trim()} · ${hh}:${mm}`;
+            if (summary) {
+                summary.textContent = summaryText;
+            } else {
+                const container = row.querySelector('.js-results-bh-input')?.closest('td');
+                if (container) {
+                    const div = document.createElement('div');
+                    div.className = 'small text-muted mt-1 js-row-absence-summary';
+                    div.textContent = summaryText;
+                    container.appendChild(div);
+                }
+            }
+            return true;
+        };
+
+        const runSave = async (shouldValidateAfterSave = false) => {
             if (!state.row) return;
             const row = state.row;
             const entryInputs = Array.from(row.querySelectorAll('.js-entry-time'));
@@ -1433,6 +1468,9 @@ require __DIR__ . '/partials/header.php';
                 }
             }
 
+            const absenceSaved = await applyAbsenceAllocation(row);
+            if (!absenceSaved) return;
+
             const rowBhInput = row.querySelector('.js-results-bh-input');
             const rowReasonInput = row.querySelector('.results-bh-reason');
             if (rowBhInput) {
@@ -1449,79 +1487,45 @@ require __DIR__ . '/partials/header.php';
                 rowReasonInput.value = (reasonInput.value || '').trim();
             }
             validationModal.hide();
-        });
-    }
 
-    const modalElement = document.getElementById('absenceAllocationModal');
-    if (!modalElement || !window.bootstrap) return;
-    const modal = new bootstrap.Modal(modalElement);
-    const contextEl = modalElement.querySelector('.js-absence-allocation-context');
-    const codeSelect = modalElement.querySelector('.js-absence-allocation-code');
-    const durationInput = modalElement.querySelector('.js-absence-allocation-duration');
-    const saveButton = modalElement.querySelector('.js-absence-allocation-save');
-    const state = { userId: 0, workDate: '', options: [] };
-
-    const buildOptionLabel = (option) => `${option.absence_code} · ${option.reason || 'Motivo'}`;
-
-    document.querySelectorAll('.js-absence-allocation-trigger').forEach((trigger) => {
-        trigger.addEventListener('click', () => {
-            let options = [];
-            try {
-                options = JSON.parse(trigger.dataset.absenceOptions || '[]');
-            } catch (error) {
-                options = [];
+            if (shouldValidateAfterSave) {
+                const rowFormId = row.querySelector('.js-open-validation-modal')?.dataset.rowFormId || '';
+                const form = rowFormId ? document.getElementById(rowFormId) : null;
+                if (form) {
+                    form.submit();
+                }
             }
-            if (!Array.isArray(options) || options.length === 0) return;
+        };
 
-            state.userId = parseInt(trigger.dataset.userId || '0', 10);
-            state.workDate = trigger.dataset.workDate || '';
-            state.options = options;
-
-            contextEl.textContent = `${trigger.dataset.userLabel || ''} · ${state.workDate}`;
-            codeSelect.innerHTML = '';
-            options.forEach((option) => {
-                const opt = document.createElement('option');
-                opt.value = String(option.absence_request_id || 0);
-                opt.textContent = buildOptionLabel(option);
-                opt.dataset.absenceCode = option.absence_code || '';
-                opt.dataset.defaultMinutes = String(option.default_minutes || 0);
-                codeSelect.appendChild(opt);
+        document.querySelectorAll('.js-open-validation-modal').forEach((button) => {
+            button.addEventListener('click', () => {
+                const row = button.closest('.js-results-row');
+                if (!row) return;
+                state.row = row;
+                contextEl.textContent = `${button.dataset.userName || ''} (${button.dataset.userNumber || ''}) · ${button.dataset.workDate || ''}`;
+                bhInput.value = (row.querySelector('.js-results-bh-input')?.value || '').trim();
+                state.initialBh = bhInput.value;
+                reasonInput.value = (row.querySelector('.results-bh-reason')?.value || '').trim();
+                const absenceSeconds = Number(row.dataset.absenceAllocatedSeconds || '0');
+                if (absenceInfo) {
+                    if (absenceSeconds > 0) {
+                        const hours = Math.floor(absenceSeconds / 3600);
+                        const minutes = Math.floor((absenceSeconds % 3600) / 60);
+                        absenceInfo.textContent = `Ausência comunicada para o dia: +${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} no cálculo do Tempo BH.`;
+                        absenceInfo.classList.remove('d-none');
+                    } else {
+                        absenceInfo.classList.add('d-none');
+                        absenceInfo.textContent = '';
+                    }
+                }
+                renderEntries(row);
+                renderAbsenceFields(row);
+                validationModal.show();
             });
-
-            const currentRequestId = String(trigger.dataset.currentRequestId || '');
-            const selectedOption = Array.from(codeSelect.options).find((opt) => opt.value === currentRequestId) || codeSelect.options[0];
-            if (selectedOption) {
-                selectedOption.selected = true;
-                const currentMinutes = parseInt(trigger.dataset.currentMinutes || selectedOption.dataset.defaultMinutes || '0', 10);
-                durationInput.value = `${String(Math.floor(currentMinutes / 60)).padStart(2, '0')}:${String(currentMinutes % 60).padStart(2, '0')}`;
-            }
-
-            modal.show();
         });
-    });
 
-    saveButton?.addEventListener('click', async () => {
-        const selected = codeSelect.options[codeSelect.selectedIndex];
-        if (!selected) return;
-        const payload = new URLSearchParams();
-        payload.set('action', 'save_absence_allocation');
-        payload.set('target_user_id', String(state.userId));
-        payload.set('work_date', state.workDate);
-        payload.set('absence_request_id', selected.value);
-        payload.set('absence_code', selected.dataset.absenceCode || '');
-        payload.set('allocated_duration', (durationInput.value || '').trim());
-
-        const response = await fetch('resultados.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-            body: payload.toString(),
-        });
-        const result = await response.json();
-        if (!result.ok) {
-            alert(result.message || 'Não foi possível guardar o tempo da ausência.');
-            return;
-        }
-        window.location.reload();
-    });
+        saveButton?.addEventListener('click', () => runSave(false));
+        saveValidateButton?.addEventListener('click', () => runSave(true));
+    }
 })();
 </script>
