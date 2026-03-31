@@ -1168,7 +1168,7 @@ require __DIR__ . '/partials/header.php';
                     <?php $isPendingRow = $canValidateResults && $row['status'] !== 'Validado'; ?>
                     <?php $rowFormId = 'validate-row-' . (int) $row['user_id'] . '-' . str_replace('-', '', (string) $row['date']); ?>
                     <?php $existingEntryCount = (int) ($row['entries_count'] ?? count($row['entries'])); ?>
-                    <tr class="js-results-row" data-user-id="<?= (int) $row['user_id'] ?>" data-work-date="<?= h($row['date']) ?>" data-absence-allocated-seconds="<?= (int) ($row['absence_allocated_seconds'] ?? 0) ?>" data-absence-options='<?= h((string) json_encode(array_values((array) ($row['absence_options'] ?? [])), JSON_UNESCAPED_UNICODE)) ?>' data-current-request-id="<?= (int) (($row['absence_allocation']['absence_request_id'] ?? 0)) ?>" data-current-code="<?= h((string) ($row['absence_allocation']['absence_code'] ?? '')) ?>" data-current-minutes="<?= (int) (($row['absence_allocation']['allocated_minutes'] ?? 0)) ?>">
+                    <tr class="js-results-row" data-user-id="<?= (int) $row['user_id'] ?>" data-work-date="<?= h($row['date']) ?>" data-row-status="<?= h((string) $row['status']) ?>" data-absence-allocated-seconds="<?= (int) ($row['absence_allocated_seconds'] ?? 0) ?>" data-absence-options='<?= h((string) json_encode(array_values((array) ($row['absence_options'] ?? [])), JSON_UNESCAPED_UNICODE)) ?>' data-current-request-id="<?= (int) (($row['absence_allocation']['absence_request_id'] ?? 0)) ?>" data-current-code="<?= h((string) ($row['absence_allocation']['absence_code'] ?? '')) ?>" data-current-minutes="<?= (int) (($row['absence_allocation']['allocated_minutes'] ?? 0)) ?>">
                         <td><span class="badge <?= $row['status'] === 'Validado' ? 'text-bg-success' : 'text-bg-warning' ?>"><?= h($row['status']) ?></span></td>
                         <td><?= h($row['type_label']) ?></td>
                         <td><?= h(format_date_pt($row['date'])) ?></td>
@@ -1216,6 +1216,14 @@ require __DIR__ . '/partials/header.php';
                                 <?php if ($row['status'] === 'Validado'): ?>
                                     <div class="d-inline-flex gap-1 align-items-center">
                                         <span class="text-success small" title="Validado" aria-label="Validado"><i class="bi bi-check-circle-fill"></i></span>
+                                        <button
+                                            type="button"
+                                            class="btn btn-outline-secondary btn-sm js-open-validation-modal"
+                                            title="Editar ausência"
+                                            data-user-name="<?= h((string) $row['user_name']) ?>"
+                                            data-user-number="<?= h($row['user_number'] !== '' ? $row['user_number'] : (string) $row['user_id']) ?>"
+                                            data-work-date="<?= h($row['date']) ?>"
+                                        ><i class="bi bi-person-bounding-box"></i></button>
                                         <form method="post" class="d-inline">
                                             <input type="hidden" name="action" value="reopen_row">
                                             <input type="hidden" name="validate_date" value="<?= h($row['date']) ?>">
@@ -1506,6 +1514,10 @@ require __DIR__ . '/partials/header.php';
                 bhInput.value = (row.querySelector('.js-results-bh-input')?.value || '').trim();
                 state.initialBh = bhInput.value;
                 reasonInput.value = (row.querySelector('.results-bh-reason')?.value || '').trim();
+                const isValidatedRow = (row.dataset.rowStatus || '') === 'Validado';
+                if (saveValidateButton) {
+                    saveValidateButton.classList.toggle('d-none', isValidatedRow);
+                }
                 const absenceSeconds = Number(row.dataset.absenceAllocatedSeconds || '0');
                 if (absenceInfo) {
                     if (absenceSeconds > 0) {
