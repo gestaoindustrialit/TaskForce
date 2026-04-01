@@ -126,11 +126,170 @@ while ($current <= $calendarEnd) {
 
 $monthNames = [1 => 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 $weekDays = ['seg.', 'ter.', 'qua.', 'qui.', 'sex.', 'sáb.', 'dom.'];
+$printWeekDays = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+$printLogo = app_setting($pdo, 'logo_report_dark');
+$companyName = trim((string) app_setting($pdo, 'company_name', ''));
+$companyAddress = trim((string) app_setting($pdo, 'company_address', ''));
+$companyPhone = trim((string) app_setting($pdo, 'company_phone', ''));
+$companyEmail = trim((string) app_setting($pdo, 'company_email', ''));
+
+$yearStart = sprintf('%04d-01-01', $year);
+$yearEnd = sprintf('%04d-12-31', $year);
+$yearEventsStmt = $pdo->prepare('SELECT title, event_type, start_date, end_date, color FROM hr_calendar_events WHERE start_date <= ? AND end_date >= ? ORDER BY start_date ASC');
+$yearEventsStmt->execute([$yearEnd, $yearStart]);
+$yearEvents = $yearEventsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$yearEventMap = [];
+$legendByType = [];
+$priorityByType = ['Feriado' => 1, 'Ponte' => 2, 'Férias' => 3, 'Outros' => 4];
+foreach ($yearEvents as $event) {
+    $eventStart = new DateTimeImmutable((string) $event['start_date']);
+    $eventEnd = new DateTimeImmutable((string) $event['end_date']);
+    $cursor = $eventStart;
+    while ($cursor <= $eventEnd) {
+        if ((int) $cursor->format('Y') === $year) {
+            $dateKey = $cursor->format('Y-m-d');
+            if (!isset($yearEventMap[$dateKey])) {
+                $yearEventMap[$dateKey] = [];
+            }
+            $yearEventMap[$dateKey][] = $event;
+        }
+        $cursor = $cursor->modify('+1 day');
+    }
+    $type = (string) ($event['event_type'] ?: 'Outros');
+    if (!isset($legendByType[$type])) {
+        $legendByType[$type] = (string) ($event['color'] ?: '#6c757d');
+    }
+}
+
+if (!function_exists('calendar_day_background')) {
+    function calendar_day_background(array $events, array $priorityByType): string
+    {
+        if (!$events) {
+            return '';
+        }
+        usort($events, static function (array $a, array $b) use ($priorityByType): int {
+            $typeA = (string) ($a['event_type'] ?? 'Outros');
+            $typeB = (string) ($b['event_type'] ?? 'Outros');
+            $priorityA = $priorityByType[$typeA] ?? 99;
+            $priorityB = $priorityByType[$typeB] ?? 99;
+            if ($priorityA === $priorityB) {
+                return 0;
+            }
+            return $priorityA < $priorityB ? -1 : 1;
+        });
+        return (string) (($events[0]['color'] ?? '') ?: '#6c757d');
+    }
+}
+
+if (!function_exists('calendar_safe_color')) {
+    function calendar_safe_color(string $color, string $fallback = '#6c757d'): string
+    {
+        $normalized = trim($color);
+        if ($normalized !== '' && preg_match('/^#[0-9a-fA-F]{6}$/', $normalized) === 1) {
+            return $normalized;
+        }
+        return $fallback;
+    }
+}
 
 $pageTitle = 'Calendário RH';
 require __DIR__ . '/partials/header.php';
 ?>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+@media print {
+    @page { size: A4 landscape; margin: 8mm; }
+    nav.navbar,
+    .btn-link,
+    .d-flex.justify-content-between.align-items-center.mb-3.gap-2.flex-wrap,
+    .alert,
+    .calendar-screen { display: none !important; }
+    main.container { width: 100% !important; max-width: 100% !important; padding: 0 !important; }
+    .calendar-screen { display: none !important; }
+    .calendar-print-export { display: flex !important; flex-direction: column; min-height: calc(210mm - 16mm); font-size: 11px; }
+    .calendar-print-export, .calendar-print-export * { font-family: "Raleway", Arial, sans-serif !important; }
+    .calendar-print-header { display: flex; justify-content: center; margin-bottom: 4px; }
+    .calendar-print-body { display: flex; flex-direction: column; justify-content: center; flex: 1 1 auto; }
+    .calendar-print-logo { height: 32px; width: auto; object-fit: contain; }
+    .calendar-print-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .calendar-print-month { border: 1px solid #d0d7de; border-radius: 6px; padding: 6px; break-inside: avoid; }
+    .calendar-print-month h3 { font-size: 12px; margin: 0 0 4px; text-transform: capitalize; text-align: center; }
+    .calendar-print-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .calendar-print-table th, .calendar-print-table td { border: 1px solid #dee2e6; text-align: left; padding: 1px 2px; height: 16px; font-size: 9px; }
+    .calendar-print-table th { background: #f8f9fa !important; }
+    .calendar-print-table td.out-month { background: #fafafa !important; color: #adb5bd; }
+    .calendar-print-legend { margin-top: 8px; border-top: 1px solid #d0d7de; padding-top: 6px; display: flex; flex-wrap: wrap; gap: 10px; }
+    .calendar-print-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; }
+    .calendar-print-chip span { width: 10px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid rgba(0,0,0,.15); print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    .calendar-print-footer { margin-top: auto; font-size: 9px; color: #4b5563; border-top: 1px solid #d0d7de; padding-top: 4px; text-align: center; }
+}
+</style>
 <a href="hr.php" class="btn btn-link px-0">&larr; Voltar ao módulo RH</a>
+<div class="calendar-print-export d-none">
+    <div class="calendar-print-header">
+        <?php if (!empty($printLogo)): ?>
+            <img src="<?= h($printLogo) ?>" alt="Logo empresa" class="calendar-print-logo">
+        <?php endif; ?>
+    </div>
+    <div class="calendar-print-body">
+        <div class="calendar-print-grid">
+            <?php for ($printMonth = 1; $printMonth <= 12; $printMonth++): ?>
+                <?php
+                $printStart = new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $printMonth));
+                $printCalendarStart = $printStart->modify('monday this week');
+                $printCalendarEnd = $printStart->modify('last day of this month')->modify('sunday this week');
+                $printDays = [];
+                $cursor = $printCalendarStart;
+                while ($cursor <= $printCalendarEnd) {
+                    $printDays[] = $cursor;
+                    $cursor = $cursor->modify('+1 day');
+                }
+                ?>
+                <section class="calendar-print-month">
+                    <h3><?= h($monthNames[$printMonth] . ' ' . $year) ?></h3>
+                    <table class="calendar-print-table">
+                        <thead>
+                            <tr><?php foreach ($printWeekDays as $dayLabel): ?><th><?= h($dayLabel) ?></th><?php endforeach; ?></tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach (array_chunk($printDays, 7) as $printWeek): ?>
+                                <tr>
+                                    <?php foreach ($printWeek as $printDay): ?>
+                                        <?php
+                                        $printDateKey = $printDay->format('Y-m-d');
+                                        $printEvents = $yearEventMap[$printDateKey] ?? [];
+                                        $bgColor = calendar_day_background($printEvents, $priorityByType);
+                                        $isPrintCurrentMonth = (int) $printDay->format('n') === $printMonth;
+                                        ?>
+                                        <td class="<?= $isPrintCurrentMonth ? '' : 'out-month' ?>" style="<?= $bgColor !== '' ? 'background:' . h($bgColor) . ' !important;box-shadow: inset 0 0 0 999px ' . h($bgColor) . ';border-color:' . h($bgColor) . ';color:#111;' : '' ?>">
+                                            <?= $printDay->format('j') ?>
+                                        </td>
+                                    <?php endforeach; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </section>
+            <?php endfor; ?>
+        </div>
+        <div class="calendar-print-legend">
+            <?php foreach ($legendByType as $type => $legendColor): ?>
+                <?php $legendColorSafe = calendar_safe_color((string) $legendColor); ?>
+                <div class="calendar-print-chip"><span style="background-color:<?= h($legendColorSafe) ?> !important;box-shadow: inset 0 0 0 999px <?= h($legendColorSafe) ?>;"></span><?= h((string) $type) ?></div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    <?php
+    $companyParts = array_values(array_filter([$companyName, $companyAddress, $companyPhone, $companyEmail], static fn (string $value): bool => $value !== ''));
+    ?>
+    <?php if ($companyParts): ?>
+        <div class="calendar-print-footer"><?= h(implode(' • ', $companyParts)) ?></div>
+    <?php endif; ?>
+</div>
+<div class="calendar-screen">
 <div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
     <div>
         <h1 class="h3 mb-1">Calendário anual</h1>
@@ -215,5 +374,6 @@ require __DIR__ . '/partials/header.php';
             </div>
         </div>
     </div>
+</div>
 </div>
 <?php require __DIR__ . '/partials/footer.php'; ?>
