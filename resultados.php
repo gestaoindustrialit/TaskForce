@@ -856,6 +856,24 @@ foreach ($allocationStmt->fetchAll(PDO::FETCH_ASSOC) as $allocationRow) {
     ];
 }
 
+$absenceReasonCatalog = [];
+$absenceReasonCatalogStmt = $pdo->query('SELECT reason_code, sage_code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY reason_code ASC, label ASC');
+foreach ($absenceReasonCatalogStmt->fetchAll(PDO::FETCH_ASSOC) as $catalogRow) {
+    $reasonCode = trim((string) ($catalogRow['reason_code'] ?? ''));
+    $sageCode = normalize_sage_code((string) ($catalogRow['sage_code'] ?? ''));
+    $label = trim((string) ($catalogRow['label'] ?? ''));
+    if ($sageCode === '' && $reasonCode === '' && $label === '') {
+        continue;
+    }
+
+    $fullReason = trim(implode(' - ', array_filter([$reasonCode, $sageCode, $label], static fn ($value): bool => $value !== '')));
+    $absenceReasonCatalog[] = [
+        'absence_code' => $sageCode !== '' ? $sageCode : $reasonCode,
+        'reason' => $fullReason,
+        'color' => (string) ($catalogRow['color'] ?? '#6c757d'),
+    ];
+}
+
 foreach ($daily as &$row) {
     $rowKey = ((int) $row['user_id']) . '|' . (string) $row['date'];
     $dayAbsences = $approvedAbsencesByDay[$rowKey] ?? [];
@@ -1342,6 +1360,7 @@ require __DIR__ . '/partials/header.php';
 
 <script>
 (() => {
+    const absenceReasonCatalog = <?= json_encode($absenceReasonCatalog, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     const validationModalElement = document.getElementById('rowValidationModal');
     if (validationModalElement && window.bootstrap) {
         const validationModal = new bootstrap.Modal(validationModalElement);
@@ -1392,42 +1411,45 @@ require __DIR__ . '/partials/header.php';
             });
         };
 
-        const buildAbsenceLabel = (option) => {
-            const status = (option.status || '').trim();
-            return `${option.absence_code} · ${option.reason || 'Motivo'}${status ? ` (${status})` : ''}`;
-        };
-
         const renderAbsenceFields = (row) => {
             const optionsRaw = row.dataset.absenceOptions || '[]';
-            let options = [];
+            let dayOptions = [];
             try {
-                options = JSON.parse(optionsRaw);
+                dayOptions = JSON.parse(optionsRaw);
             } catch (error) {
-                options = [];
+                dayOptions = [];
             }
             absenceCodeSelect.innerHTML = '';
-            if (!Array.isArray(options) || options.length === 0) {
+            if (!Array.isArray(dayOptions) || dayOptions.length === 0 || !Array.isArray(absenceReasonCatalog) || absenceReasonCatalog.length === 0) {
                 absenceFieldsRow?.classList.add('d-none');
                 absenceHelp?.classList.add('d-none');
                 return;
             }
 
-            options.forEach((option) => {
+            absenceReasonCatalog.forEach((option) => {
                 const opt = document.createElement('option');
-                opt.value = String(option.absence_request_id || 0);
-                opt.textContent = buildAbsenceLabel(option);
+                opt.value = String(option.absence_code || '');
+                opt.textContent = `${option.absence_code || ''} - ${option.reason || 'Motivo'}`.trim();
                 opt.dataset.absenceCode = option.absence_code || '';
-                opt.dataset.defaultMinutes = String(option.default_minutes || 0);
                 opt.dataset.absenceReason = option.reason || '';
                 opt.dataset.absenceColor = option.color || '#6c757d';
                 absenceCodeSelect.appendChild(opt);
             });
 
-            const currentRequestId = String(row.dataset.currentRequestId || '');
-            const selectedOption = Array.from(absenceCodeSelect.options).find((opt) => opt.value === currentRequestId) || absenceCodeSelect.options[0];
+            const defaultDayOption = dayOptions[0] || null;
+            const activeRequestId = String(row.dataset.currentRequestId || defaultDayOption?.absence_request_id || '0');
+            row.dataset.currentRequestId = activeRequestId;
+            const currentCode = (row.dataset.currentCode || defaultDayOption?.absence_code || '').trim();
+            let selectedOption = Array.from(absenceCodeSelect.options).find((opt) => (opt.dataset.absenceCode || '') === currentCode);
+            if (!selectedOption && (row.dataset.currentReason || '').trim() !== '') {
+                selectedOption = Array.from(absenceCodeSelect.options).find((opt) => (opt.dataset.absenceReason || '').trim() === (row.dataset.currentReason || '').trim());
+            }
+            if (!selectedOption) {
+                selectedOption = absenceCodeSelect.options[0];
+            }
             if (selectedOption) {
                 selectedOption.selected = true;
-                const currentMinutes = parseInt(row.dataset.currentMinutes || selectedOption.dataset.defaultMinutes || '0', 10);
+                const currentMinutes = parseInt(row.dataset.currentMinutes || defaultDayOption?.default_minutes || '0', 10);
                 absenceDurationInput.value = `${String(Math.floor(currentMinutes / 60)).padStart(2, '0')}:${String(currentMinutes % 60).padStart(2, '0')}`;
             }
             const currentReason = (row.dataset.currentReason || '').trim();
@@ -1460,7 +1482,7 @@ require __DIR__ . '/partials/header.php';
             payload.set('action', 'save_absence_allocation');
             payload.set('target_user_id', row.dataset.userId || '0');
             payload.set('work_date', row.dataset.workDate || '');
-            payload.set('absence_request_id', selected.value || '0');
+            payload.set('absence_request_id', row.dataset.currentRequestId || '0');
             payload.set('absence_code', selected.dataset.absenceCode || '');
             payload.set('absence_reason', (selected.dataset.absenceReason || row.dataset.currentReason || '').trim());
             payload.set('allocated_duration', (absenceDurationInput.value || '').trim());
@@ -1477,7 +1499,7 @@ require __DIR__ . '/partials/header.php';
             }
 
             const allocatedMinutes = Number(result.allocated_minutes || 0);
-            row.dataset.currentRequestId = selected.value;
+            row.dataset.currentRequestId = row.dataset.currentRequestId || '0';
             row.dataset.currentCode = selected.dataset.absenceCode || '';
             row.dataset.currentReason = (selected.dataset.absenceReason || '').trim();
             row.dataset.currentMinutes = String(allocatedMinutes);
