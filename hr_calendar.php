@@ -178,6 +178,17 @@ if (!function_exists('calendar_day_background')) {
     }
 }
 
+if (!function_exists('calendar_safe_color')) {
+    function calendar_safe_color(string $color, string $fallback = '#6c757d'): string
+    {
+        $normalized = trim($color);
+        if ($normalized !== '' && preg_match('/^#[0-9a-fA-F]{6}$/', $normalized) === 1) {
+            return $normalized;
+        }
+        return $fallback;
+    }
+}
+
 $pageTitle = 'Calendário RH';
 require __DIR__ . '/partials/header.php';
 ?>
@@ -203,7 +214,7 @@ require __DIR__ . '/partials/header.php';
     .calendar-print-table td.out-month { background: #fafafa !important; color: #adb5bd; }
     .calendar-print-legend { margin-top: 8px; border-top: 1px solid #d0d7de; padding-top: 6px; display: flex; flex-wrap: wrap; gap: 10px; }
     .calendar-print-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; }
-    .calendar-print-chip span { width: 10px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid rgba(0,0,0,.15); }
+    .calendar-print-chip span { width: 10px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid rgba(0,0,0,.15); print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
 </style>
 <a href="hr.php" class="btn btn-link px-0">&larr; Voltar ao módulo RH</a>
@@ -256,7 +267,8 @@ require __DIR__ . '/partials/header.php';
     </div>
     <div class="calendar-print-legend">
         <?php foreach ($legendByType as $type => $legendColor): ?>
-            <div class="calendar-print-chip"><span style="background:<?= h($legendColor) ?>"></span><?= h((string) $type) ?></div>
+            <?php $legendColorSafe = calendar_safe_color((string) $legendColor); ?>
+            <div class="calendar-print-chip"><span style="background-color:<?= h($legendColorSafe) ?> !important;box-shadow: inset 0 0 0 999px <?= h($legendColorSafe) ?>;"></span><?= h((string) $type) ?></div>
         <?php endforeach; ?>
     </div>
 </div>
