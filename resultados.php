@@ -330,7 +330,7 @@ function clear_bh_override(PDO $pdo, int $targetUserId, string $workDate, int $a
 
     $pdo->prepare('DELETE FROM shopfloor_bh_overrides WHERE id = ?')->execute([(int) $existing['id']]);
     $logOverrideStmt = $pdo->prepare('INSERT INTO shopfloor_bh_override_logs(user_id, work_date, previous_bh_minutes, new_bh_minutes, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)');
-    $logOverrideStmt->execute([$targetUserId, $workDate, (int) $existing['bh_minutes'], null, 'Override removido (valor automático)', $actorUserId]);
+    $logOverrideStmt->execute([$targetUserId, $workDate, (int) $existing['bh_minutes'], 0, 'Override removido (valor automático)', $actorUserId]);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
@@ -413,45 +413,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
             exit;
         }
 
-        $validAbsenceReasonValues = [];
-        $reasonRows = $pdo->query('SELECT reason_type, reason_code, sage_code, label FROM shopfloor_absence_reasons ORDER BY reason_code ASC, label ASC')->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($reasonRows as $reasonRow) {
-            $reasonType = trim((string) ($reasonRow['reason_type'] ?? 'Ausência'));
-            $reasonCode = trim((string) ($reasonRow['reason_code'] ?? ''));
-            $sageCode = normalize_sage_code((string) ($reasonRow['sage_code'] ?? ''));
-            $label = trim((string) ($reasonRow['label'] ?? ''));
-            if ($reasonCode === '' && $label === '') {
-                continue;
-            }
-
-            $parts = [];
-            if ($reasonType !== '') {
-                $parts[] = $reasonType;
-            }
-            if ($reasonCode !== '') {
-                $parts[] = $reasonCode;
-            }
-            $value = implode(' · ', $parts);
-            if ($sageCode !== '') {
-                $value .= ($value !== '' ? ' - ' : '') . $sageCode;
-            }
-            if ($label !== '') {
-                $value .= ($value !== '' ? ' - ' : '') . $label;
-            }
-            if ($value !== '') {
-                $validAbsenceReasonValues[$value] = true;
-            }
-        }
-
-        if ($absenceReason === '' || !isset($validAbsenceReasonValues[$absenceReason])) {
-            echo json_encode(['ok' => false, 'message' => 'Selecione um motivo de ausência válido da lista.']);
+        $checkStmt = $pdo->prepare('SELECT id, reason FROM shopfloor_absence_requests WHERE id = ? AND user_id = ? AND status <> "Rejeitado" AND start_date <= ? AND end_date >= ? LIMIT 1');
+        $checkStmt->execute([$absenceRequestId, $targetUserId, $workDate, $workDate]);
+        $requestRow = $checkStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$requestRow) {
+            echo json_encode(['ok' => false, 'message' => 'Ausência não encontrada ou indisponível para este dia.']);
             exit;
         }
-
-        $checkStmt = $pdo->prepare('SELECT id FROM shopfloor_absence_requests WHERE id = ? AND user_id = ? AND status <> "Rejeitado" AND start_date <= ? AND end_date >= ? LIMIT 1');
-        $checkStmt->execute([$absenceRequestId, $targetUserId, $workDate, $workDate]);
-        if (!$checkStmt->fetchColumn()) {
-            echo json_encode(['ok' => false, 'message' => 'Ausência não encontrada ou indisponível para este dia.']);
+        if ($absenceReason === '') {
+            $absenceReason = trim((string) ($requestRow['reason'] ?? ''));
+        }
+        if ($absenceReason === '') {
+            echo json_encode(['ok' => false, 'message' => 'Motivo de ausência inválido para este dia.']);
             exit;
         }
 
@@ -815,6 +788,15 @@ $absenceSql = 'SELECT a.id, a.user_id, a.start_date, a.end_date, a.reason, a.dur
 $absenceStmt = $pdo->prepare($absenceSql);
 $absenceStmt->execute($absenceParams);
 $approvedAbsences = $absenceStmt->fetchAll(PDO::FETCH_ASSOC);
+$absenceReasonColorMap = [];
+$absenceReasonColorStmt = $pdo->query('SELECT sage_code, color FROM shopfloor_absence_reasons WHERE is_active = 1');
+foreach ($absenceReasonColorStmt->fetchAll(PDO::FETCH_ASSOC) as $colorRow) {
+    $sage = normalize_sage_code((string) ($colorRow['sage_code'] ?? ''));
+    if ($sage === '') {
+        continue;
+    }
+    $absenceReasonColorMap[$sage] = (string) ($colorRow['color'] ?? '#6c757d');
+}
 
 $approvedAbsencesByDay = [];
 foreach ($approvedAbsences as $absence) {
@@ -836,6 +818,7 @@ foreach ($approvedAbsences as $absence) {
             'absence_code' => $absenceCode,
             'default_minutes' => $resolvedMinutes,
             'reason' => (string) ($absence['reason'] ?? ''),
+            'color' => (string) ($absenceReasonColorMap[$absenceCode] ?? '#6c757d'),
             'status' => (string) ($absence['status'] ?? ''),
         ];
     }
@@ -872,39 +855,6 @@ foreach ($allocationStmt->fetchAll(PDO::FETCH_ASSOC) as $allocationRow) {
         'allocated_minutes' => (int) ($allocationRow['allocated_minutes'] ?? 0),
     ];
 }
-
-$absenceReasonSuggestionsStmt = $pdo->query('SELECT reason_type, reason_code, sage_code, label FROM shopfloor_absence_reasons ORDER BY reason_code ASC, label ASC');
-$absenceReasonSuggestions = [];
-foreach ($absenceReasonSuggestionsStmt->fetchAll(PDO::FETCH_ASSOC) as $reasonRow) {
-    $reasonType = trim((string) ($reasonRow['reason_type'] ?? 'Ausência'));
-    $reasonCode = trim((string) ($reasonRow['reason_code'] ?? ''));
-    $sageCode = normalize_sage_code((string) ($reasonRow['sage_code'] ?? ''));
-    $label = trim((string) ($reasonRow['label'] ?? ''));
-    if ($reasonCode === '' && $label === '') {
-        continue;
-    }
-
-    $parts = [];
-    if ($reasonType !== '') {
-        $parts[] = $reasonType;
-    }
-    if ($reasonCode !== '') {
-        $parts[] = $reasonCode;
-    }
-
-    $value = implode(' · ', $parts);
-    if ($sageCode !== '') {
-        $value .= ($value !== '' ? ' - ' : '') . $sageCode;
-    }
-    if ($label !== '') {
-        $value .= ($value !== '' ? ' - ' : '') . $label;
-    }
-
-    if ($value !== '') {
-        $absenceReasonSuggestions[$value] = true;
-    }
-}
-$absenceReasonSuggestions = array_keys($absenceReasonSuggestions);
 
 foreach ($daily as &$row) {
     $rowKey = ((int) $row['user_id']) . '|' . (string) $row['date'];
@@ -1368,21 +1318,12 @@ require __DIR__ . '/partials/header.php';
                 </div>
                 <div class="row g-2 mt-1 js-row-validation-absence-fields d-none">
                     <div class="col-md-8">
-                        <label class="form-label">Código de ausência</label>
+                        <label class="form-label">Motivo da ausência</label>
                         <select class="form-select js-row-validation-absence-code"></select>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Tempo associado (HH:MM)</label>
                         <input type="text" class="form-control js-row-validation-absence-duration" placeholder="02:00">
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label">Motivo da ausência</label>
-                        <select class="form-select js-row-validation-absence-reason">
-                            <option value="">Selecionar motivo</option>
-                            <?php foreach ($absenceReasonSuggestions as $suggestion): ?>
-                                <option value="<?= h($suggestion) ?>"><?= h($suggestion) ?></option>
-                            <?php endforeach; ?>
-                        </select>
                     </div>
                 </div>
                 <p class="small text-muted mt-2 mb-0 js-row-validation-absence-help d-none">O tempo associado é somado ao efectivo para reduzir o Tempo BH negativo.</p>
@@ -1413,7 +1354,6 @@ require __DIR__ . '/partials/header.php';
         const absenceFieldsRow = validationModalElement.querySelector('.js-row-validation-absence-fields');
         const absenceCodeSelect = validationModalElement.querySelector('.js-row-validation-absence-code');
         const absenceDurationInput = validationModalElement.querySelector('.js-row-validation-absence-duration');
-        const absenceReasonInput = validationModalElement.querySelector('.js-row-validation-absence-reason');
         const absenceHelp = validationModalElement.querySelector('.js-row-validation-absence-help');
         const state = { row: null };
 
@@ -1479,6 +1419,7 @@ require __DIR__ . '/partials/header.php';
                 opt.dataset.absenceCode = option.absence_code || '';
                 opt.dataset.defaultMinutes = String(option.default_minutes || 0);
                 opt.dataset.absenceReason = option.reason || '';
+                opt.dataset.absenceColor = option.color || '#6c757d';
                 absenceCodeSelect.appendChild(opt);
             });
 
@@ -1492,20 +1433,17 @@ require __DIR__ . '/partials/header.php';
             const currentReason = (row.dataset.currentReason || '').trim();
             const fallbackReason = (selectedOption?.dataset.absenceReason || '').trim();
             const reasonValue = currentReason !== '' ? currentReason : fallbackReason;
-            if (absenceReasonInput) {
-                const optionExists = Array.from(absenceReasonInput.options || []).some((opt) => opt.value === reasonValue);
-                absenceReasonInput.value = optionExists ? reasonValue : '';
-            }
+            row.dataset.currentReason = reasonValue;
+            const selectedColor = (selectedOption?.dataset.absenceColor || '#6c757d').trim();
+            absenceCodeSelect.style.borderLeft = `0.35rem solid ${selectedColor}`;
             absenceCodeSelect.onchange = () => {
                 const selectedOnChange = absenceCodeSelect.options[absenceCodeSelect.selectedIndex];
-                if (!selectedOnChange || !absenceReasonInput) {
+                if (!selectedOnChange) {
                     return;
                 }
-                const mappedReason = (selectedOnChange.dataset.absenceReason || '').trim();
-                const hasMappedReason = Array.from(absenceReasonInput.options || []).some((opt) => opt.value === mappedReason);
-                if (hasMappedReason) {
-                    absenceReasonInput.value = mappedReason;
-                }
+                row.dataset.currentReason = (selectedOnChange.dataset.absenceReason || '').trim();
+                const changedColor = (selectedOnChange.dataset.absenceColor || '#6c757d').trim();
+                absenceCodeSelect.style.borderLeft = `0.35rem solid ${changedColor}`;
             };
 
             absenceFieldsRow?.classList.remove('d-none');
@@ -1518,18 +1456,13 @@ require __DIR__ . '/partials/header.php';
             }
             const selected = absenceCodeSelect.options[absenceCodeSelect.selectedIndex];
             if (!selected) return true;
-            if (!absenceReasonInput || (absenceReasonInput.value || '').trim() === '') {
-                alert('Selecione um motivo de ausência da lista.');
-                return false;
-            }
-
             const payload = new URLSearchParams();
             payload.set('action', 'save_absence_allocation');
             payload.set('target_user_id', row.dataset.userId || '0');
             payload.set('work_date', row.dataset.workDate || '');
             payload.set('absence_request_id', selected.value || '0');
             payload.set('absence_code', selected.dataset.absenceCode || '');
-            payload.set('absence_reason', (absenceReasonInput?.value || '').trim());
+            payload.set('absence_reason', (selected.dataset.absenceReason || row.dataset.currentReason || '').trim());
             payload.set('allocated_duration', (absenceDurationInput.value || '').trim());
 
             const response = await fetch('resultados.php', {
@@ -1546,7 +1479,7 @@ require __DIR__ . '/partials/header.php';
             const allocatedMinutes = Number(result.allocated_minutes || 0);
             row.dataset.currentRequestId = selected.value;
             row.dataset.currentCode = selected.dataset.absenceCode || '';
-            row.dataset.currentReason = (absenceReasonInput?.value || '').trim();
+            row.dataset.currentReason = (selected.dataset.absenceReason || '').trim();
             row.dataset.currentMinutes = String(allocatedMinutes);
             row.dataset.absenceAllocatedSeconds = String(allocatedMinutes * 60);
             const summary = row.querySelector('.js-row-absence-summary');
