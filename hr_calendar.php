@@ -127,6 +127,7 @@ while ($current <= $calendarEnd) {
 $monthNames = [1 => 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 $weekDays = ['seg.', 'ter.', 'qua.', 'qui.', 'sex.', 'sáb.', 'dom.'];
 $printWeekDays = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+$printLogo = app_setting($pdo, 'logo_report_dark');
 
 $yearStart = sprintf('%04d-01-01', $year);
 $yearEnd = sprintf('%04d-12-31', $year);
@@ -183,8 +184,16 @@ require __DIR__ . '/partials/header.php';
 <style>
 @media print {
     @page { size: A4 landscape; margin: 8mm; }
+    nav.navbar,
+    .btn-link,
+    .d-flex.justify-content-between.align-items-center.mb-3.gap-2.flex-wrap,
+    .alert,
+    .calendar-screen { display: none !important; }
+    main.container { width: 100% !important; max-width: 100% !important; padding: 0 !important; }
     .calendar-screen { display: none !important; }
     .calendar-print-export { display: block !important; font-size: 11px; }
+    .calendar-print-header { display: flex; justify-content: center; margin-bottom: 6px; }
+    .calendar-print-logo { height: 32px; width: auto; object-fit: contain; }
     .calendar-print-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .calendar-print-month { border: 1px solid #d0d7de; border-radius: 6px; padding: 6px; break-inside: avoid; }
     .calendar-print-month h3 { font-size: 12px; margin: 0 0 4px; text-transform: capitalize; text-align: center; }
@@ -199,7 +208,12 @@ require __DIR__ . '/partials/header.php';
 </style>
 <a href="hr.php" class="btn btn-link px-0">&larr; Voltar ao módulo RH</a>
 <div class="calendar-print-export d-none">
-    <h1 class="h5 mb-1">Calendário anual <?= (int) $year ?></h1>
+    <div class="calendar-print-header">
+        <?php if (!empty($printLogo)): ?>
+            <img src="<?= h($printLogo) ?>" alt="Logo empresa" class="calendar-print-logo">
+        <?php endif; ?>
+    </div>
+    <h1 class="h5 mb-1 text-center">Calendário anual <?= (int) $year ?></h1>
     <div class="calendar-print-grid">
         <?php for ($printMonth = 1; $printMonth <= 12; $printMonth++): ?>
             <?php
@@ -229,7 +243,7 @@ require __DIR__ . '/partials/header.php';
                                     $bgColor = calendar_day_background($printEvents, $priorityByType);
                                     $isPrintCurrentMonth = (int) $printDay->format('n') === $printMonth;
                                     ?>
-                                    <td class="<?= $isPrintCurrentMonth ? '' : 'out-month' ?>" style="<?= $bgColor !== '' ? 'background:' . h($bgColor) . ' !important;color:#111;' : '' ?>">
+                                    <td class="<?= $isPrintCurrentMonth ? '' : 'out-month' ?>" style="<?= $bgColor !== '' ? 'background:' . h($bgColor) . ' !important;box-shadow: inset 0 0 0 999px ' . h($bgColor) . ';border-color:' . h($bgColor) . ';color:#111;' : '' ?>">
                                         <?= $printDay->format('j') ?>
                                     </td>
                                 <?php endforeach; ?>
