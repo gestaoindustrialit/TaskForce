@@ -128,6 +128,10 @@ $monthNames = [1 => 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 
 $weekDays = ['seg.', 'ter.', 'qua.', 'qui.', 'sex.', 'sáb.', 'dom.'];
 $printWeekDays = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
 $printLogo = app_setting($pdo, 'logo_report_dark');
+$companyName = trim((string) app_setting($pdo, 'company_name', ''));
+$companyAddress = trim((string) app_setting($pdo, 'company_address', ''));
+$companyPhone = trim((string) app_setting($pdo, 'company_phone', ''));
+$companyEmail = trim((string) app_setting($pdo, 'company_email', ''));
 
 $yearStart = sprintf('%04d-01-01', $year);
 $yearEnd = sprintf('%04d-12-31', $year);
@@ -192,6 +196,9 @@ if (!function_exists('calendar_safe_color')) {
 $pageTitle = 'Calendário RH';
 require __DIR__ . '/partials/header.php';
 ?>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 @media print {
     @page { size: A4 landscape; margin: 8mm; }
@@ -203,6 +210,7 @@ require __DIR__ . '/partials/header.php';
     main.container { width: 100% !important; max-width: 100% !important; padding: 0 !important; }
     .calendar-screen { display: none !important; }
     .calendar-print-export { display: block !important; font-size: 11px; }
+    .calendar-print-export, .calendar-print-export * { font-family: "Raleway", Arial, sans-serif !important; }
     .calendar-print-header { display: flex; justify-content: center; margin-bottom: 6px; }
     .calendar-print-logo { height: 32px; width: auto; object-fit: contain; }
     .calendar-print-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -215,6 +223,7 @@ require __DIR__ . '/partials/header.php';
     .calendar-print-legend { margin-top: 8px; border-top: 1px solid #d0d7de; padding-top: 6px; display: flex; flex-wrap: wrap; gap: 10px; }
     .calendar-print-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; }
     .calendar-print-chip span { width: 10px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid rgba(0,0,0,.15); print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    .calendar-print-footer { margin-top: 6px; font-size: 9px; color: #4b5563; border-top: 1px solid #d0d7de; padding-top: 4px; text-align: center; }
 }
 </style>
 <a href="hr.php" class="btn btn-link px-0">&larr; Voltar ao módulo RH</a>
@@ -271,6 +280,12 @@ require __DIR__ . '/partials/header.php';
             <div class="calendar-print-chip"><span style="background-color:<?= h($legendColorSafe) ?> !important;box-shadow: inset 0 0 0 999px <?= h($legendColorSafe) ?>;"></span><?= h((string) $type) ?></div>
         <?php endforeach; ?>
     </div>
+    <?php
+    $companyParts = array_values(array_filter([$companyName, $companyAddress, $companyPhone, $companyEmail], static fn (string $value): bool => $value !== ''));
+    ?>
+    <?php if ($companyParts): ?>
+        <div class="calendar-print-footer"><?= h(implode(' • ', $companyParts)) ?></div>
+    <?php endif; ?>
 </div>
 <div class="calendar-screen">
 <div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
