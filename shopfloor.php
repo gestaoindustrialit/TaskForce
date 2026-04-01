@@ -457,6 +457,85 @@ $vacationRequestsStmt = $pdo->prepare('SELECT id, start_date, end_date, total_da
 $vacationRequestsStmt->execute([$userId]);
 $vacationRequests = $vacationRequestsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$vacationYear = (int) ($_GET['vacation_year'] ?? date('Y'));
+if ($vacationYear < 2000 || $vacationYear > 2100) {
+    $vacationYear = (int) date('Y');
+}
+
+$scheduleContextStmt = $pdo->prepare('SELECT s.name AS schedule_name, s.weekdays_mask FROM users u LEFT JOIN hr_schedules s ON s.id = u.schedule_id WHERE u.id = ? LIMIT 1');
+$scheduleContextStmt->execute([$userId]);
+$scheduleContext = $scheduleContextStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+$scheduleName = trim((string) ($scheduleContext['schedule_name'] ?? ''));
+$scheduleGap = '';
+if ($scheduleName !== '' && preg_match('/\bGAP\s*([1-3])\b/i', $scheduleName, $gapMatches) === 1) {
+    $scheduleGap = 'GAP' . $gapMatches[1];
+}
+$scheduleWeekdays = array_filter(
+    array_map('trim', explode(',', (string) ($scheduleContext['weekdays_mask'] ?? '1,2,3,4,5'))),
+    static fn (string $day): bool => preg_match('/^[1-7]$/', $day) === 1
+);
+if ($scheduleWeekdays === []) {
+    $scheduleWeekdays = ['1', '2', '3', '4', '5'];
+}
+$scheduleWeekdaysMap = array_fill_keys($scheduleWeekdays, true);
+
+$yearStart = sprintf('%04d-01-01', $vacationYear);
+$yearEnd = sprintf('%04d-12-31', $vacationYear);
+
+$calendarEventsStmt = $pdo->prepare('SELECT event_type, title, start_date, end_date FROM hr_calendar_events WHERE start_date <= ? AND end_date >= ?');
+$calendarEventsStmt->execute([$yearEnd, $yearStart]);
+$calendarEvents = $calendarEventsStmt->fetchAll(PDO::FETCH_ASSOC);
+$blockedDates = [];
+foreach ($calendarEvents as $calendarEvent) {
+    $eventType = trim((string) ($calendarEvent['event_type'] ?? ''));
+    $eventTitle = mb_strtolower(trim((string) ($calendarEvent['title'] ?? '')));
+    $isGlobalBlocked = in_array($eventType, ['Feriado', 'Ponte'], true);
+    $isVacationBlocked = $eventType === 'Férias' && ($scheduleGap === '' || strpos($eventTitle, mb_strtolower($scheduleGap)) !== false || strpos($eventTitle, 'gerais') !== false);
+    if (!$isGlobalBlocked && !$isVacationBlocked) {
+        continue;
+    }
+
+    try {
+        $eventStart = new DateTimeImmutable(max((string) $calendarEvent['start_date'], $yearStart));
+        $eventEnd = new DateTimeImmutable(min((string) $calendarEvent['end_date'], $yearEnd));
+    } catch (Exception $exception) {
+        continue;
+    }
+
+    for ($currentDate = $eventStart; $currentDate <= $eventEnd; $currentDate = $currentDate->modify('+1 day')) {
+        $blockedDates[$currentDate->format('Y-m-d')] = true;
+    }
+}
+
+$expectedWorkDays = 0;
+for ($currentDate = new DateTimeImmutable($yearStart); $currentDate <= new DateTimeImmutable($yearEnd); $currentDate = $currentDate->modify('+1 day')) {
+    $weekday = (string) $currentDate->format('N');
+    $dateKey = $currentDate->format('Y-m-d');
+    if (isset($scheduleWeekdaysMap[$weekday]) && !isset($blockedDates[$dateKey])) {
+        $expectedWorkDays++;
+    }
+}
+
+$workedDaysStmt = $pdo->prepare('SELECT COUNT(DISTINCT date(occurred_at)) FROM shopfloor_time_entries WHERE user_id = ? AND entry_type = "entrada" AND date(occurred_at) BETWEEN ? AND ?');
+$workedDaysStmt->execute([$userId, $yearStart, $yearEnd]);
+$workedDays = (int) $workedDaysStmt->fetchColumn();
+
+$assignedVacationDaysStmt = $pdo->prepare('SELECT COALESCE(assigned_days, 0) FROM hr_vacation_balances WHERE user_id = ? AND year = ? LIMIT 1');
+$assignedVacationDaysStmt->execute([$userId, $vacationYear]);
+$assignedVacationDays = (float) $assignedVacationDaysStmt->fetchColumn();
+
+$requestedVacationDaysStmt = $pdo->prepare('SELECT COALESCE(SUM(total_days), 0) FROM shopfloor_vacation_requests WHERE user_id = ? AND status LIKE "Pendente%" AND start_date <= ? AND end_date >= ?');
+$requestedVacationDaysStmt->execute([$userId, $yearEnd, $yearStart]);
+$requestedVacationDays = (float) $requestedVacationDaysStmt->fetchColumn();
+
+$validatedVacationDaysStmt = $pdo->prepare('SELECT COALESCE(SUM(total_days), 0) FROM shopfloor_vacation_requests WHERE user_id = ? AND status = "Aprovado" AND start_date <= ? AND end_date >= ?');
+$validatedVacationDaysStmt->execute([$userId, $yearEnd, $yearStart]);
+$validatedVacationDays = (float) $validatedVacationDaysStmt->fetchColumn();
+
+$takenVacationDaysStmt = $pdo->prepare('SELECT COALESCE(SUM(total_days), 0) FROM hr_vacation_events WHERE user_id = ? AND status = "Aprovado" AND start_date <= ? AND end_date >= ?');
+$takenVacationDaysStmt->execute([$userId, $yearEnd, $yearStart]);
+$takenVacationDays = (float) $takenVacationDaysStmt->fetchColumn();
+
 $announcementTargetUsers = [];
 if ($isAdmin || $isRh) {
     $announcementTargetUsersStmt = $pdo->query('SELECT id, name, username FROM users ORDER BY name COLLATE NOCASE ASC');
@@ -826,7 +905,30 @@ require __DIR__ . '/partials/header.php';
     <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
             <h2 class="h4 mb-0">Pedidos de férias</h2>
-            <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#vacationFormPanel" aria-expanded="false" aria-controls="vacationFormPanel">Novo pedido</button>
+            <div class="d-flex align-items-center gap-2">
+                <form method="get" class="d-flex align-items-center gap-2">
+                    <?php if ($rhFilter !== 'todos'): ?><input type="hidden" name="rh_filter" value="<?= h($rhFilter) ?>"><?php endif; ?>
+                    <input type="number" name="vacation_year" class="form-control form-control-sm" style="width:100px" min="2000" max="2100" value="<?= (int) $vacationYear ?>">
+                    <button class="btn btn-outline-secondary btn-sm">Ano</button>
+                </form>
+                <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#vacationFormPanel" aria-expanded="false" aria-controls="vacationFormPanel">Novo pedido</button>
+            </div>
+        </div>
+        <div class="row g-2 mb-3">
+            <div class="col-lg-3 col-md-6">
+                <div class="border rounded p-2 bg-white h-100">
+                    <div class="small text-secondary">Ano analisado</div>
+                    <div class="fw-semibold">
+                        <?= (int) $vacationYear ?>
+                        <?php if ($scheduleGap !== ''): ?><span class="text-secondary"> · <?= h($scheduleGap) ?></span><?php endif; ?>
+                    </div>
+                    <div class="small text-secondary">Supostos: <?= (int) $expectedWorkDays ?> · Trabalhados: <?= (int) $workedDays ?></div>
+                </div>
+            </div>
+            <div class="col-lg-2 col-md-6"><div class="border rounded p-2 bg-white h-100"><div class="small text-secondary">Atribuídos</div><div class="fw-semibold"><?= h(number_format($assignedVacationDays, 1, ',', '.')) ?> dias</div></div></div>
+            <div class="col-lg-2 col-md-6"><div class="border rounded p-2 bg-white h-100"><div class="small text-secondary">Pedidos</div><div class="fw-semibold"><?= h(number_format($requestedVacationDays, 1, ',', '.')) ?> dias</div></div></div>
+            <div class="col-lg-2 col-md-6"><div class="border rounded p-2 bg-white h-100"><div class="small text-secondary">Validados</div><div class="fw-semibold"><?= h(number_format($validatedVacationDays, 1, ',', '.')) ?> dias</div></div></div>
+            <div class="col-lg-3 col-md-12"><div class="border rounded p-2 bg-white h-100"><div class="small text-secondary">Gozados (registo RH)</div><div class="fw-semibold"><?= h(number_format($takenVacationDays, 1, ',', '.')) ?> dias</div></div></div>
         </div>
 
         <div class="collapse mb-3" id="vacationFormPanel">
