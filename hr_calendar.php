@@ -209,9 +209,10 @@ require __DIR__ . '/partials/header.php';
     .calendar-screen { display: none !important; }
     main.container { width: 100% !important; max-width: 100% !important; padding: 0 !important; }
     .calendar-screen { display: none !important; }
-    .calendar-print-export { display: block !important; font-size: 11px; }
+    .calendar-print-export { display: flex !important; flex-direction: column; min-height: calc(210mm - 16mm); font-size: 11px; }
     .calendar-print-export, .calendar-print-export * { font-family: "Raleway", Arial, sans-serif !important; }
-    .calendar-print-header { display: flex; justify-content: center; margin-bottom: 6px; }
+    .calendar-print-header { display: flex; justify-content: center; margin-bottom: 4px; }
+    .calendar-print-body { display: flex; flex-direction: column; justify-content: center; flex: 1 1 auto; }
     .calendar-print-logo { height: 32px; width: auto; object-fit: contain; }
     .calendar-print-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .calendar-print-month { border: 1px solid #d0d7de; border-radius: 6px; padding: 6px; break-inside: avoid; }
@@ -223,7 +224,7 @@ require __DIR__ . '/partials/header.php';
     .calendar-print-legend { margin-top: 8px; border-top: 1px solid #d0d7de; padding-top: 6px; display: flex; flex-wrap: wrap; gap: 10px; }
     .calendar-print-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; }
     .calendar-print-chip span { width: 10px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid rgba(0,0,0,.15); print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    .calendar-print-footer { margin-top: 6px; font-size: 9px; color: #4b5563; border-top: 1px solid #d0d7de; padding-top: 4px; text-align: center; }
+    .calendar-print-footer { margin-top: auto; font-size: 9px; color: #4b5563; border-top: 1px solid #d0d7de; padding-top: 4px; text-align: center; }
 }
 </style>
 <a href="hr.php" class="btn btn-link px-0">&larr; Voltar ao módulo RH</a>
@@ -233,52 +234,53 @@ require __DIR__ . '/partials/header.php';
             <img src="<?= h($printLogo) ?>" alt="Logo empresa" class="calendar-print-logo">
         <?php endif; ?>
     </div>
-    <h1 class="h5 mb-1 text-center">Calendário anual <?= (int) $year ?></h1>
-    <div class="calendar-print-grid">
-        <?php for ($printMonth = 1; $printMonth <= 12; $printMonth++): ?>
-            <?php
-            $printStart = new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $printMonth));
-            $printCalendarStart = $printStart->modify('monday this week');
-            $printCalendarEnd = $printStart->modify('last day of this month')->modify('sunday this week');
-            $printDays = [];
-            $cursor = $printCalendarStart;
-            while ($cursor <= $printCalendarEnd) {
-                $printDays[] = $cursor;
-                $cursor = $cursor->modify('+1 day');
-            }
-            ?>
-            <section class="calendar-print-month">
-                <h3><?= h($monthNames[$printMonth] . ' ' . $year) ?></h3>
-                <table class="calendar-print-table">
-                    <thead>
-                        <tr><?php foreach ($printWeekDays as $dayLabel): ?><th><?= h($dayLabel) ?></th><?php endforeach; ?></tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach (array_chunk($printDays, 7) as $printWeek): ?>
-                            <tr>
-                                <?php foreach ($printWeek as $printDay): ?>
-                                    <?php
-                                    $printDateKey = $printDay->format('Y-m-d');
-                                    $printEvents = $yearEventMap[$printDateKey] ?? [];
-                                    $bgColor = calendar_day_background($printEvents, $priorityByType);
-                                    $isPrintCurrentMonth = (int) $printDay->format('n') === $printMonth;
-                                    ?>
-                                    <td class="<?= $isPrintCurrentMonth ? '' : 'out-month' ?>" style="<?= $bgColor !== '' ? 'background:' . h($bgColor) . ' !important;box-shadow: inset 0 0 0 999px ' . h($bgColor) . ';border-color:' . h($bgColor) . ';color:#111;' : '' ?>">
-                                        <?= $printDay->format('j') ?>
-                                    </td>
-                                <?php endforeach; ?>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </section>
-        <?php endfor; ?>
-    </div>
-    <div class="calendar-print-legend">
-        <?php foreach ($legendByType as $type => $legendColor): ?>
-            <?php $legendColorSafe = calendar_safe_color((string) $legendColor); ?>
-            <div class="calendar-print-chip"><span style="background-color:<?= h($legendColorSafe) ?> !important;box-shadow: inset 0 0 0 999px <?= h($legendColorSafe) ?>;"></span><?= h((string) $type) ?></div>
-        <?php endforeach; ?>
+    <div class="calendar-print-body">
+        <div class="calendar-print-grid">
+            <?php for ($printMonth = 1; $printMonth <= 12; $printMonth++): ?>
+                <?php
+                $printStart = new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $printMonth));
+                $printCalendarStart = $printStart->modify('monday this week');
+                $printCalendarEnd = $printStart->modify('last day of this month')->modify('sunday this week');
+                $printDays = [];
+                $cursor = $printCalendarStart;
+                while ($cursor <= $printCalendarEnd) {
+                    $printDays[] = $cursor;
+                    $cursor = $cursor->modify('+1 day');
+                }
+                ?>
+                <section class="calendar-print-month">
+                    <h3><?= h($monthNames[$printMonth] . ' ' . $year) ?></h3>
+                    <table class="calendar-print-table">
+                        <thead>
+                            <tr><?php foreach ($printWeekDays as $dayLabel): ?><th><?= h($dayLabel) ?></th><?php endforeach; ?></tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach (array_chunk($printDays, 7) as $printWeek): ?>
+                                <tr>
+                                    <?php foreach ($printWeek as $printDay): ?>
+                                        <?php
+                                        $printDateKey = $printDay->format('Y-m-d');
+                                        $printEvents = $yearEventMap[$printDateKey] ?? [];
+                                        $bgColor = calendar_day_background($printEvents, $priorityByType);
+                                        $isPrintCurrentMonth = (int) $printDay->format('n') === $printMonth;
+                                        ?>
+                                        <td class="<?= $isPrintCurrentMonth ? '' : 'out-month' ?>" style="<?= $bgColor !== '' ? 'background:' . h($bgColor) . ' !important;box-shadow: inset 0 0 0 999px ' . h($bgColor) . ';border-color:' . h($bgColor) . ';color:#111;' : '' ?>">
+                                            <?= $printDay->format('j') ?>
+                                        </td>
+                                    <?php endforeach; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </section>
+            <?php endfor; ?>
+        </div>
+        <div class="calendar-print-legend">
+            <?php foreach ($legendByType as $type => $legendColor): ?>
+                <?php $legendColorSafe = calendar_safe_color((string) $legendColor); ?>
+                <div class="calendar-print-chip"><span style="background-color:<?= h($legendColorSafe) ?> !important;box-shadow: inset 0 0 0 999px <?= h($legendColorSafe) ?>;"></span><?= h((string) $type) ?></div>
+            <?php endforeach; ?>
+        </div>
     </div>
     <?php
     $companyParts = array_values(array_filter([$companyName, $companyAddress, $companyPhone, $companyEmail], static fn (string $value): bool => $value !== ''));
