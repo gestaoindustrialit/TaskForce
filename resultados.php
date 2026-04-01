@@ -130,7 +130,7 @@ function format_date_pt(string $date): string
     ];
     $weekday = $weekdayMap[(int) date('N', $timestamp)] ?? date('D', $timestamp);
 
-    return date('d-m-Y', $timestamp) . ' (' . $weekday . ')';
+    return date('d/m/y', $timestamp) . ' ' . $weekday;
 }
 
 
@@ -410,6 +410,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
 
         if ($targetUserId <= 0 || !DateTimeImmutable::createFromFormat('Y-m-d', $workDate) || $absenceRequestId <= 0 || $absenceCode === '' || $allocatedMinutes === null) {
             echo json_encode(['ok' => false, 'message' => 'Dados inválidos para guardar relação de ausência.']);
+            exit;
+        }
+
+        $validAbsenceReasonValues = [];
+        $reasonRows = $pdo->query('SELECT reason_type, reason_code, sage_code, label FROM shopfloor_absence_reasons ORDER BY reason_code ASC, label ASC')->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($reasonRows as $reasonRow) {
+            $reasonType = trim((string) ($reasonRow['reason_type'] ?? 'Ausência'));
+            $reasonCode = trim((string) ($reasonRow['reason_code'] ?? ''));
+            $sageCode = normalize_sage_code((string) ($reasonRow['sage_code'] ?? ''));
+            $label = trim((string) ($reasonRow['label'] ?? ''));
+            if ($reasonCode === '' && $label === '') {
+                continue;
+            }
+
+            $parts = [];
+            if ($reasonType !== '') {
+                $parts[] = $reasonType;
+            }
+            if ($reasonCode !== '') {
+                $parts[] = $reasonCode;
+            }
+            $value = implode(' · ', $parts);
+            if ($sageCode !== '') {
+                $value .= ($value !== '' ? ' - ' : '') . $sageCode;
+            }
+            if ($label !== '') {
+                $value .= ($value !== '' ? ' - ' : '') . $label;
+            }
+            if ($value !== '') {
+                $validAbsenceReasonValues[$value] = true;
+            }
+        }
+
+        if ($absenceReason === '' || !isset($validAbsenceReasonValues[$absenceReason])) {
+            echo json_encode(['ok' => false, 'message' => 'Selecione um motivo de ausência válido da lista.']);
             exit;
         }
 
@@ -838,7 +873,7 @@ foreach ($allocationStmt->fetchAll(PDO::FETCH_ASSOC) as $allocationRow) {
     ];
 }
 
-$absenceReasonSuggestionsStmt = $pdo->query('SELECT reason_type, reason_code, sage_code, label FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY reason_code ASC, label ASC');
+$absenceReasonSuggestionsStmt = $pdo->query('SELECT reason_type, reason_code, sage_code, label FROM shopfloor_absence_reasons ORDER BY reason_code ASC, label ASC');
 $absenceReasonSuggestions = [];
 foreach ($absenceReasonSuggestionsStmt->fetchAll(PDO::FETCH_ASSOC) as $reasonRow) {
     $reasonType = trim((string) ($reasonRow['reason_type'] ?? 'Ausência'));
@@ -978,15 +1013,15 @@ require __DIR__ . '/partials/header.php';
 
     .results-table th,
     .results-table td {
-        padding: 0.35rem 0.3rem;
+        padding: 0.26rem 0.2rem;
         white-space: nowrap;
         vertical-align: middle;
     }
 
     .results-table .results-entry-col {
-        width: 5.1rem;
-        min-width: 5.1rem;
-        max-width: 5.1rem;
+        width: 3.7rem;
+        min-width: 3.7rem;
+        max-width: 3.7rem;
         text-align: center;
     }
 
@@ -1005,15 +1040,15 @@ require __DIR__ . '/partials/header.php';
     }
 
     .results-table .results-entry-display {
-        font-size: 0.82rem;
-        min-height: 1.8rem;
+        font-size: 0.74rem;
+        min-height: 1.2rem;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         width: 100%;
-        border: 1px solid #dee2e6;
-        border-radius: 0.25rem;
-        background: #fff;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
     }
 
     .results-table .results-bh-input {
@@ -1042,7 +1077,21 @@ require __DIR__ . '/partials/header.php';
     .results-validation-modal-entry-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 0.75rem;
+        gap: 0.55rem;
+    }
+
+    .results-validation-modal-entry-grid .form-control {
+        font-size: 0.86rem;
+        padding: 0.22rem 0.45rem;
+    }
+
+    .results-bh-readonly {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #495057;
+        min-height: 2rem;
+        display: flex;
+        align-items: center;
     }
 </style>
 <h1 class="h3 mb-3">Resultados de picagens</h1>
@@ -1259,7 +1308,7 @@ require __DIR__ . '/partials/header.php';
                                             title="Editar ausência"
                                             data-user-name="<?= h((string) $row['user_name']) ?>"
                                             data-user-number="<?= h($row['user_number'] !== '' ? $row['user_number'] : (string) $row['user_id']) ?>"
-                                            data-work-date="<?= h($row['date']) ?>"
+                                            data-work-date="<?= h(format_date_pt((string) $row['date'])) ?>"
                                         ><i class="bi bi-person-bounding-box"></i></button>
                                         <form method="post" class="d-inline">
                                             <input type="hidden" name="action" value="reopen_row">
@@ -1276,7 +1325,7 @@ require __DIR__ . '/partials/header.php';
                                             data-row-form-id="<?= h($rowFormId) ?>"
                                             data-user-name="<?= h((string) $row['user_name']) ?>"
                                             data-user-number="<?= h($row['user_number'] !== '' ? $row['user_number'] : (string) $row['user_id']) ?>"
-                                            data-work-date="<?= h($row['date']) ?>"
+                                            data-work-date="<?= h(format_date_pt((string) $row['date'])) ?>"
                                         ><i class="bi bi-pencil-square"></i></button>
                                         <button class="btn btn-outline-success btn-sm" type="submit" form="<?= h($rowFormId) ?>">Validar</button>
                                     </div>
@@ -1314,11 +1363,7 @@ require __DIR__ . '/partials/header.php';
                 <div class="row g-2">
                     <div class="col-md-4">
                         <label class="form-label">Tempo BH (±HH:MM)</label>
-                        <input type="text" class="form-control js-row-validation-bh" placeholder="+00:00">
-                    </div>
-                    <div class="col-md-8">
-                        <label class="form-label">Motivo (opcional)</label>
-                        <input type="text" class="form-control js-row-validation-reason" placeholder="Ex.: ajuste manual acordado com RH">
+                        <div class="form-control-plaintext results-bh-readonly js-row-validation-bh">+00:00</div>
                     </div>
                 </div>
                 <div class="row g-2 mt-1 js-row-validation-absence-fields d-none">
@@ -1332,12 +1377,12 @@ require __DIR__ . '/partials/header.php';
                     </div>
                     <div class="col-12">
                         <label class="form-label">Motivo da ausência</label>
-                        <input type="text" class="form-control js-row-validation-absence-reason" list="rowValidationAbsenceReasonList" placeholder="Ex.: Falta com perda de remuneração">
-                        <datalist id="rowValidationAbsenceReasonList">
+                        <select class="form-select js-row-validation-absence-reason">
+                            <option value="">Selecionar motivo</option>
                             <?php foreach ($absenceReasonSuggestions as $suggestion): ?>
-                                <option value="<?= h($suggestion) ?>"></option>
+                                <option value="<?= h($suggestion) ?>"><?= h($suggestion) ?></option>
                             <?php endforeach; ?>
-                        </datalist>
+                        </select>
                     </div>
                 </div>
                 <p class="small text-muted mt-2 mb-0 js-row-validation-absence-help d-none">O tempo associado é somado ao efectivo para reduzir o Tempo BH negativo.</p>
@@ -1362,7 +1407,6 @@ require __DIR__ . '/partials/header.php';
         const contextEl = validationModalElement.querySelector('.js-row-validation-context');
         const entriesRoot = validationModalElement.querySelector('.js-row-validation-entries');
         const bhInput = validationModalElement.querySelector('.js-row-validation-bh');
-        const reasonInput = validationModalElement.querySelector('.js-row-validation-reason');
         const absenceInfo = validationModalElement.querySelector('.js-row-validation-absence-info');
         const saveButton = validationModalElement.querySelector('.js-row-validation-save');
         const saveValidateButton = validationModalElement.querySelector('.js-row-validation-save-validate');
@@ -1371,7 +1415,7 @@ require __DIR__ . '/partials/header.php';
         const absenceDurationInput = validationModalElement.querySelector('.js-row-validation-absence-duration');
         const absenceReasonInput = validationModalElement.querySelector('.js-row-validation-absence-reason');
         const absenceHelp = validationModalElement.querySelector('.js-row-validation-absence-help');
-        const state = { row: null, initialBh: '' };
+        const state = { row: null };
 
         const renderEntries = (row) => {
             entriesRoot.innerHTML = '';
@@ -1394,6 +1438,13 @@ require __DIR__ . '/partials/header.php';
                     const display = sourceInput.closest('td')?.querySelector('.js-results-entry-display');
                     if (display) {
                         display.textContent = field.value.trim() || '--:--';
+                    }
+                    if (typeof window.resultsRecalculateRow === 'function') {
+                        window.resultsRecalculateRow(row);
+                        const rowBhValue = (row.querySelector('.js-results-bh-input')?.dataset.autoBh || '').trim();
+                        if (bhInput) {
+                            bhInput.textContent = rowBhValue;
+                        }
                     }
                 });
                 fieldWrap.appendChild(field);
@@ -1439,16 +1490,21 @@ require __DIR__ . '/partials/header.php';
                 absenceDurationInput.value = `${String(Math.floor(currentMinutes / 60)).padStart(2, '0')}:${String(currentMinutes % 60).padStart(2, '0')}`;
             }
             const currentReason = (row.dataset.currentReason || '').trim();
-            absenceReasonInput.value = currentReason !== ''
-                ? currentReason
-                : (selectedOption?.dataset.absenceReason || '').trim();
+            const fallbackReason = (selectedOption?.dataset.absenceReason || '').trim();
+            const reasonValue = currentReason !== '' ? currentReason : fallbackReason;
+            if (absenceReasonInput) {
+                const optionExists = Array.from(absenceReasonInput.options || []).some((opt) => opt.value === reasonValue);
+                absenceReasonInput.value = optionExists ? reasonValue : '';
+            }
             absenceCodeSelect.onchange = () => {
                 const selectedOnChange = absenceCodeSelect.options[absenceCodeSelect.selectedIndex];
-                if (!selectedOnChange) {
+                if (!selectedOnChange || !absenceReasonInput) {
                     return;
                 }
-                if (absenceReasonInput) {
-                    absenceReasonInput.value = (selectedOnChange.dataset.absenceReason || '').trim();
+                const mappedReason = (selectedOnChange.dataset.absenceReason || '').trim();
+                const hasMappedReason = Array.from(absenceReasonInput.options || []).some((opt) => opt.value === mappedReason);
+                if (hasMappedReason) {
+                    absenceReasonInput.value = mappedReason;
                 }
             };
 
@@ -1462,6 +1518,10 @@ require __DIR__ . '/partials/header.php';
             }
             const selected = absenceCodeSelect.options[absenceCodeSelect.selectedIndex];
             if (!selected) return true;
+            if (!absenceReasonInput || (absenceReasonInput.value || '').trim() === '') {
+                alert('Selecione um motivo de ausência da lista.');
+                return false;
+            }
 
             const payload = new URLSearchParams();
             payload.set('action', 'save_absence_allocation');
@@ -1543,19 +1603,14 @@ require __DIR__ . '/partials/header.php';
             if (!absenceSaved) return;
 
             const rowBhInput = row.querySelector('.js-results-bh-input');
-            const rowReasonInput = row.querySelector('.results-bh-reason');
-            if (rowBhInput) {
-                if (typeof window.resultsRecalculateRow === 'function') {
-                    window.resultsRecalculateRow(row);
+            if (rowBhInput && typeof window.resultsRecalculateRow === 'function') {
+                window.resultsRecalculateRow(row);
+                rowBhInput.value = (rowBhInput.dataset.autoBh || '').trim();
+                rowBhInput.dataset.isOverride = '0';
+                const rowReasonInput = row.querySelector('.results-bh-reason');
+                if (rowReasonInput) {
+                    rowReasonInput.value = '';
                 }
-                const autoBhValue = (rowBhInput.dataset.autoBh || '').trim();
-                const typedBhValue = (bhInput.value || '').trim();
-                const shouldUseManualBh = typedBhValue !== '' && typedBhValue !== autoBhValue && typedBhValue !== state.initialBh;
-                rowBhInput.value = shouldUseManualBh ? typedBhValue : autoBhValue;
-                rowBhInput.dataset.isOverride = shouldUseManualBh ? '1' : '0';
-            }
-            if (rowReasonInput) {
-                rowReasonInput.value = (reasonInput.value || '').trim();
             }
             validationModal.hide();
 
@@ -1574,9 +1629,8 @@ require __DIR__ . '/partials/header.php';
                 if (!row) return;
                 state.row = row;
                 contextEl.textContent = `${button.dataset.userName || ''} (${button.dataset.userNumber || ''}) · ${button.dataset.workDate || ''}`;
-                bhInput.value = (row.querySelector('.js-results-bh-input')?.value || '').trim();
-                state.initialBh = bhInput.value;
-                reasonInput.value = (row.querySelector('.results-bh-reason')?.value || '').trim();
+                const modalBhValue = (row.querySelector('.js-results-bh-input')?.dataset.autoBh || row.querySelector('.js-results-bh-input')?.value || '').trim();
+                bhInput.textContent = modalBhValue;
                 const isValidatedRow = (row.dataset.rowStatus || '') === 'Validado';
                 if (saveValidateButton) {
                     saveValidateButton.classList.toggle('d-none', isValidatedRow);
