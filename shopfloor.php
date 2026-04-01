@@ -197,7 +197,7 @@ $requestType,
 
     if ($action === 'submit_justification') {
         $absenceRequestId = (int) ($_POST['absence_request_id'] ?? 0);
-        $eventDate = trim((string) ($_POST['event_date'] ?? ''));
+        $eventDate = date('Y-m-d');
         $description = trim((string) ($_POST['description'] ?? ''));
         $photoFile = $_FILES['photo'] ?? null;
         $attachmentPath = null;
@@ -260,8 +260,8 @@ $requestType,
             }
         }
 
-        if ($flashError === null && ($eventDate === '' || !$hasPhotoUpload)) {
-            $flashError = 'Indique a data e anexe uma fotografia para a justificação.';
+        if ($flashError === null && !$hasPhotoUpload) {
+            $flashError = 'Anexe uma fotografia para a justificação.';
         }
 
         if ($flashError === null) {
@@ -659,11 +659,7 @@ require __DIR__ . '/partials/header.php';
                             <form method="post" class="row g-2 align-items-end" enctype="multipart/form-data">
                                 <input type="hidden" name="action" value="submit_justification">
                                 <input type="hidden" name="absence_request_id" value="<?= (int) $absence['id'] ?>">
-                                <div class="col-md-3">
-                                    <label class="form-label mb-1">Data</label>
-                                    <input type="date" name="event_date" class="form-control form-control-sm" required>
-                                </div>
-                                <div class="col-md-7">
+                                <div class="col-md-10">
                                     <label class="form-label mb-1">Fotografia</label>
                                     <input type="file" name="photo" class="form-control form-control-sm" accept="image/jpeg,image/png,image/webp" required>
                                 </div>
