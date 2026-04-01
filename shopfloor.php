@@ -559,6 +559,11 @@ $pendingVacationDays = (float) $pendingVacationDaysStmt->fetchColumn();
 
 $formattedHourBank = sprintf('%02dh%02dm', (int) floor((float) $hourBank['balance_hours']), (int) round((((float) $hourBank['balance_hours']) - floor((float) $hourBank['balance_hours'])) * 60));
 
+
+$calendarFeedUrl = app_base_url() . '/shopfloor_company_calendar.php?year=' . urlencode((string) $vacationYear);
+$calendarFeedWebcalUrl = preg_replace('/^https?:/i', 'webcal:', $calendarFeedUrl) ?: $calendarFeedUrl;
+$googleCalendarSubscribeUrl = 'https://calendar.google.com/calendar/u/0/r?cid=' . rawurlencode($calendarFeedUrl);
+
 $pageTitle = 'Shopfloor';
 $bodyClass = 'bg-light';
 require __DIR__ . '/partials/header.php';
@@ -906,10 +911,13 @@ require __DIR__ . '/partials/header.php';
         <div class="shopfloor-panel-header">
             <h2 class="h4 mb-0">Pedidos de férias</h2>
             <div class="d-flex align-items-center gap-2">
-                <form method="get" class="d-flex align-items-center gap-2">
+                <form method="get" class="d-flex align-items-center gap-2 flex-wrap">
                     <?php if ($rhFilter !== 'todos'): ?><input type="hidden" name="rh_filter" value="<?= h($rhFilter) ?>"><?php endif; ?>
                     <input type="number" name="vacation_year" class="form-control form-control-sm" style="width:100px" min="2000" max="2100" value="<?= (int) $vacationYear ?>">
                     <button class="btn btn-outline-secondary btn-sm">Ano</button>
+                    <a class="btn btn-outline-danger btn-sm" href="<?= h($googleCalendarSubscribeUrl) ?>" target="_blank" rel="noopener">Google Calendar</a>
+                    <a class="btn btn-outline-dark btn-sm" href="<?= h($calendarFeedWebcalUrl) ?>" target="_blank" rel="noopener">Apple Calendar</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="<?= h($calendarFeedUrl) ?>">Descarregar .ics</a>
                 </form>
                 <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#vacationFormPanel" aria-expanded="false" aria-controls="vacationFormPanel">Novo pedido</button>
             </div>
