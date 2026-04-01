@@ -838,6 +838,39 @@ foreach ($allocationStmt->fetchAll(PDO::FETCH_ASSOC) as $allocationRow) {
     ];
 }
 
+$absenceReasonSuggestionsStmt = $pdo->query('SELECT reason_type, reason_code, sage_code, label FROM shopfloor_absence_reasons WHERE is_active = 1 ORDER BY reason_code ASC, label ASC');
+$absenceReasonSuggestions = [];
+foreach ($absenceReasonSuggestionsStmt->fetchAll(PDO::FETCH_ASSOC) as $reasonRow) {
+    $reasonType = trim((string) ($reasonRow['reason_type'] ?? 'Ausência'));
+    $reasonCode = trim((string) ($reasonRow['reason_code'] ?? ''));
+    $sageCode = normalize_sage_code((string) ($reasonRow['sage_code'] ?? ''));
+    $label = trim((string) ($reasonRow['label'] ?? ''));
+    if ($reasonCode === '' && $label === '') {
+        continue;
+    }
+
+    $parts = [];
+    if ($reasonType !== '') {
+        $parts[] = $reasonType;
+    }
+    if ($reasonCode !== '') {
+        $parts[] = $reasonCode;
+    }
+
+    $value = implode(' · ', $parts);
+    if ($sageCode !== '') {
+        $value .= ($value !== '' ? ' - ' : '') . $sageCode;
+    }
+    if ($label !== '') {
+        $value .= ($value !== '' ? ' - ' : '') . $label;
+    }
+
+    if ($value !== '') {
+        $absenceReasonSuggestions[$value] = true;
+    }
+}
+$absenceReasonSuggestions = array_keys($absenceReasonSuggestions);
+
 foreach ($daily as &$row) {
     $rowKey = ((int) $row['user_id']) . '|' . (string) $row['date'];
     $dayAbsences = $approvedAbsencesByDay[$rowKey] ?? [];
@@ -1299,7 +1332,12 @@ require __DIR__ . '/partials/header.php';
                     </div>
                     <div class="col-12">
                         <label class="form-label">Motivo da ausência</label>
-                        <input type="text" class="form-control js-row-validation-absence-reason" placeholder="Ex.: Falta com perda de remuneração">
+                        <input type="text" class="form-control js-row-validation-absence-reason" list="rowValidationAbsenceReasonList" placeholder="Ex.: Falta com perda de remuneração">
+                        <datalist id="rowValidationAbsenceReasonList">
+                            <?php foreach ($absenceReasonSuggestions as $suggestion): ?>
+                                <option value="<?= h($suggestion) ?>"></option>
+                            <?php endforeach; ?>
+                        </datalist>
                     </div>
                 </div>
                 <p class="small text-muted mt-2 mb-0 js-row-validation-absence-help d-none">O tempo associado é somado ao efectivo para reduzir o Tempo BH negativo.</p>
