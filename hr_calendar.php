@@ -126,11 +126,127 @@ while ($current <= $calendarEnd) {
 
 $monthNames = [1 => 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 $weekDays = ['seg.', 'ter.', 'qua.', 'qui.', 'sex.', 'sáb.', 'dom.'];
+$printWeekDays = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+
+$yearStart = sprintf('%04d-01-01', $year);
+$yearEnd = sprintf('%04d-12-31', $year);
+$yearEventsStmt = $pdo->prepare('SELECT title, event_type, start_date, end_date, color FROM hr_calendar_events WHERE start_date <= ? AND end_date >= ? ORDER BY start_date ASC');
+$yearEventsStmt->execute([$yearEnd, $yearStart]);
+$yearEvents = $yearEventsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$yearEventMap = [];
+$legendByType = [];
+$priorityByType = ['Feriado' => 1, 'Ponte' => 2, 'Férias' => 3, 'Outros' => 4];
+foreach ($yearEvents as $event) {
+    $eventStart = new DateTimeImmutable((string) $event['start_date']);
+    $eventEnd = new DateTimeImmutable((string) $event['end_date']);
+    $cursor = $eventStart;
+    while ($cursor <= $eventEnd) {
+        if ((int) $cursor->format('Y') === $year) {
+            $dateKey = $cursor->format('Y-m-d');
+            if (!isset($yearEventMap[$dateKey])) {
+                $yearEventMap[$dateKey] = [];
+            }
+            $yearEventMap[$dateKey][] = $event;
+        }
+        $cursor = $cursor->modify('+1 day');
+    }
+    $type = (string) ($event['event_type'] ?: 'Outros');
+    if (!isset($legendByType[$type])) {
+        $legendByType[$type] = (string) ($event['color'] ?: '#6c757d');
+    }
+}
+
+if (!function_exists('calendar_day_background')) {
+    function calendar_day_background(array $events, array $priorityByType): string
+    {
+        if (!$events) {
+            return '';
+        }
+        usort($events, static function (array $a, array $b) use ($priorityByType): int {
+            $typeA = (string) ($a['event_type'] ?? 'Outros');
+            $typeB = (string) ($b['event_type'] ?? 'Outros');
+            $priorityA = $priorityByType[$typeA] ?? 99;
+            $priorityB = $priorityByType[$typeB] ?? 99;
+            if ($priorityA === $priorityB) {
+                return 0;
+            }
+            return $priorityA < $priorityB ? -1 : 1;
+        });
+        return (string) (($events[0]['color'] ?? '') ?: '#6c757d');
+    }
+}
 
 $pageTitle = 'Calendário RH';
 require __DIR__ . '/partials/header.php';
 ?>
+<style>
+@media print {
+    @page { size: A4 landscape; margin: 8mm; }
+    .calendar-screen { display: none !important; }
+    .calendar-print-export { display: block !important; font-size: 11px; }
+    .calendar-print-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .calendar-print-month { border: 1px solid #d0d7de; border-radius: 6px; padding: 6px; break-inside: avoid; }
+    .calendar-print-month h3 { font-size: 12px; margin: 0 0 4px; text-transform: capitalize; text-align: center; }
+    .calendar-print-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .calendar-print-table th, .calendar-print-table td { border: 1px solid #dee2e6; text-align: left; padding: 1px 2px; height: 16px; font-size: 9px; }
+    .calendar-print-table th { background: #f8f9fa !important; }
+    .calendar-print-table td.out-month { background: #fafafa !important; color: #adb5bd; }
+    .calendar-print-legend { margin-top: 8px; border-top: 1px solid #d0d7de; padding-top: 6px; display: flex; flex-wrap: wrap; gap: 10px; }
+    .calendar-print-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; }
+    .calendar-print-chip span { width: 10px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid rgba(0,0,0,.15); }
+}
+</style>
 <a href="hr.php" class="btn btn-link px-0">&larr; Voltar ao módulo RH</a>
+<div class="calendar-print-export d-none">
+    <h1 class="h5 mb-1">Calendário anual <?= (int) $year ?></h1>
+    <div class="calendar-print-grid">
+        <?php for ($printMonth = 1; $printMonth <= 12; $printMonth++): ?>
+            <?php
+            $printStart = new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $printMonth));
+            $printCalendarStart = $printStart->modify('monday this week');
+            $printCalendarEnd = $printStart->modify('last day of this month')->modify('sunday this week');
+            $printDays = [];
+            $cursor = $printCalendarStart;
+            while ($cursor <= $printCalendarEnd) {
+                $printDays[] = $cursor;
+                $cursor = $cursor->modify('+1 day');
+            }
+            ?>
+            <section class="calendar-print-month">
+                <h3><?= h($monthNames[$printMonth] . ' ' . $year) ?></h3>
+                <table class="calendar-print-table">
+                    <thead>
+                        <tr><?php foreach ($printWeekDays as $dayLabel): ?><th><?= h($dayLabel) ?></th><?php endforeach; ?></tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach (array_chunk($printDays, 7) as $printWeek): ?>
+                            <tr>
+                                <?php foreach ($printWeek as $printDay): ?>
+                                    <?php
+                                    $printDateKey = $printDay->format('Y-m-d');
+                                    $printEvents = $yearEventMap[$printDateKey] ?? [];
+                                    $bgColor = calendar_day_background($printEvents, $priorityByType);
+                                    $isPrintCurrentMonth = (int) $printDay->format('n') === $printMonth;
+                                    ?>
+                                    <td class="<?= $isPrintCurrentMonth ? '' : 'out-month' ?>" style="<?= $bgColor !== '' ? 'background:' . h($bgColor) . ' !important;color:#111;' : '' ?>">
+                                        <?= $printDay->format('j') ?>
+                                    </td>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </section>
+        <?php endfor; ?>
+    </div>
+    <div class="calendar-print-legend">
+        <?php foreach ($legendByType as $type => $legendColor): ?>
+            <div class="calendar-print-chip"><span style="background:<?= h($legendColor) ?>"></span><?= h((string) $type) ?></div>
+        <?php endforeach; ?>
+    </div>
+</div>
+<div class="calendar-screen">
 <div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
     <div>
         <h1 class="h3 mb-1">Calendário anual</h1>
@@ -215,5 +331,6 @@ require __DIR__ . '/partials/header.php';
             </div>
         </div>
     </div>
+</div>
 </div>
 <?php require __DIR__ . '/partials/footer.php'; ?>
