@@ -587,6 +587,16 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 
+    <div class="d-flex align-items-center flex-wrap gap-2 mt-2 mb-2" aria-label="Atalhos de calendário">
+        <span class="small text-secondary fw-semibold">Calendários ano: <?= (int) $vacationYear ?></span>
+        <a class="btn btn-outline-danger btn-sm py-0 px-2" href="<?= h($googleCalendarSubscribeUrl) ?>" target="_blank" rel="noopener" title="Adicionar ao Google Calendar" aria-label="Adicionar ao Google Calendar">
+            <i class="bi bi-google"></i>
+        </a>
+        <a class="btn btn-outline-dark btn-sm py-0 px-2" href="<?= h($calendarFeedWebcalUrl) ?>" target="_blank" rel="noopener" title="Adicionar ao Apple Calendar" aria-label="Adicionar ao Apple Calendar">
+            <i class="bi bi-apple"></i>
+        </a>
+    </div>
+
     <?php if ($flashSuccess): ?>
         <div class="alert alert-success mt-3 mb-3"><?= h($flashSuccess) ?></div>
     <?php endif; ?>
