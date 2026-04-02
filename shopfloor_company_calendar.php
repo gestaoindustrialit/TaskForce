@@ -1,18 +1,26 @@
 <?php
 require_once __DIR__ . '/helpers.php';
-require_login();
 
-$year = (int) ($_GET['year'] ?? date('Y'));
-if ($year < 2000 || $year > 2100) {
-    $year = (int) date('Y');
+$year = isset($_GET['year']) ? (int) $_GET['year'] : null;
+if ($year !== null && ($year < 2000 || $year > 2100)) {
+    $year = null;
 }
 
-$yearStart = sprintf('%04d-01-01', $year);
-$yearEnd = sprintf('%04d-12-31', $year);
-
-$eventsStmt = $pdo->prepare('SELECT title, event_type, start_date, end_date FROM hr_calendar_events WHERE start_date <= ? AND end_date >= ? ORDER BY start_date ASC, title ASC');
-$eventsStmt->execute([$yearEnd, $yearStart]);
+if ($year !== null) {
+    $yearStart = sprintf('%04d-01-01', $year);
+    $yearEnd = sprintf('%04d-12-31', $year);
+    $eventsStmt = $pdo->prepare('SELECT title, event_type, start_date, end_date FROM hr_calendar_events WHERE start_date <= ? AND end_date >= ? ORDER BY start_date ASC, title ASC');
+    $eventsStmt->execute([$yearEnd, $yearStart]);
+} else {
+    $eventsStmt = $pdo->query('SELECT title, event_type, start_date, end_date FROM hr_calendar_events ORDER BY start_date ASC, title ASC');
+}
 $events = $eventsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$companyName = trim((string) app_setting($pdo, 'company_name', 'TaskForce'));
+if ($companyName === '') {
+    $companyName = 'TaskForce';
+}
+$calendarName = 'Calendário da empresa - ' . $companyName;
 
 $icsEscape = static function (string $value): string {
     $value = str_replace('\\', '\\\\', $value);
@@ -28,7 +36,7 @@ $lines = [
     'PRODID:-//TaskForce//Calendario Empresa//PT',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    'X-WR-CALNAME:Calendário da Empresa',
+    'X-WR-CALNAME:' . $icsEscape($calendarName),
     'X-WR-TIMEZONE:Europe/Lisbon',
 ];
 
@@ -46,8 +54,8 @@ foreach ($events as $event) {
     }
 
     try {
-        $startDate = new DateTimeImmutable(max($startRaw, $yearStart));
-        $endDate = new DateTimeImmutable(min($endRaw, $yearEnd));
+        $startDate = new DateTimeImmutable($startRaw);
+        $endDate = new DateTimeImmutable($endRaw);
     } catch (Throwable $exception) {
         continue;
     }
@@ -78,6 +86,6 @@ $lines[] = 'END:VCALENDAR';
 $ics = implode("\r\n", $lines) . "\r\n";
 
 header('Content-Type: text/calendar; charset=UTF-8');
-header('Content-Disposition: attachment; filename="calendario_empresa_' . $year . '.ics"');
+header('Content-Disposition: inline; filename="calendario_empresa.ics"');
 
 echo $ics;

@@ -560,9 +560,9 @@ $pendingVacationDays = (float) $pendingVacationDaysStmt->fetchColumn();
 $formattedHourBank = sprintf('%02dh%02dm', (int) floor((float) $hourBank['balance_hours']), (int) round((((float) $hourBank['balance_hours']) - floor((float) $hourBank['balance_hours'])) * 60));
 
 
-$calendarFeedUrl = app_base_url() . '/shopfloor_company_calendar.php?year=' . urlencode((string) $vacationYear);
+$calendarFeedUrl = app_base_url() . '/shopfloor_company_calendar.php';
 $calendarFeedWebcalUrl = preg_replace('/^https?:/i', 'webcal:', $calendarFeedUrl) ?: $calendarFeedUrl;
-$googleCalendarSubscribeUrl = 'https://calendar.google.com/calendar/u/0/r?cid=' . rawurlencode($calendarFeedUrl);
+$googleCalendarSubscribeUrl = 'https://calendar.google.com/calendar/u/0/r/settings/addbyurl?cid=' . rawurlencode($calendarFeedUrl);
 
 $pageTitle = 'Shopfloor';
 $bodyClass = 'bg-light';
