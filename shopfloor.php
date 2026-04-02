@@ -562,7 +562,7 @@ $formattedHourBank = sprintf('%02dh%02dm', (int) floor((float) $hourBank['balanc
 
 $calendarFeedUrl = app_base_url() . '/shopfloor_company_calendar.php';
 $calendarFeedWebcalUrl = preg_replace('/^https?:/i', 'webcal:', $calendarFeedUrl) ?: $calendarFeedUrl;
-$googleCalendarSubscribeUrl = 'https://calendar.google.com/calendar/u/0/r/settings/addbyurl?cid=' . rawurlencode($calendarFeedUrl);
+$googleCalendarSubscribeUrl = 'https://calendar.google.com/calendar/render?cid=' . rawurlencode($calendarFeedUrl);
 
 $pageTitle = 'Shopfloor';
 $bodyClass = 'bg-light';
