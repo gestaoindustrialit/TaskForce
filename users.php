@@ -767,7 +767,7 @@ $usersStmt->execute();
 $users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $managerOptions = $pdo->query('SELECT name FROM users WHERE name IS NOT NULL AND TRIM(name) <> "" ORDER BY name ASC')->fetchAll(PDO::FETCH_COLUMN) ?: [];
-$departmentOptions = $pdo->query('SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND TRIM(department) <> "" ORDER BY department ASC')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+$departmentNameOptions = $pdo->query('SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND TRIM(department) <> "" ORDER BY department ASC')->fetchAll(PDO::FETCH_COLUMN) ?: [];
 
 $pageTitle = 'Utilizadores';
 require __DIR__ . '/partials/header.php';
@@ -850,7 +850,7 @@ require __DIR__ . '/partials/header.php';
 </datalist>
 
 <datalist id="departmentOptions">
-    <?php foreach ($departmentOptions as $departmentOption): ?>
+    <?php foreach ($departmentNameOptions as $departmentOption): ?>
         <option value="<?= h((string) $departmentOption) ?>"></option>
     <?php endforeach; ?>
 </datalist>
