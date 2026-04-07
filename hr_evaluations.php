@@ -8,6 +8,8 @@ if (!can_access_hr_module($pdo, $userId)) {
     http_response_code(403);
     exit('Acesso reservado a administradores e equipa RH.');
 }
+$currentUser = current_user($pdo);
+$canDeleteEvaluation = $currentUser && (((int) ($currentUser['is_admin'] ?? 0) === 1) || ((string) ($currentUser['access_profile'] ?? '') === 'RH'));
 
 $flashSuccess = null;
 $flashError = null;
@@ -177,6 +179,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+
+    if ($action === 'delete_evaluation') {
+        $deleteId = (int) ($_POST['evaluation_id'] ?? 0);
+        if (!$canDeleteEvaluation) {
+            $flashError = 'Sem permissão para eliminar avaliações.';
+        } elseif ($deleteId <= 0) {
+            $flashError = 'Avaliação inválida para eliminação.';
+        } else {
+            $deleteStmt = $pdo->prepare('DELETE FROM hr_evaluations WHERE id = ?');
+            $deleteStmt->execute([$deleteId]);
+            $flashSuccess = 'Avaliação eliminada com sucesso.';
+            if ((int) $formData['evaluation_id'] === $deleteId) {
+                $formData['evaluation_id'] = 0;
+            }
+        }
+    }
 }
 
 $filterYear = (int) ($_GET['year'] ?? $currentYear);
@@ -185,7 +203,7 @@ $filterDepartment = (int) ($_GET['department_id'] ?? 0);
 $filterProfile = trim((string) ($_GET['profile'] ?? ''));
 $filterSearch = trim((string) ($_GET['search'] ?? ''));
 
-$sql = 'SELECT e.*, c.final_bonus_value, c.year_total_with_bonus, c.year_periods_total FROM hr_evaluations e LEFT JOIN hr_evaluation_year_closures c ON c.user_id = e.user_id AND c.award_year = e.award_year WHERE e.award_year = :year';
+$sql = 'SELECT e.*, yt.year_periods_total, COALESCE(c.final_bonus_value, 0) AS final_bonus_value, (COALESCE(yt.year_periods_total, 0) + COALESCE(c.final_bonus_value, 0)) AS year_total_with_bonus FROM hr_evaluations e LEFT JOIN (SELECT user_id, award_year, SUM(period_total) AS year_periods_total FROM hr_evaluations GROUP BY user_id, award_year) yt ON yt.user_id = e.user_id AND yt.award_year = e.award_year LEFT JOIN hr_evaluation_year_closures c ON c.user_id = e.user_id AND c.award_year = e.award_year WHERE e.award_year = :year';
 $params = [':year' => $filterYear];
 if ($filterPeriod !== '' && array_key_exists($filterPeriod, $periods)) { $sql .= ' AND e.award_period = :period'; $params[':period'] = $filterPeriod; }
 if ($filterDepartment > 0) { $sql .= ' AND e.department_id = :dep'; $params[':dep'] = $filterDepartment; }
@@ -196,6 +214,22 @@ $listStmt = $pdo->prepare($sql);
 $listStmt->execute($params);
 $rows = $listStmt->fetchAll(PDO::FETCH_ASSOC);
 usort($rows, static fn(array $a, array $b): int => taskforce_evaluation_period_sort((string) $a['award_period']) <=> taskforce_evaluation_period_sort((string) $b['award_period']));
+
+$closureFormData = [
+    'final_absence_count' => max(0, (int) ($formData['final_absence_count'] ?? 0)),
+    'final_notes' => (string) ($formData['final_notes'] ?? ''),
+];
+if ((int) ($formData['user_id'] ?? 0) > 0 && (int) ($formData['award_year'] ?? 0) >= 2024) {
+    $prefillClosureStmt = $pdo->prepare('SELECT final_absence_count, final_notes FROM hr_evaluation_year_closures WHERE user_id = ? AND award_year = ? LIMIT 1');
+    $prefillClosureStmt->execute([(int) $formData['user_id'], (int) $formData['award_year']]);
+    $prefillClosure = $prefillClosureStmt->fetch(PDO::FETCH_ASSOC);
+    if ($prefillClosure) {
+        $closureFormData = [
+            'final_absence_count' => max(0, (int) ($prefillClosure['final_absence_count'] ?? 0)),
+            'final_notes' => (string) ($prefillClosure['final_notes'] ?? ''),
+        ];
+    }
+}
 
 $pageTitle = 'Avaliações';
 require __DIR__ . '/partials/header.php';
@@ -251,7 +285,19 @@ require __DIR__ . '/partials/header.php';
 <td><?= h(taskforce_money((float) $row['period_total'])) ?></td><td><?= h(taskforce_money((float) ($row['year_periods_total'] ?? 0))) ?></td>
 <td><?= h(taskforce_money((float) ($row['final_bonus_value'] ?? 0))) ?></td><td><?= h(taskforce_money((float) ($row['year_total_with_bonus'] ?? 0))) ?></td>
 <td><?= h((string) ($row['rule_set_name'] ?: 'Default helper')) ?></td>
-<td><div class="d-flex gap-1"><a class="btn btn-sm btn-outline-secondary" href="hr_evaluations.php?edit_id=<?= (int) $row['id'] ?>">Editar</a><a class="btn btn-sm btn-outline-dark" href="hr_evaluation_history.php?user_id=<?= (int) $row['user_id'] ?>&year=<?= (int) $row['award_year'] ?>">Histórico</a></div></td>
+<td>
+    <div class="d-flex gap-1">
+        <a class="btn btn-sm btn-outline-secondary" href="hr_evaluations.php?edit_id=<?= (int) $row['id'] ?>">Editar</a>
+        <a class="btn btn-sm btn-outline-dark" href="hr_evaluation_history.php?user_id=<?= (int) $row['user_id'] ?>&year=<?= (int) $row['award_year'] ?>">Histórico</a>
+        <?php if ($canDeleteEvaluation): ?>
+            <form method="post" onsubmit="return confirm('Eliminar esta avaliação? Esta ação não pode ser anulada.');">
+                <input type="hidden" name="action" value="delete_evaluation">
+                <input type="hidden" name="evaluation_id" value="<?= (int) $row['id'] ?>">
+                <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
+            </form>
+        <?php endif; ?>
+    </div>
+</td>
 </tr>
 <?php endforeach; ?>
 </tbody>
@@ -319,8 +365,8 @@ require __DIR__ . '/partials/header.php';
 <input type="hidden" name="action" value="save_year_closure">
 <div class="col-12"><label class="form-label">Colaborador</label><select class="form-select form-select-sm js-calc-field" name="closure_user_id" id="closure_user_id"><?php foreach ($employees as $emp): ?><option value="<?= (int) $emp['id'] ?>" <?= (int) $formData['user_id'] === (int) $emp['id'] ? 'selected' : '' ?>><?= h(format_user_picker_label($emp)) ?></option><?php endforeach; ?></select></div>
 <div class="col-6"><label class="form-label">Ano</label><input class="form-control form-control-sm js-calc-field" type="number" name="closure_award_year" id="closure_award_year" min="2024" max="2100" value="<?= (int) $formData['award_year'] ?>"></div>
-<div class="col-6"><label class="form-label">Absentismo final</label><input class="form-control form-control-sm js-calc-field" type="number" min="0" name="final_absence_count" id="final_absence_count" value="0"></div>
-<div class="col-12"><label class="form-label">Notas RH</label><textarea class="form-control form-control-sm" name="final_notes" rows="2"></textarea></div>
+<div class="col-6"><label class="form-label">Absentismo final</label><input class="form-control form-control-sm js-calc-field" type="number" min="0" name="final_absence_count" id="final_absence_count" value="<?= (int) $closureFormData['final_absence_count'] ?>"></div>
+<div class="col-12"><label class="form-label">Notas RH</label><textarea class="form-control form-control-sm" name="final_notes" rows="2"><?= h($closureFormData['final_notes']) ?></textarea></div>
 <div class="col-12 d-grid"><button class="btn btn-outline-dark">Guardar fecho anual</button></div>
 </form>
 </div>
@@ -343,7 +389,8 @@ require __DIR__ . '/partials/header.php';
         document.getElementById('user_name_readonly').value = selected ? (selected.dataset.name || '') : '';
         document.getElementById('department_readonly').value = selected ? (selected.dataset.department || '') : '';
         const profile = document.getElementById('award_profile');
-        if (selected && selected.dataset.profile && profile && !profile.dataset.touched) {
+        const isEditing = Number(document.getElementById('evaluation_id').value || 0) > 0;
+        if (selected && selected.dataset.profile && profile && !profile.dataset.touched && !isEditing) {
             profile.value = selected.dataset.profile;
         }
     }
