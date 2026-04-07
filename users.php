@@ -234,6 +234,17 @@ function parse_binary_flag(string $value): int
     throw new RuntimeException('Campos booleanos devem ser 1/0, sim/não ou true/false.');
 }
 
+function get_bulk_value(array $rowData, array $headers, string $default = ''): string
+{
+    foreach ($headers as $header) {
+        if (array_key_exists($header, $rowData)) {
+            return trim((string) $rowData[$header]);
+        }
+    }
+
+    return $default;
+}
+
 function output_users_template(): void
 {
     $content = <<<'XML'
@@ -254,10 +265,28 @@ function output_users_template(): void
     <Cell><Data ss:Type="String">user_type</Data></Cell>
     <Cell><Data ss:Type="String">is_admin</Data></Cell>
     <Cell><Data ss:Type="String">is_active</Data></Cell>
+    <Cell><Data ss:Type="String">must_change_password</Data></Cell>
+    <Cell><Data ss:Type="String">pin_code</Data></Cell>
+    <Cell><Data ss:Type="String">pin_only_login</Data></Cell>
+    <Cell><Data ss:Type="String">email_notifications_active</Data></Cell>
+    <Cell><Data ss:Type="String">sms_notifications_active</Data></Cell>
+    <Cell><Data ss:Type="String">send_access_email</Data></Cell>
     <Cell><Data ss:Type="String">department_id</Data></Cell>
+    <Cell><Data ss:Type="String">department</Data></Cell>
     <Cell><Data ss:Type="String">schedule_id</Data></Cell>
+    <Cell><Data ss:Type="String">user_number</Data></Cell>
+    <Cell><Data ss:Type="String">title</Data></Cell>
+    <Cell><Data ss:Type="String">short_name</Data></Cell>
+    <Cell><Data ss:Type="String">initials</Data></Cell>
+    <Cell><Data ss:Type="String">profession</Data></Cell>
+    <Cell><Data ss:Type="String">category</Data></Cell>
+    <Cell><Data ss:Type="String">manager_name</Data></Cell>
     <Cell><Data ss:Type="String">hire_date</Data></Cell>
+    <Cell><Data ss:Type="String">termination_date</Data></Cell>
+    <Cell><Data ss:Type="String">timezone</Data></Cell>
     <Cell><Data ss:Type="String">phone</Data></Cell>
+    <Cell><Data ss:Type="String">mobile</Data></Cell>
+    <Cell><Data ss:Type="String">notes</Data></Cell>
    </Row>
    <Row>
     <Cell><Data ss:Type="String">João Silva</Data></Cell>
@@ -269,9 +298,27 @@ function output_users_template(): void
     <Cell><Data ss:Type="String">0</Data></Cell>
     <Cell><Data ss:Type="String">1</Data></Cell>
     <Cell><Data ss:Type="String">1</Data></Cell>
+    <Cell><Data ss:Type="String">123456</Data></Cell>
+    <Cell><Data ss:Type="String">0</Data></Cell>
     <Cell><Data ss:Type="String">1</Data></Cell>
+    <Cell><Data ss:Type="String">0</Data></Cell>
+    <Cell><Data ss:Type="String">1</Data></Cell>
+    <Cell><Data ss:Type="String">1</Data></Cell>
+    <Cell><Data ss:Type="String">Financeiro</Data></Cell>
+    <Cell><Data ss:Type="String">1</Data></Cell>
+    <Cell><Data ss:Type="String">20</Data></Cell>
+    <Cell><Data ss:Type="String">Técnico</Data></Cell>
+    <Cell><Data ss:Type="String">João</Data></Cell>
+    <Cell><Data ss:Type="String">JS</Data></Cell>
+    <Cell><Data ss:Type="String">Contabilista</Data></Cell>
+    <Cell><Data ss:Type="String">Senior</Data></Cell>
+    <Cell><Data ss:Type="String">Ana Costa</Data></Cell>
     <Cell><Data ss:Type="String">2026-01-10</Data></Cell>
+    <Cell><Data ss:Type="String"></Data></Cell>
+    <Cell><Data ss:Type="String">Europe/Lisbon</Data></Cell>
     <Cell><Data ss:Type="String">912345678</Data></Cell>
+    <Cell><Data ss:Type="String">936789123</Data></Cell>
+    <Cell><Data ss:Type="String">Utilizador criado por importação.</Data></Cell>
    </Row>
   </Table>
  </Worksheet>
@@ -579,17 +626,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     continue;
                 }
 
-                $accessProfile = trim((string) ($rowData['access_profile'] ?? 'Utilizador'));
+                $accessProfile = get_bulk_value($rowData, ['access_profile', 'perfil_acesso'], 'Utilizador');
                 if (!in_array($accessProfile, $accessProfileOptions, true)) {
                     $accessProfile = 'Utilizador';
                 }
-                $userType = trim((string) ($rowData['user_type'] ?? 'Funcionário'));
+                $userType = get_bulk_value($rowData, ['user_type', 'tipo_utilizador'], 'Funcionário');
                 if (!in_array($userType, $userTypeOptions, true)) {
                     $userType = 'Funcionário';
                 }
 
-                $departmentId = (int) ($rowData['department_id'] ?? 0);
-                $department = trim((string) ($rowData['department'] ?? ''));
+                $departmentId = (int) get_bulk_value($rowData, ['department_id', 'departamento_id'], '0');
+                $department = get_bulk_value($rowData, ['department', 'departamento'], '');
                 if ($departmentId > 0 && isset($departmentNameById[$departmentId])) {
                     $department = $departmentNameById[$departmentId];
                 } elseif ($departmentId > 0 && !isset($departmentNameById[$departmentId])) {
@@ -597,15 +644,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     continue;
                 }
 
-                $scheduleId = (int) ($rowData['schedule_id'] ?? 0);
+                $scheduleId = (int) get_bulk_value($rowData, ['schedule_id', 'horario_id'], '0');
                 if ($scheduleId > 0 && !isset($scheduleIds[$scheduleId])) {
                     $errors[] = 'Linha ' . $lineNumber . ': schedule_id inválido.';
                     continue;
                 }
 
-                $hireDate = trim((string) ($rowData['hire_date'] ?? ''));
+                $hireDate = get_bulk_value($rowData, ['hire_date', 'data_admissao'], '');
                 if ($hireDate !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $hireDate)) {
                     $errors[] = 'Linha ' . $lineNumber . ': hire_date deve estar no formato YYYY-MM-DD.';
+                    continue;
+                }
+
+                $terminationDate = get_bulk_value($rowData, ['termination_date', 'data_saida'], '');
+                if ($terminationDate !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $terminationDate)) {
+                    $errors[] = 'Linha ' . $lineNumber . ': termination_date deve estar no formato YYYY-MM-DD.';
+                    continue;
+                }
+
+                $timezone = get_bulk_value($rowData, ['timezone', 'fuso_horario'], 'Europe/Lisbon');
+                if (!in_array($timezone, $timezoneOptions, true)) {
+                    $timezone = 'Europe/Lisbon';
+                }
+
+                $initials = strtoupper(get_bulk_value($rowData, ['initials', 'sigla'], ''));
+                if ($initials === '') {
+                    $initials = build_initials($name);
+                }
+
+                $pinCode = preg_replace('/\D+/', '', get_bulk_value($rowData, ['pin_code', 'pin'], ''));
+                if ($pinCode !== '' && !preg_match('/^\d{6}$/', $pinCode)) {
+                    $errors[] = 'Linha ' . $lineNumber . ': pin_code deve ter exatamente 6 dígitos.';
+                    continue;
+                }
+
+                try {
+                    $mustChangePassword = parse_binary_flag(get_bulk_value($rowData, ['must_change_password', 'obrigar_alteracao_password'], '0'));
+                    $pinOnlyLogin = parse_binary_flag(get_bulk_value($rowData, ['pin_only_login', 'login_apenas_pin'], '0'));
+                    $emailNotificationsActive = parse_binary_flag(get_bulk_value($rowData, ['email_notifications_active', 'ativo_para_email'], '1'));
+                    $smsNotificationsActive = parse_binary_flag(get_bulk_value($rowData, ['sms_notifications_active', 'ativo_para_sms'], '0'));
+                    $sendAccessEmail = parse_binary_flag(get_bulk_value($rowData, ['send_access_email', 'enviar_dados_acesso'], '0'));
+                } catch (RuntimeException $exception) {
+                    $errors[] = 'Linha ' . $lineNumber . ': ' . $exception->getMessage();
+                    continue;
+                }
+
+                if ($pinOnlyLogin === 1 && $pinCode === '') {
+                    $errors[] = 'Linha ' . $lineNumber . ': login com PIN requer pin_code com 6 dígitos.';
                     continue;
                 }
 
@@ -617,30 +702,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $isAdminValue,
                     $accessProfile,
                     $isActiveValue,
-                    0,
-                    null,
-                    null,
-                    0,
+                    $mustChangePassword,
+                    $pinCode !== '' ? password_hash($pinCode, PASSWORD_DEFAULT) : null,
+                    $pinCode !== '' ? $pinCode : null,
+                    $pinOnlyLogin,
                     $userType,
-                    trim((string) ($rowData['user_number'] ?? '')),
-                    trim((string) ($rowData['title'] ?? '')),
-                    trim((string) ($rowData['short_name'] ?? '')),
-                    build_initials($name),
-                    1,
-                    0,
-                    trim((string) ($rowData['profession'] ?? '')),
-                    trim((string) ($rowData['category'] ?? '')),
-                    trim((string) ($rowData['manager_name'] ?? '')),
+                    get_bulk_value($rowData, ['user_number', 'numero'], ''),
+                    get_bulk_value($rowData, ['title', 'titulo'], ''),
+                    get_bulk_value($rowData, ['short_name', 'nome_curto'], ''),
+                    $initials,
+                    $emailNotificationsActive,
+                    $smsNotificationsActive,
+                    get_bulk_value($rowData, ['profession', 'profissao'], ''),
+                    get_bulk_value($rowData, ['category', 'categoria'], ''),
+                    get_bulk_value($rowData, ['manager_name', 'responsavel'], ''),
                     $department,
                     $departmentId > 0 ? $departmentId : null,
                     $scheduleId > 0 ? $scheduleId : null,
                     $hireDate,
-                    trim((string) ($rowData['termination_date'] ?? '')),
-                    'Europe/Lisbon',
-                    trim((string) ($rowData['phone'] ?? '')),
-                    trim((string) ($rowData['mobile'] ?? '')),
-                    trim((string) ($rowData['notes'] ?? '')),
-                    0,
+                    $terminationDate,
+                    $timezone,
+                    get_bulk_value($rowData, ['phone', 'telefone'], ''),
+                    get_bulk_value($rowData, ['mobile', 'telemovel'], ''),
+                    get_bulk_value($rowData, ['notes', 'observacoes'], ''),
+                    $sendAccessEmail,
                 ]);
 
                 $pendingEmails[$normalizedEmail] = true;
