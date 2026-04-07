@@ -204,8 +204,30 @@ require __DIR__ . '/partials/header.php';
 <h1 class="h3 mb-3">Avaliações</h1>
 <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
+<style>
+    .evaluation-compact {
+        font-size: .92rem;
+    }
 
-<div class="soft-card p-3 mb-3">
+    .evaluation-compact .form-label,
+    .evaluation-compact .btn,
+    .evaluation-compact .table {
+        font-size: .88rem;
+    }
+
+    .evaluation-compact .form-control,
+    .evaluation-compact .form-select {
+        min-height: calc(1.5em + .45rem + 2px);
+        padding: .2rem .45rem;
+    }
+
+    .evaluation-compact .soft-card h2,
+    .evaluation-compact .soft-card h3 {
+        font-size: 1.05rem;
+    }
+</style>
+
+<div class="soft-card p-3 mb-3 evaluation-compact">
     <form method="get" class="row g-2 align-items-end">
         <div class="col-md-2"><label class="form-label">Ano</label><input type="number" class="form-control" name="year" min="2024" max="2100" value="<?= (int) $filterYear ?>"></div>
         <div class="col-md-2"><label class="form-label">Período</label><select class="form-select" name="period"><option value="">Todos</option><?php foreach ($periods as $k => $l): ?><option value="<?= h($k) ?>" <?= $filterPeriod === $k ? 'selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?></select></div>
@@ -216,7 +238,7 @@ require __DIR__ . '/partials/header.php';
     </form>
 </div>
 
-<div class="table-responsive soft-card p-3 mb-4">
+<div class="table-responsive soft-card p-3 mb-4 evaluation-compact">
 <table class="table table-sm align-middle">
 <thead><tr><th>Nº</th><th>Nome</th><th>Departamento</th><th>Perfil</th><th>Ano</th><th>Período</th><th>Total período</th><th>Acumulado ano</th><th>Bónus</th><th>Total anual</th><th>Regra</th><th>Ações</th></tr></thead>
 <tbody>
@@ -236,36 +258,36 @@ require __DIR__ . '/partials/header.php';
 </table>
 </div>
 
-<div class="row g-3">
+<div class="row g-3 evaluation-compact">
 <div class="col-lg-8">
 <div class="soft-card p-3">
 <h2 class="h5 mb-3"><?= (int) $formData['evaluation_id'] > 0 ? 'Editar avaliação' : 'Nova avaliação' ?></h2>
 <form method="post" id="evaluationForm" class="row g-2">
 <input type="hidden" name="action" value="save_evaluation">
 <input type="hidden" name="evaluation_id" id="evaluation_id" value="<?= (int) $formData['evaluation_id'] ?>">
-<div class="col-md-4"><label class="form-label">Colaborador</label><select class="form-select js-calc-field" name="user_id" id="user_id" required><option value="0">Selecione</option><?php foreach ($employees as $emp): ?><option value="<?= (int) $emp['id'] ?>" <?= (int) $formData['user_id'] === (int) $emp['id'] ? 'selected' : '' ?> data-number="<?= h((string) ($emp['user_number'] ?? '')) ?>" data-name="<?= h((string) ($emp['name'] ?? '')) ?>" data-department="<?= h((string) ($emp['department_name'] ?? '')) ?>" data-profile="<?= h((string) ($emp['award_profile'] ?? 'operador')) ?>"><?= h(format_user_picker_label($emp)) ?></option><?php endforeach; ?></select></div>
-<div class="col-md-2"><label class="form-label">Ano</label><input type="number" class="form-control js-calc-field" name="award_year" id="award_year" min="2024" max="2100" value="<?= (int) $formData['award_year'] ?>" required></div>
-<div class="col-md-3"><label class="form-label">Período</label><select class="form-select js-calc-field" name="award_period" id="award_period" required><?php foreach ($periods as $k => $l): ?><option value="<?= h($k) ?>" <?= $formData['award_period'] === $k ? 'selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?></select></div>
-<div class="col-md-3"><label class="form-label">Data entrevista</label><input type="date" class="form-control" name="interview_date" value="<?= h($formData['interview_date']) ?>"></div>
+<div class="col-md-4"><label class="form-label">Colaborador</label><select class="form-select form-select-sm js-calc-field" name="user_id" id="user_id" required><option value="0">Selecione</option><?php foreach ($employees as $emp): ?><option value="<?= (int) $emp['id'] ?>" <?= (int) $formData['user_id'] === (int) $emp['id'] ? 'selected' : '' ?> data-number="<?= h((string) ($emp['user_number'] ?? '')) ?>" data-name="<?= h((string) ($emp['name'] ?? '')) ?>" data-department="<?= h((string) ($emp['department_name'] ?? '')) ?>" data-profile="<?= h((string) ($emp['award_profile'] ?? 'operador')) ?>"><?= h(format_user_picker_label($emp)) ?></option><?php endforeach; ?></select></div>
+<div class="col-md-2"><label class="form-label">Ano</label><input type="number" class="form-control form-control-sm js-calc-field" name="award_year" id="award_year" min="2024" max="2100" value="<?= (int) $formData['award_year'] ?>" required></div>
+<div class="col-md-3"><label class="form-label">Período</label><select class="form-select form-select-sm js-calc-field" name="award_period" id="award_period" required><?php foreach ($periods as $k => $l): ?><option value="<?= h($k) ?>" <?= $formData['award_period'] === $k ? 'selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?></select></div>
+<div class="col-md-3"><label class="form-label">Data entrevista</label><input type="date" class="form-control form-control-sm" name="interview_date" value="<?= h($formData['interview_date']) ?>"></div>
 
-<div class="col-md-3"><label class="form-label">Nº colaborador</label><input class="form-control" id="user_number_readonly" readonly></div>
-<div class="col-md-4"><label class="form-label">Nome</label><input class="form-control" id="user_name_readonly" readonly></div>
-<div class="col-md-3"><label class="form-label">Departamento</label><input class="form-control" id="department_readonly" readonly></div>
-<div class="col-md-2"><label class="form-label">Perfil</label><select class="form-select js-calc-field" name="award_profile" id="award_profile"><?php foreach ($profiles as $k => $l): ?><option value="<?= h($k) ?>" <?= $formData['award_profile'] === $k ? 'selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?></select></div>
+<div class="col-md-3"><label class="form-label">Nº colaborador</label><input class="form-control form-control-sm" id="user_number_readonly" readonly></div>
+<div class="col-md-4"><label class="form-label">Nome</label><input class="form-control form-control-sm" id="user_name_readonly" readonly></div>
+<div class="col-md-3"><label class="form-label">Departamento</label><input class="form-control form-control-sm" id="department_readonly" readonly></div>
+<div class="col-md-2"><label class="form-label">Perfil</label><select class="form-select form-select-sm js-calc-field" name="award_profile" id="award_profile"><?php foreach ($profiles as $k => $l): ?><option value="<?= h($k) ?>" <?= $formData['award_profile'] === $k ? 'selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?></select></div>
 
-<div class="col-md-3"><label class="form-label">Savoir faire</label><select class="form-select js-calc-field" name="performance_score" id="performance_score"><?php for ($i = 0; $i <= 3; $i++): ?><option value="<?= $i ?>" <?= (int) $formData['performance_score'] === $i ? 'selected' : '' ?>><?= $i ?></option><?php endfor; ?></select></div>
-<div class="col-md-9"><label class="form-label">Notas performance</label><input class="form-control" name="performance_notes" value="<?= h($formData['performance_notes']) ?>"></div>
+<div class="col-md-3"><label class="form-label">Performance</label><select class="form-select form-select-sm js-calc-field" name="performance_score" id="performance_score"><?php for ($i = 0; $i <= 3; $i++): ?><option value="<?= $i ?>" <?= (int) $formData['performance_score'] === $i ? 'selected' : '' ?>><?= $i ?></option><?php endfor; ?></select></div>
+<div class="col-md-9"><label class="form-label">Notas performance</label><input class="form-control form-control-sm" name="performance_notes" value="<?= h($formData['performance_notes']) ?>"></div>
 
-<div class="col-md-3"><label class="form-label">Savoir être</label><select class="form-select js-calc-field" name="behavior_score" id="behavior_score"><?php for ($i = 0; $i <= 3; $i++): ?><option value="<?= $i ?>" <?= (int) $formData['behavior_score'] === $i ? 'selected' : '' ?>><?= $i ?></option><?php endfor; ?></select></div>
-<div class="col-md-9"><label class="form-label">Notas comportamento</label><input class="form-control" name="behavior_notes" value="<?= h($formData['behavior_notes']) ?>"></div>
+<div class="col-md-3"><label class="form-label">Comportamento</label><select class="form-select form-select-sm js-calc-field" name="behavior_score" id="behavior_score"><?php for ($i = 0; $i <= 3; $i++): ?><option value="<?= $i ?>" <?= (int) $formData['behavior_score'] === $i ? 'selected' : '' ?>><?= $i ?></option><?php endfor; ?></select></div>
+<div class="col-md-9"><label class="form-label">Notas comportamento</label><input class="form-control form-control-sm" name="behavior_notes" value="<?= h($formData['behavior_notes']) ?>"></div>
 
-<div class="col-md-3"><label class="form-label">Pontualidade (ocorr.)</label><input type="number" min="0" class="form-control js-calc-field" name="punctuality_count" id="punctuality_count" value="<?= (int) $formData['punctuality_count'] ?>"></div>
-<div class="col-md-9"><label class="form-label">Notas pontualidade</label><input class="form-control" name="punctuality_notes" value="<?= h($formData['punctuality_notes']) ?>"></div>
+<div class="col-md-3"><label class="form-label">Pontualidade (ocorr.)</label><input type="number" min="0" class="form-control form-control-sm js-calc-field" name="punctuality_count" id="punctuality_count" value="<?= (int) $formData['punctuality_count'] ?>"></div>
+<div class="col-md-9"><label class="form-label">Notas pontualidade</label><input class="form-control form-control-sm" name="punctuality_notes" value="<?= h($formData['punctuality_notes']) ?>"></div>
 
-<div class="col-md-3"><label class="form-label">Absentismo (ocorr.)</label><input type="number" min="0" class="form-control js-calc-field" name="absence_count" id="absence_count" value="<?= (int) $formData['absence_count'] ?>"></div>
-<div class="col-md-9"><label class="form-label">Notas absentismo</label><input class="form-control" name="absence_notes" value="<?= h($formData['absence_notes']) ?>"></div>
+<div class="col-md-3"><label class="form-label">Absentismo (ocorr.)</label><input type="number" min="0" class="form-control form-control-sm js-calc-field" name="absence_count" id="absence_count" value="<?= (int) $formData['absence_count'] ?>"></div>
+<div class="col-md-9"><label class="form-label">Notas absentismo</label><input class="form-control form-control-sm" name="absence_notes" value="<?= h($formData['absence_notes']) ?>"></div>
 
-<div class="col-12"><label class="form-label">Notas gerais</label><textarea class="form-control" name="general_notes" rows="2"><?= h($formData['general_notes']) ?></textarea></div>
+<div class="col-12"><label class="form-label">Notas gerais</label><textarea class="form-control form-control-sm" name="general_notes" rows="2"><?= h($formData['general_notes']) ?></textarea></div>
 <div class="col-12 d-flex gap-2"><button class="btn btn-dark">Guardar avaliação</button><a class="btn btn-outline-secondary" href="hr_evaluations.php">Limpar</a></div>
 </form>
 </div>
@@ -295,10 +317,10 @@ require __DIR__ . '/partials/header.php';
 <h2 class="h6">Fecho anual</h2>
 <form method="post" class="row g-2" id="closureForm">
 <input type="hidden" name="action" value="save_year_closure">
-<div class="col-12"><label class="form-label">Colaborador</label><select class="form-select js-calc-field" name="closure_user_id" id="closure_user_id"><?php foreach ($employees as $emp): ?><option value="<?= (int) $emp['id'] ?>" <?= (int) $formData['user_id'] === (int) $emp['id'] ? 'selected' : '' ?>><?= h(format_user_picker_label($emp)) ?></option><?php endforeach; ?></select></div>
-<div class="col-6"><label class="form-label">Ano</label><input class="form-control js-calc-field" type="number" name="closure_award_year" id="closure_award_year" min="2024" max="2100" value="<?= (int) $formData['award_year'] ?>"></div>
-<div class="col-6"><label class="form-label">Absentismo final</label><input class="form-control js-calc-field" type="number" min="0" name="final_absence_count" id="final_absence_count" value="0"></div>
-<div class="col-12"><label class="form-label">Notas RH</label><textarea class="form-control" name="final_notes" rows="2"></textarea></div>
+<div class="col-12"><label class="form-label">Colaborador</label><select class="form-select form-select-sm js-calc-field" name="closure_user_id" id="closure_user_id"><?php foreach ($employees as $emp): ?><option value="<?= (int) $emp['id'] ?>" <?= (int) $formData['user_id'] === (int) $emp['id'] ? 'selected' : '' ?>><?= h(format_user_picker_label($emp)) ?></option><?php endforeach; ?></select></div>
+<div class="col-6"><label class="form-label">Ano</label><input class="form-control form-control-sm js-calc-field" type="number" name="closure_award_year" id="closure_award_year" min="2024" max="2100" value="<?= (int) $formData['award_year'] ?>"></div>
+<div class="col-6"><label class="form-label">Absentismo final</label><input class="form-control form-control-sm js-calc-field" type="number" min="0" name="final_absence_count" id="final_absence_count" value="0"></div>
+<div class="col-12"><label class="form-label">Notas RH</label><textarea class="form-control form-control-sm" name="final_notes" rows="2"></textarea></div>
 <div class="col-12 d-grid"><button class="btn btn-outline-dark">Guardar fecho anual</button></div>
 </form>
 </div>
