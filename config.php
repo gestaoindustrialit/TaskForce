@@ -236,6 +236,12 @@ if (!in_array('pin_code', $userColumns, true)) {
 if (!in_array('pin_only_login', $userColumns, true)) {
     $pdo->exec('ALTER TABLE users ADD COLUMN pin_only_login INTEGER DEFAULT 0');
 }
+if (!in_array('award_profile', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN award_profile TEXT DEFAULT "operador"');
+}
+if (!in_array('award_eligible', $userColumns, true)) {
+    $pdo->exec('ALTER TABLE users ADD COLUMN award_eligible INTEGER NOT NULL DEFAULT 1');
+}
 
 $pdo->exec('UPDATE users SET username = email WHERE username IS NULL OR TRIM(username) = ""');
 $pdo->exec('UPDATE users SET access_profile = "Utilizador" WHERE access_profile IS NULL OR TRIM(access_profile) = ""');
@@ -247,6 +253,8 @@ $pdo->exec('UPDATE users SET sms_notifications_active = 0 WHERE sms_notification
 $pdo->exec('UPDATE users SET timezone = "Europe/Lisbon" WHERE timezone IS NULL OR TRIM(timezone) = ""');
 $pdo->exec('UPDATE users SET send_access_email = 0 WHERE send_access_email IS NULL');
 $pdo->exec('UPDATE users SET pin_only_login = 0 WHERE pin_only_login IS NULL');
+$pdo->exec('UPDATE users SET award_profile = "operador" WHERE award_profile IS NULL OR TRIM(award_profile) = ""');
+$pdo->exec('UPDATE users SET award_eligible = 1 WHERE award_eligible IS NULL');
 
 $shopfloorEmail = 'shopfloor@calcadacorp.ch';
 $shopfloorLookupStmt = $pdo->prepare('SELECT id FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM(?)) OR LOWER(TRIM(username)) = LOWER(TRIM(?)) LIMIT 1');
@@ -1328,6 +1336,142 @@ $pdo->exec(
         FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
     )'
 );
+
+
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hr_evaluation_rule_sets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        code TEXT,
+        award_year INTEGER NOT NULL,
+        profile_key TEXT NOT NULL,
+        department_group_id INTEGER,
+        department_id INTEGER,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        priority INTEGER NOT NULL DEFAULT 100,
+        notes TEXT,
+        config_json TEXT NOT NULL,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hr_evaluations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        user_number TEXT,
+        user_name TEXT NOT NULL,
+        department_id INTEGER,
+        department_name TEXT,
+        award_profile TEXT NOT NULL,
+        rule_set_id INTEGER,
+        rule_set_name TEXT,
+        award_year INTEGER NOT NULL,
+        award_period TEXT NOT NULL,
+        interview_date TEXT,
+        performance_score INTEGER NOT NULL DEFAULT 0,
+        performance_value REAL NOT NULL DEFAULT 0,
+        performance_notes TEXT,
+        behavior_score INTEGER NOT NULL DEFAULT 0,
+        behavior_value REAL NOT NULL DEFAULT 0,
+        behavior_notes TEXT,
+        punctuality_count INTEGER NOT NULL DEFAULT 0,
+        punctuality_value REAL NOT NULL DEFAULT 0,
+        punctuality_notes TEXT,
+        absence_count INTEGER NOT NULL DEFAULT 0,
+        absence_value REAL NOT NULL DEFAULT 0,
+        absence_notes TEXT,
+        period_total REAL NOT NULL DEFAULT 0,
+        max_period_total REAL NOT NULL DEFAULT 0,
+        period_gap REAL NOT NULL DEFAULT 0,
+        general_notes TEXT,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME,
+        UNIQUE(user_id, award_year, award_period)
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hr_evaluation_year_closures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        user_number TEXT,
+        user_name TEXT NOT NULL,
+        department_id INTEGER,
+        department_name TEXT,
+        award_profile TEXT NOT NULL,
+        rule_set_id INTEGER,
+        rule_set_name TEXT,
+        award_year INTEGER NOT NULL,
+        final_absence_count INTEGER NOT NULL DEFAULT 0,
+        final_bonus_value REAL NOT NULL DEFAULT 0,
+        year_periods_total REAL NOT NULL DEFAULT 0,
+        year_total_with_bonus REAL NOT NULL DEFAULT 0,
+        max_year_total REAL NOT NULL DEFAULT 0,
+        year_gap REAL NOT NULL DEFAULT 0,
+        final_notes TEXT,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME,
+        UNIQUE(user_id, award_year)
+    )'
+);
+
+if (!taskforce_sqlite_index_exists($pdo, 'idx_hr_eval_rules_scope')) {
+    $pdo->exec('CREATE INDEX idx_hr_eval_rules_scope ON hr_evaluation_rule_sets(award_year, profile_key, is_active, priority, id)');
+}
+if (!taskforce_sqlite_index_exists($pdo, 'idx_hr_eval_rules_department')) {
+    $pdo->exec('CREATE INDEX idx_hr_eval_rules_department ON hr_evaluation_rule_sets(department_id, department_group_id)');
+}
+if (!taskforce_sqlite_index_exists($pdo, 'idx_hr_evaluations_user_year')) {
+    $pdo->exec('CREATE INDEX idx_hr_evaluations_user_year ON hr_evaluations(user_id, award_year)');
+}
+if (!taskforce_sqlite_index_exists($pdo, 'idx_hr_year_closure_user_year')) {
+    $pdo->exec('CREATE INDEX idx_hr_year_closure_user_year ON hr_evaluation_year_closures(user_id, award_year)');
+}
+
+$ruleSetsCount = (int) $pdo->query('SELECT COUNT(*) FROM hr_evaluation_rule_sets')->fetchColumn();
+if ($ruleSetsCount === 0) {
+    $seedYear = (int) date('Y');
+
+    $defaultOperador = [
+        'profile_key' => 'operador',
+        'periods' => ['jan_abr' => 'Janeiro - Abril', 'mai_ago' => 'Maio - Agosto', 'set_dez' => 'Setembro - Dezembro'],
+        'scores' => [
+            'performance' => ['0' => 0, '1' => 12.5, '2' => 25, '3' => 0],
+            'behavior' => ['0' => 0, '1' => 12.5, '2' => 25, '3' => 0],
+        ],
+        'counts' => [
+            'punctuality' => ['zero_value' => 25, 'penalty_per_unit' => -2.5],
+            'absence' => ['zero_value' => 50, 'penalty_per_unit' => -50],
+            'final_absence_bonus' => ['0' => 250, '1' => 125, '2' => 62.5, '3_plus' => 0],
+        ],
+        'maximums' => ['period_total' => 125, 'year_total' => 625],
+    ];
+
+    $defaultResponsavel = [
+        'profile_key' => 'responsavel_support',
+        'periods' => ['jan_abr' => 'Janeiro - Abril', 'mai_ago' => 'Maio - Agosto', 'set_dez' => 'Setembro - Dezembro'],
+        'scores' => [
+            'performance' => ['0' => 0, '1' => 37.5, '2' => 75, '3' => 0],
+            'behavior' => ['0' => 0, '1' => 12.5, '2' => 25, '3' => 0],
+        ],
+        'counts' => [
+            'punctuality' => ['zero_value' => 50, 'penalty_per_unit' => -5],
+            'absence' => ['zero_value' => 100, 'penalty_per_unit' => -100],
+            'final_absence_bonus' => ['0' => 250, '1' => 125, '2' => 62.5, '3_plus' => 0],
+        ],
+        'maximums' => ['period_total' => 250, 'year_total' => 1000],
+    ];
+
+    $seedStmt = $pdo->prepare('INSERT INTO hr_evaluation_rule_sets(name, code, award_year, profile_key, department_group_id, department_id, priority, is_active, notes, config_json) VALUES (?, ?, ?, ?, NULL, NULL, 100, 1, ?, ?)');
+    $seedStmt->execute(['Default Operadores', 'default_operador', $seedYear, 'operador', 'Seed automático inicial', json_encode($defaultOperador, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+    $seedStmt->execute(['Default Responsáveis / Support', 'default_responsavel_support', $seedYear, 'responsavel_support', 'Seed automático inicial', json_encode($defaultResponsavel, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+}
 
 
 $timeStorageVersion = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = ?');
