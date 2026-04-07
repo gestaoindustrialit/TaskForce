@@ -35,6 +35,7 @@ require __DIR__ . '/partials/header.php';
             <a class="btn btn-outline-secondary" href="hr_bank.php">Banco de horas</a>
             <a class="btn btn-outline-secondary" href="hr_absences.php">Ausências</a>
             <a class="btn btn-outline-secondary" href="hr_alerts.php">Alertas</a>
+            <a class="btn btn-outline-secondary" href="hr_evaluations.php">Avaliações</a>
         </div>
     </div>
 
@@ -131,6 +132,21 @@ require __DIR__ . '/partials/header.php';
             </a>
         </div>
 
+
+        <div class="col-lg-6">
+            <a class="soft-card h-100 p-3 p-lg-4 d-block text-decoration-none hr-link-card" href="hr_evaluations.php">
+                <h3 class="h5 mb-2">Avaliações</h3>
+                <p class="text-muted mb-3">Avaliação de colaboradores com cálculo de prémios, histórico anual e fecho de ano.</p>
+                <span class="btn btn-sm btn-outline-dark">Abrir avaliações</span>
+            </a>
+        </div>
+        <div class="col-lg-6">
+            <a class="soft-card h-100 p-3 p-lg-4 d-block text-decoration-none hr-link-card" href="hr_evaluation_rules.php">
+                <h3 class="h5 mb-2">Regras de avaliações</h3>
+                <p class="text-muted mb-3">Configuração de lógicas e valores por perfil, departamento, grupo e ano.</p>
+                <span class="btn btn-sm btn-outline-dark">Gerir regras</span>
+            </a>
+        </div>
         <div class="col-lg-6">
             <a class="soft-card h-100 p-3 p-lg-4 d-block text-decoration-none hr-link-card" href="resultados.php">
                 <h3 class="h5 mb-2">Resultados de picagens</h3>
