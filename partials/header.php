@@ -102,6 +102,8 @@ header('Content-Type: text/html; charset=UTF-8');
                                 <li><a class="dropdown-item" href="hr_absences.php">Aus&ecirc;ncias</a></li>
                                 <li><a class="dropdown-item" href="hr_vacations.php">F&eacute;rias</a></li>
                                 <li><a class="dropdown-item" href="hr_alerts.php">Alertas RH</a></li>
+                                <li><a class="dropdown-item" href="hr_evaluations.php">Avaliações</a></li>
+                                <li><a class="dropdown-item" href="hr_evaluation_rules.php">Regras de avaliações</a></li>
                                 <li><a class="dropdown-item" href="resultados.php">Resultados</a></li>
                                 <li><a class="dropdown-item" href="shopfloor_absence_reasons.php">Motivos de ausência</a></li>
                             </ul>
