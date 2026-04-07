@@ -748,6 +748,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flashError = $exception->getMessage();
         }
     }
+
+    if ($action === 'delete_user') {
+        $targetUserId = (int) ($_POST['user_id'] ?? 0);
+
+        if ($targetUserId <= 0) {
+            $flashError = 'Utilizador inválido para eliminação.';
+        } elseif ($targetUserId === $userId) {
+            $flashError = 'Não é possível eliminar o utilizador atualmente autenticado.';
+        } else {
+            $targetStmt = $pdo->prepare('SELECT id, name, is_admin FROM users WHERE id = ? LIMIT 1');
+            $targetStmt->execute([$targetUserId]);
+            $targetUser = $targetStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$targetUser) {
+                $flashError = 'Utilizador não encontrado.';
+            } else {
+                $isTargetAdmin = (int) ($targetUser['is_admin'] ?? 0) === 1;
+                if ($isTargetAdmin) {
+                    $adminCount = (int) $pdo->query('SELECT COUNT(*) FROM users WHERE is_admin = 1')->fetchColumn();
+                    if ($adminCount <= 1) {
+                        $flashError = 'Não é possível eliminar o último administrador do sistema.';
+                    }
+                }
+            }
+        }
+
+        if ($flashError === null) {
+            try {
+                $deleteStmt = $pdo->prepare('DELETE FROM users WHERE id = ?');
+                $deleteStmt->execute([$targetUserId]);
+                $flashSuccess = 'Utilizador eliminado com sucesso.';
+            } catch (PDOException $e) {
+                error_log('[TaskForce][users.php] Erro ao eliminar utilizador #' . $targetUserId . ': ' . $e->getMessage());
+                $flashError = 'Não foi possível eliminar o utilizador porque existem registos associados.';
+            }
+        }
+    }
 }
 
 $page = max(1, (int) ($_GET['page'] ?? 1));
@@ -962,7 +999,6 @@ require __DIR__ . '/partials/header.php';
 <div class="modal fade" id="editUserModal<?= (int) $user['id'] ?>" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <form class="modal-content user-form-compact" method="post">
-            <input type="hidden" name="action" value="update_user">
             <input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
             <div class="modal-header"><h5 class="modal-title">Editar utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
@@ -1039,7 +1075,17 @@ require __DIR__ . '/partials/header.php';
                     <div class="col-md-6 form-check form-switch"><input class="form-check-input" type="checkbox" name="pin_only_login" value="1" id="pinOnlyLoginEdit<?= (int) $user['id'] ?>" <?= (int) ($user['pin_only_login'] ?? 0) === 1 ? 'checked' : '' ?>><label class="form-check-label" for="pinOnlyLoginEdit<?= (int) $user['id'] ?>">Login apenas com PIN (Shopfloor)</label></div>
                 </div>
             </div>
-            <div class="modal-footer"><button class="btn btn-primary">Guardar utilizador</button></div>
+            <div class="modal-footer d-flex justify-content-between">
+                <button
+                    type="submit"
+                    class="btn btn-outline-danger"
+                    name="action"
+                    value="delete_user"
+                    formnovalidate
+                    onclick="return confirm('Tem a certeza que deseja eliminar este utilizador? Esta ação não pode ser anulada.');"
+                >Eliminar utilizador</button>
+                <button class="btn btn-primary" name="action" value="update_user">Guardar utilizador</button>
+            </div>
         </form>
     </div>
 </div>
