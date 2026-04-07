@@ -581,9 +581,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors = [];
             $pendingEmails = [];
             $pendingUsernames = [];
-            $insertStmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, pin_code_hash, pin_code, pin_only_login, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-
-            $pdo->beginTransaction();
+            $rowsToInsert = [];
             foreach ($rawRows as $rowIndex => $row) {
                 $lineNumber = $rowIndex + 2;
                 $rowData = [];
@@ -694,7 +692,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     continue;
                 }
 
-                $insertStmt->execute([
+                $rowsToInsert[] = [
                     $name,
                     $username,
                     $email,
@@ -726,7 +724,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     get_bulk_value($rowData, ['mobile', 'telemovel'], ''),
                     get_bulk_value($rowData, ['notes', 'observacoes'], ''),
                     $sendAccessEmail,
-                ]);
+                ];
 
                 $pendingEmails[$normalizedEmail] = true;
                 $pendingUsernames[$normalizedUsername] = true;
@@ -734,9 +732,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($errors !== []) {
-                $pdo->rollBack();
                 $flashError = 'A importação foi cancelada porque existem erros no ficheiro.';
             } else {
+                $insertStmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, pin_code_hash, pin_code, pin_only_login, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                $pdo->beginTransaction();
+                foreach ($rowsToInsert as $rowToInsert) {
+                    $insertStmt->execute($rowToInsert);
+                }
                 $pdo->commit();
                 $flashSuccess = 'Importação de utilizadores concluída com sucesso.';
             }
