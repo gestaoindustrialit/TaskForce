@@ -154,7 +154,8 @@ function parse_spreadsheetml_rows(string $filePath): array
 
         if ($row !== []) {
             ksort($row);
-            $rows[] = array_values($row);
+            // Preserve sparse indexes so empty spreadsheet cells do not shift subsequent columns.
+            $rows[] = $row;
         }
     }
 
@@ -216,7 +217,8 @@ function parse_xlsx_rows(string $filePath): array
 
         if ($row !== []) {
             ksort($row);
-            $rows[] = array_values($row);
+            // Preserve sparse indexes so empty spreadsheet cells do not shift subsequent columns.
+            $rows[] = $row;
         }
     }
 
