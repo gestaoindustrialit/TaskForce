@@ -809,21 +809,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$page = max(1, (int) ($_GET['page'] ?? 1));
-$perPage = 10;
-$offset = ($page - 1) * $perPage;
-$totalUsers = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
-$totalPages = max(1, (int) ceil($totalUsers / $perPage));
-if ($page > $totalPages) {
-    $page = $totalPages;
-    $offset = ($page - 1) * $perPage;
+$allowedPerPageOptions = [15, 25, 50, 100, 'all'];
+$perPageRaw = $_GET['per_page'] ?? '15';
+$perPage = '15';
+if (is_string($perPageRaw) || is_numeric($perPageRaw)) {
+    $perPageCandidate = is_string($perPageRaw) ? strtolower(trim($perPageRaw)) : (string) (int) $perPageRaw;
+    if (in_array($perPageCandidate, array_map(static fn ($option) => (string) $option, $allowedPerPageOptions), true)) {
+        $perPage = $perPageCandidate;
+    }
 }
 
-$usersStmt = $pdo->prepare('SELECT id, name, username, email, is_admin, access_profile, is_active, must_change_password, pin_only_login, created_at, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?');
-$usersStmt->bindValue(1, $perPage, PDO::PARAM_INT);
-$usersStmt->bindValue(2, $offset, PDO::PARAM_INT);
-$usersStmt->execute();
-$users = $usersStmt->fetchAll(PDO::FETCH_ASSOC);
+$page = max(1, (int) ($_GET['page'] ?? 1));
+$isAllPerPage = $perPage === 'all';
+$perPageLimit = $isAllPerPage ? null : (int) $perPage;
+$offset = $isAllPerPage ? 0 : (($page - 1) * $perPageLimit);
+$totalUsers = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+$totalPages = $isAllPerPage ? 1 : max(1, (int) ceil($totalUsers / $perPageLimit));
+if ($isAllPerPage) {
+    $page = 1;
+} elseif ($page > $totalPages) {
+    $page = $totalPages;
+    $offset = ($page - 1) * $perPageLimit;
+}
+
+$usersBaseSql = 'SELECT id, name, username, email, is_admin, access_profile, is_active, must_change_password, pin_only_login, created_at, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email FROM users ORDER BY created_at DESC';
+if ($isAllPerPage) {
+    $usersStmt = $pdo->query($usersBaseSql);
+} else {
+    $usersStmt = $pdo->prepare($usersBaseSql . ' LIMIT ? OFFSET ?');
+    $usersStmt->bindValue(1, $perPageLimit, PDO::PARAM_INT);
+    $usersStmt->bindValue(2, $offset, PDO::PARAM_INT);
+    $usersStmt->execute();
+}
+$users = $usersStmt ? $usersStmt->fetchAll(PDO::FETCH_ASSOC) : [];
 
 $managerOptions = $pdo->query('SELECT name FROM users WHERE name IS NOT NULL AND TRIM(name) <> "" ORDER BY name ASC')->fetchAll(PDO::FETCH_COLUMN) ?: [];
 $departmentNameOptions = $pdo->query('SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND TRIM(department) <> "" ORDER BY department ASC')->fetchAll(PDO::FETCH_COLUMN) ?: [];
@@ -860,6 +878,20 @@ require __DIR__ . '/partials/header.php';
             </div>
         <?php endif; ?>
 
+        <div class="d-flex justify-content-end align-items-center mb-3">
+            <form method="get" class="d-flex align-items-center gap-2">
+                <label for="perPage" class="form-label mb-0 small text-muted">Mostrar</label>
+                <select id="perPage" name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="15" <?= $perPage === '15' ? 'selected' : '' ?>>15</option>
+                    <option value="25" <?= $perPage === '25' ? 'selected' : '' ?>>25</option>
+                    <option value="50" <?= $perPage === '50' ? 'selected' : '' ?>>50</option>
+                    <option value="100" <?= $perPage === '100' ? 'selected' : '' ?>>100</option>
+                    <option value="all" <?= $perPage === 'all' ? 'selected' : '' ?>>Todos</option>
+                </select>
+                <span class="small text-muted">utilizadores por página</span>
+            </form>
+        </div>
+
         <div class="table-responsive">
             <table class="table table-sm align-middle">
                 <thead><tr><th>#</th><th>Nome</th><th>Utilizador</th><th>Email</th><th>Perfil</th><th>Tipo</th><th>Estado</th><th>Segurança</th><th>Criado</th><th></th></tr></thead>
@@ -885,13 +917,15 @@ require __DIR__ . '/partials/header.php';
             </table>
         </div>
 
-        <nav>
-            <ul class="pagination pagination-sm mb-0">
-                <?php for ($i = 1; $i <= $totalPages; $i++): ?>
-                    <li class="page-item <?= $i === $page ? 'active' : '' ?>"><a class="page-link" href="users.php?page=<?= $i ?>"><?= $i ?></a></li>
-                <?php endfor; ?>
-            </ul>
-        </nav>
+        <?php if ($totalPages > 1): ?>
+            <nav>
+                <ul class="pagination pagination-sm mb-0">
+                    <?php for ($i = 1; $i <= $totalPages; $i++): ?>
+                        <li class="page-item <?= $i === $page ? 'active' : '' ?>"><a class="page-link" href="users.php?page=<?= $i ?>&per_page=<?= urlencode($perPage) ?>"><?= $i ?></a></li>
+                    <?php endfor; ?>
+                </ul>
+            </nav>
+        <?php endif; ?>
     </div>
 </div>
 
