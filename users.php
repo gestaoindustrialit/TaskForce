@@ -62,6 +62,26 @@ function build_user_conflict_message(string $field, string $value, ?array $exist
     return $message . '.';
 }
 
+function build_initials(string $name): string
+{
+    $name = trim($name);
+    if ($name === '') {
+        return '';
+    }
+
+    $parts = preg_split('/\s+/u', $name, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    $parts = array_slice($parts, 0, 3);
+    $initials = '';
+    foreach ($parts as $part) {
+        $firstChar = mb_substr((string) $part, 0, 1, 'UTF-8');
+        if ($firstChar !== '') {
+            $initials .= mb_strtoupper($firstChar, 'UTF-8');
+        }
+    }
+
+    return $initials;
+}
+
 
 
 function normalize_bulk_header(string $value): string
