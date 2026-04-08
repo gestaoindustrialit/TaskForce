@@ -154,7 +154,8 @@ function parse_spreadsheetml_rows(string $filePath): array
 
         if ($row !== []) {
             ksort($row);
-            $rows[] = array_values($row);
+            // Preserve sparse indexes so empty spreadsheet cells do not shift subsequent columns.
+            $rows[] = $row;
         }
     }
 
@@ -216,7 +217,8 @@ function parse_xlsx_rows(string $filePath): array
 
         if ($row !== []) {
             ksort($row);
-            $rows[] = array_values($row);
+            // Preserve sparse indexes so empty spreadsheet cells do not shift subsequent columns.
+            $rows[] = $row;
         }
     }
 
@@ -702,13 +704,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $initials = build_initials($name);
                 }
 
+                $pinCodeRaw = preg_replace('/\D+/', '', get_bulk_value($rowData, ['pin_code', 'pin', 'pin_tablet'], ''));
+                if ($pinCodeRaw !== '' && !preg_match('/^\d{6}$/', $pinCodeRaw)) {
+                    $errors[] = 'Linha ' . $lineNumber . ': pin_code deve ter exatamente 6 dígitos.';
+                    continue;
+                }
+                $pinCodeHash = $pinCodeRaw !== '' ? password_hash($pinCodeRaw, PASSWORD_DEFAULT) : null;
+
                 try {
                     $mustChangePassword = parse_binary_flag(get_bulk_value($rowData, ['must_change_password', 'obrigar_alteracao_password'], '0'));
                     $emailNotificationsActive = parse_binary_flag(get_bulk_value($rowData, ['email_notifications_active', 'ativo_para_email'], '1'));
                     $smsNotificationsActive = parse_binary_flag(get_bulk_value($rowData, ['sms_notifications_active', 'ativo_para_sms'], '0'));
                     $sendAccessEmail = parse_binary_flag(get_bulk_value($rowData, ['send_access_email', 'enviar_dados_acesso'], '0'));
+                    $pinOnlyLogin = parse_binary_flag(get_bulk_value($rowData, ['pin_only_login', 'login_apenas_pin', 'login_apenas_com_pin_shopfloor'], '0'));
                 } catch (RuntimeException $exception) {
                     $errors[] = 'Linha ' . $lineNumber . ': ' . $exception->getMessage();
+                    continue;
+                }
+
+                if ($pinOnlyLogin === 1 && $pinCodeHash === null && $targetUserId === null) {
+                    $errors[] = 'Linha ' . $lineNumber . ': para login apenas com PIN, preencha pin_code (6 dígitos) em novos utilizadores.';
                     continue;
                 }
 
@@ -720,6 +735,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $accessProfile,
                     $isActiveValue,
                     $mustChangePassword,
+                    $pinCodeHash,
+                    $pinOnlyLogin,
                     $userType,
                     get_bulk_value($rowData, ['user_number', 'numero'], ''),
                     get_bulk_value($rowData, ['title', 'titulo'], ''),
@@ -765,8 +782,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $flashError = 'A importação foi cancelada porque existem erros no ficheiro.';
             } else {
                 $insertStmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, pin_code_hash, pin_code, pin_only_login, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-                $updateStmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
-                $updateWithPasswordStmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
+                $updateStmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, pin_code_hash = COALESCE(?, pin_code_hash), pin_code = COALESCE(?, pin_code), pin_only_login = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
+                $updateWithPasswordStmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, pin_code_hash = COALESCE(?, pin_code_hash), pin_code = COALESCE(?, pin_code), pin_only_login = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
                 $pdo->beginTransaction();
                 foreach ($rowsToUpsert as $rowToUpsert) {
                     $base = $rowToUpsert['base'];
@@ -799,29 +816,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $base[4], // access_profile
                         $base[5], // is_active
                         $base[6], // must_change_password
-                        null, // pin_code_hash
-                        null, // pin_code
-                        0, // pin_only_login
-                        $base[7], // user_type
-                        $base[8], // user_number
-                        $base[9], // title
-                        $base[10], // short_name
-                        $base[11], // initials
-                        $base[12], // email_notifications_active
-                        $base[13], // sms_notifications_active
-                        $base[14], // profession
-                        $base[15], // category
-                        $base[16], // manager_name
-                        $base[17], // department
-                        $base[18], // department_id
-                        $base[19], // schedule_id
-                        $base[20], // hire_date
-                        $base[21], // termination_date
-                        $base[22], // timezone
-                        $base[23], // phone
-                        $base[24], // mobile
-                        $base[25], // notes
-                        $base[26], // send_access_email
+                        $base[7], // pin_code_hash
+                        $base[7], // pin_code
+                        $base[8], // pin_only_login
+                        $base[9], // user_type
+                        $base[10], // user_number
+                        $base[11], // title
+                        $base[12], // short_name
+                        $base[13], // initials
+                        $base[14], // email_notifications_active
+                        $base[15], // sms_notifications_active
+                        $base[16], // profession
+                        $base[17], // category
+                        $base[18], // manager_name
+                        $base[19], // department
+                        $base[20], // department_id
+                        $base[21], // schedule_id
+                        $base[22], // hire_date
+                        $base[23], // termination_date
+                        $base[24], // timezone
+                        $base[25], // phone
+                        $base[26], // mobile
+                        $base[27], // notes
+                        $base[28], // send_access_email
                     ]);
                 }
                 $pdo->commit();
