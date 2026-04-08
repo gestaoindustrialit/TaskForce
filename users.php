@@ -576,19 +576,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            $existingEmails = [];
-            foreach ($pdo->query('SELECT email FROM users')->fetchAll(PDO::FETCH_COLUMN) as $existingEmail) {
-                $normalizedEmail = mb_strtolower(trim((string) $existingEmail), 'UTF-8');
-                if ($normalizedEmail !== '') {
-                    $existingEmails[$normalizedEmail] = true;
+            $existingUsersByEmail = [];
+            $existingUsersByUsername = [];
+            foreach ($pdo->query('SELECT id, email, username FROM users')->fetchAll(PDO::FETCH_ASSOC) as $existingUserRow) {
+                $existingId = (int) ($existingUserRow['id'] ?? 0);
+                $normalizedEmail = mb_strtolower(trim((string) ($existingUserRow['email'] ?? '')), 'UTF-8');
+                if ($existingId > 0 && $normalizedEmail !== '') {
+                    $existingUsersByEmail[$normalizedEmail] = $existingId;
                 }
-            }
 
-            $existingUsernames = [];
-            foreach ($pdo->query('SELECT username FROM users')->fetchAll(PDO::FETCH_COLUMN) as $existingUsername) {
-                $normalizedUsername = mb_strtolower(trim((string) $existingUsername), 'UTF-8');
-                if ($normalizedUsername !== '') {
-                    $existingUsernames[$normalizedUsername] = true;
+                $normalizedUsername = mb_strtolower(trim((string) ($existingUserRow['username'] ?? '')), 'UTF-8');
+                if ($existingId > 0 && $normalizedUsername !== '') {
+                    $existingUsersByUsername[$normalizedUsername] = $existingId;
                 }
             }
 
@@ -601,7 +600,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors = [];
             $pendingEmails = [];
             $pendingUsernames = [];
-            $rowsToInsert = [];
+            $rowsToUpsert = [];
             foreach ($rawRows as $rowIndex => $row) {
                 $lineNumber = $rowIndex + 2;
                 $rowData = [];
@@ -616,8 +615,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $username = trim((string) ($rowData['username'] ?? ''));
                 $email = trim((string) ($rowData['email'] ?? ''));
                 $password = (string) ($rowData['password'] ?? '');
-                if ($name === '' || $username === '' || $email === '' || $password === '') {
-                    $errors[] = 'Linha ' . $lineNumber . ': name, username, email e password são obrigatórios.';
+                if ($name === '' || $username === '' || $email === '') {
+                    $errors[] = 'Linha ' . $lineNumber . ': name, username e email são obrigatórios.';
                     continue;
                 }
                 if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
@@ -627,12 +626,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $normalizedEmail = mb_strtolower($email, 'UTF-8');
                 $normalizedUsername = mb_strtolower($username, 'UTF-8');
-                if (isset($existingEmails[$normalizedEmail]) || isset($pendingEmails[$normalizedEmail])) {
-                    $errors[] = 'Linha ' . $lineNumber . ': email já existe.';
+                $existingByEmailId = $existingUsersByEmail[$normalizedEmail] ?? null;
+                $existingByUsernameId = $existingUsersByUsername[$normalizedUsername] ?? null;
+                if ($existingByEmailId !== null && $existingByUsernameId !== null && $existingByEmailId !== $existingByUsernameId) {
+                    $errors[] = 'Linha ' . $lineNumber . ': email e username pertencem a utilizadores diferentes.';
                     continue;
                 }
-                if (isset($existingUsernames[$normalizedUsername]) || isset($pendingUsernames[$normalizedUsername])) {
-                    $errors[] = 'Linha ' . $lineNumber . ': username já existe.';
+
+                $targetUserId = $existingByEmailId ?? $existingByUsernameId;
+                $targetKey = $targetUserId !== null ? ('u' . $targetUserId) : ('new:' . $lineNumber);
+                if (isset($pendingEmails[$normalizedEmail]) && $pendingEmails[$normalizedEmail] !== $targetKey) {
+                    $errors[] = 'Linha ' . $lineNumber . ': email repetido no ficheiro.';
+                    continue;
+                }
+                if (isset($pendingUsernames[$normalizedUsername]) && $pendingUsernames[$normalizedUsername] !== $targetKey) {
+                    $errors[] = 'Linha ' . $lineNumber . ': username repetido no ficheiro.';
+                    continue;
+                }
+                if ($targetUserId === null && $password === '') {
+                    $errors[] = 'Linha ' . $lineNumber . ': password é obrigatória para novos utilizadores.';
                     continue;
                 }
 
@@ -690,15 +702,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $initials = build_initials($name);
                 }
 
-                $pinCode = preg_replace('/\D+/', '', get_bulk_value($rowData, ['pin_code', 'pin'], ''));
-                if ($pinCode !== '' && !preg_match('/^\d{6}$/', $pinCode)) {
-                    $errors[] = 'Linha ' . $lineNumber . ': pin_code deve ter exatamente 6 dígitos.';
-                    continue;
-                }
-
                 try {
                     $mustChangePassword = parse_binary_flag(get_bulk_value($rowData, ['must_change_password', 'obrigar_alteracao_password'], '0'));
-                    $pinOnlyLogin = parse_binary_flag(get_bulk_value($rowData, ['pin_only_login', 'login_apenas_pin'], '0'));
                     $emailNotificationsActive = parse_binary_flag(get_bulk_value($rowData, ['email_notifications_active', 'ativo_para_email'], '1'));
                     $smsNotificationsActive = parse_binary_flag(get_bulk_value($rowData, ['sms_notifications_active', 'ativo_para_sms'], '0'));
                     $sendAccessEmail = parse_binary_flag(get_bulk_value($rowData, ['send_access_email', 'enviar_dados_acesso'], '0'));
@@ -707,23 +712,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     continue;
                 }
 
-                if ($pinOnlyLogin === 1 && $pinCode === '') {
-                    $errors[] = 'Linha ' . $lineNumber . ': login com PIN requer pin_code com 6 dígitos.';
-                    continue;
-                }
-
-                $rowsToInsert[] = [
+                $basePayload = [
                     $name,
                     $username,
                     $email,
-                    password_hash($password, PASSWORD_DEFAULT),
                     $isAdminValue,
                     $accessProfile,
                     $isActiveValue,
                     $mustChangePassword,
-                    $pinCode !== '' ? password_hash($pinCode, PASSWORD_DEFAULT) : null,
-                    $pinCode !== '' ? $pinCode : null,
-                    $pinOnlyLogin,
                     $userType,
                     get_bulk_value($rowData, ['user_number', 'numero'], ''),
                     get_bulk_value($rowData, ['title', 'titulo'], ''),
@@ -745,9 +741,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     get_bulk_value($rowData, ['notes', 'observacoes'], ''),
                     $sendAccessEmail,
                 ];
+                if ($targetUserId !== null) {
+                    $rowsToUpsert[] = [
+                        'mode' => 'update',
+                        'user_id' => $targetUserId,
+                        'base' => $basePayload,
+                        'password' => $password,
+                    ];
+                } else {
+                    $rowsToUpsert[] = [
+                        'mode' => 'insert',
+                        'base' => $basePayload,
+                        'password' => $password,
+                    ];
+                }
 
-                $pendingEmails[$normalizedEmail] = true;
-                $pendingUsernames[$normalizedUsername] = true;
+                $pendingEmails[$normalizedEmail] = $targetKey;
+                $pendingUsernames[$normalizedUsername] = $targetKey;
                 $processed[] = ['name' => $name, 'email' => $email, 'username' => $username];
             }
 
@@ -755,9 +765,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $flashError = 'A importação foi cancelada porque existem erros no ficheiro.';
             } else {
                 $insertStmt = $pdo->prepare('INSERT INTO users(name, username, email, password, is_admin, access_profile, is_active, must_change_password, pin_code_hash, pin_code, pin_only_login, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                $updateStmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
+                $updateWithPasswordStmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
                 $pdo->beginTransaction();
-                foreach ($rowsToInsert as $rowToInsert) {
-                    $insertStmt->execute($rowToInsert);
+                foreach ($rowsToUpsert as $rowToUpsert) {
+                    $base = $rowToUpsert['base'];
+                    $passwordValue = (string) ($rowToUpsert['password'] ?? '');
+                    if (($rowToUpsert['mode'] ?? '') === 'update') {
+                        $targetId = (int) ($rowToUpsert['user_id'] ?? 0);
+                        if ($targetId <= 0) {
+                            throw new RuntimeException('Utilizador inválido para atualização durante importação.');
+                        }
+
+                        if ($passwordValue !== '') {
+                            $updateWithPasswordStmt->execute(array_merge([
+                                $base[0], // name
+                                $base[1], // username
+                                $base[2], // email
+                                password_hash($passwordValue, PASSWORD_DEFAULT),
+                            ], array_slice($base, 3), [$targetId]));
+                        } else {
+                            $updateStmt->execute(array_merge($base, [$targetId]));
+                        }
+                        continue;
+                    }
+
+                    $insertStmt->execute([
+                        $base[0], // name
+                        $base[1], // username
+                        $base[2], // email
+                        password_hash($passwordValue, PASSWORD_DEFAULT),
+                        $base[3], // is_admin
+                        $base[4], // access_profile
+                        $base[5], // is_active
+                        $base[6], // must_change_password
+                        null, // pin_code_hash
+                        null, // pin_code
+                        0, // pin_only_login
+                        $base[7], // user_type
+                        $base[8], // user_number
+                        $base[9], // title
+                        $base[10], // short_name
+                        $base[11], // initials
+                        $base[12], // email_notifications_active
+                        $base[13], // sms_notifications_active
+                        $base[14], // profession
+                        $base[15], // category
+                        $base[16], // manager_name
+                        $base[17], // department
+                        $base[18], // department_id
+                        $base[19], // schedule_id
+                        $base[20], // hire_date
+                        $base[21], // termination_date
+                        $base[22], // timezone
+                        $base[23], // phone
+                        $base[24], // mobile
+                        $base[25], // notes
+                        $base[26], // send_access_email
+                    ]);
                 }
                 $pdo->commit();
                 $flashSuccess = 'Importação de utilizadores concluída com sucesso.';
@@ -878,7 +943,19 @@ require __DIR__ . '/partials/header.php';
             </div>
         <?php endif; ?>
 
-        
+        <div class="d-flex justify-content-end align-items-center mb-3">
+            <form method="get" class="d-flex align-items-center gap-2">
+                <label for="perPage" class="form-label mb-0 small text-muted">Mostrar</label>
+                <select id="perPage" name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="15" <?= $perPage === '15' ? 'selected' : '' ?>>15</option>
+                    <option value="25" <?= $perPage === '25' ? 'selected' : '' ?>>25</option>
+                    <option value="50" <?= $perPage === '50' ? 'selected' : '' ?>>50</option>
+                    <option value="100" <?= $perPage === '100' ? 'selected' : '' ?>>100</option>
+                    <option value="all" <?= $perPage === 'all' ? 'selected' : '' ?>>Todos</option>
+                </select>
+                <span class="small text-muted">utilizadores por página</span>
+            </form>
+        </div>
 
         <div class="table-responsive">
             <table class="table table-sm align-middle">
@@ -913,21 +990,7 @@ require __DIR__ . '/partials/header.php';
                     <?php endfor; ?>
                 </ul>
             </nav>
-          
         <?php endif; ?>
-          <div class="d-flex justify-content-end align-items-center mb-3">
-            <form method="get" class="d-flex align-items-center gap-2">
-                <label for="perPage" class="form-label mb-0 small text-muted">Mostrar</label>
-                <select id="perPage" name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
-                    <option value="15" <?= $perPage === '15' ? 'selected' : '' ?>>15</option>
-                    <option value="25" <?= $perPage === '25' ? 'selected' : '' ?>>25</option>
-                    <option value="50" <?= $perPage === '50' ? 'selected' : '' ?>>50</option>
-                    <option value="100" <?= $perPage === '100' ? 'selected' : '' ?>>100</option>
-                    <option value="all" <?= $perPage === 'all' ? 'selected' : '' ?>>Todos</option>
-                </select>
-               
-            </form>
-        </div>
     </div>
 </div>
 
