@@ -560,10 +560,6 @@ $pendingVacationDays = (float) $pendingVacationDaysStmt->fetchColumn();
 $formattedHourBank = sprintf('%02dh%02dm', (int) floor((float) $hourBank['balance_hours']), (int) round((((float) $hourBank['balance_hours']) - floor((float) $hourBank['balance_hours'])) * 60));
 
 
-$calendarFeedUrl = app_base_url() . '/shopfloor_company_calendar.php';
-$calendarFeedWebcalUrl = preg_replace('/^https?:/i', 'webcal:', $calendarFeedUrl) ?: $calendarFeedUrl;
-$googleCalendarSubscribeUrl = 'https://calendar.google.com/calendar/render?cid=' . rawurlencode($calendarFeedUrl);
-
 $pageTitle = 'Shopfloor';
 $bodyClass = 'bg-light';
 require __DIR__ . '/partials/header.php';
@@ -585,16 +581,6 @@ require __DIR__ . '/partials/header.php';
                 <strong><?= h(number_format($pendingVacationDays, 1, ',', '.')) ?></strong>
             </article>
         </div>
-    </div>
-
-    <div class="d-flex align-items-center flex-wrap gap-2 mt-2 mb-2" aria-label="Atalhos de calendário">
-        <span class="small text-secondary fw-semibold">Calendários ano: <?= (int) $vacationYear ?></span>
-        <a class="btn btn-outline-danger btn-sm py-0 px-2" href="<?= h($googleCalendarSubscribeUrl) ?>" target="_blank" rel="noopener" title="Adicionar ao Google Calendar" aria-label="Adicionar ao Google Calendar">
-            <i class="bi bi-google"></i>
-        </a>
-        <a class="btn btn-outline-dark btn-sm py-0 px-2" href="<?= h($calendarFeedWebcalUrl) ?>" target="_blank" rel="noopener" title="Adicionar ao Apple Calendar" aria-label="Adicionar ao Apple Calendar">
-            <i class="bi bi-apple"></i>
-        </a>
     </div>
 
     <?php if ($flashSuccess): ?>
@@ -925,17 +911,9 @@ require __DIR__ . '/partials/header.php';
                     <?php if ($rhFilter !== 'todos'): ?><input type="hidden" name="rh_filter" value="<?= h($rhFilter) ?>"><?php endif; ?>
                     <input type="number" name="vacation_year" class="form-control form-control-sm" style="width:100px" min="2000" max="2100" value="<?= (int) $vacationYear ?>">
                     <button class="btn btn-outline-secondary btn-sm">Ano</button>
-                    <a class="btn btn-outline-danger btn-sm" href="<?= h($googleCalendarSubscribeUrl) ?>" target="_blank" rel="noopener">Google Calendar</a>
-                    <a class="btn btn-outline-dark btn-sm" href="<?= h($calendarFeedWebcalUrl) ?>" target="_blank" rel="noopener">Apple Calendar</a>
-                    <a class="btn btn-outline-secondary btn-sm" href="<?= h($calendarFeedUrl) ?>">Descarregar .ics</a>
                 </form>
                 <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#vacationFormPanel" aria-expanded="false" aria-controls="vacationFormPanel">Novo pedido</button>
             </div>
-        </div>
-        <div class="d-flex flex-wrap gap-2 mb-3">
-            <a class="btn btn-outline-danger btn-sm" href="<?= h($googleCalendarSubscribeUrl) ?>" target="_blank" rel="noopener">Adicionar ao Google Calendar</a>
-            <a class="btn btn-outline-dark btn-sm" href="<?= h($calendarFeedWebcalUrl) ?>" target="_blank" rel="noopener">Adicionar ao Apple Calendar</a>
-            <a class="btn btn-outline-secondary btn-sm" href="<?= h($calendarFeedUrl) ?>">Descarregar calendário (.ics)</a>
         </div>
         <div class="row g-2 mb-3">
             <div class="col-lg-3 col-md-6">
