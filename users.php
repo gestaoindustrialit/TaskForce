@@ -878,19 +878,7 @@ require __DIR__ . '/partials/header.php';
             </div>
         <?php endif; ?>
 
-        <div class="d-flex justify-content-end align-items-center mb-3">
-            <form method="get" class="d-flex align-items-center gap-2">
-                <label for="perPage" class="form-label mb-0 small text-muted">Mostrar</label>
-                <select id="perPage" name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
-                    <option value="15" <?= $perPage === '15' ? 'selected' : '' ?>>15</option>
-                    <option value="25" <?= $perPage === '25' ? 'selected' : '' ?>>25</option>
-                    <option value="50" <?= $perPage === '50' ? 'selected' : '' ?>>50</option>
-                    <option value="100" <?= $perPage === '100' ? 'selected' : '' ?>>100</option>
-                    <option value="all" <?= $perPage === 'all' ? 'selected' : '' ?>>Todos</option>
-                </select>
-                <span class="small text-muted">utilizadores por página</span>
-            </form>
-        </div>
+        
 
         <div class="table-responsive">
             <table class="table table-sm align-middle">
@@ -925,7 +913,21 @@ require __DIR__ . '/partials/header.php';
                     <?php endfor; ?>
                 </ul>
             </nav>
+          
         <?php endif; ?>
+          <div class="d-flex justify-content-end align-items-center mb-3">
+            <form method="get" class="d-flex align-items-center gap-2">
+                <label for="perPage" class="form-label mb-0 small text-muted">Mostrar</label>
+                <select id="perPage" name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="15" <?= $perPage === '15' ? 'selected' : '' ?>>15</option>
+                    <option value="25" <?= $perPage === '25' ? 'selected' : '' ?>>25</option>
+                    <option value="50" <?= $perPage === '50' ? 'selected' : '' ?>>50</option>
+                    <option value="100" <?= $perPage === '100' ? 'selected' : '' ?>>100</option>
+                    <option value="all" <?= $perPage === 'all' ? 'selected' : '' ?>>Todos</option>
+                </select>
+               
+            </form>
+        </div>
     </div>
 </div>
 
