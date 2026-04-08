@@ -509,11 +509,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $notes = trim((string) ($_POST['notes'] ?? ''));
         $sendAccessEmail = (int) ($_POST['send_access_email'] ?? 0);
 
+        $existingPinCodeHash = null;
+        if ($targetUserId > 0) {
+            $existingUserStmt = $pdo->prepare('SELECT pin_code_hash FROM users WHERE id = ? LIMIT 1');
+            $existingUserStmt->execute([$targetUserId]);
+            $existingUserRow = $existingUserStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            $existingPinCodeHash = $existingUserRow ? (string) ($existingUserRow['pin_code_hash'] ?? '') : null;
+        }
+
         if ($targetUserId <= 0 || $name === '' || $username === '' || $email === '') {
             $flashError = 'Dados inválidos para atualizar utilizador.';
         } elseif ($pinCode !== '' && !preg_match('/^\d{6}$/', $pinCode)) {
             $flashError = 'O PIN deve ter exatamente 6 dígitos.';
-        } elseif ($pinOnlyLogin === 1 && $pinCode === '') {
+        } elseif ($pinOnlyLogin === 1 && $pinCode === '' && trim((string) $existingPinCodeHash) === '') {
             $flashError = 'Defina um PIN de 6 dígitos para login apenas com PIN.';
         } elseif ($existingEmailUser = find_user_conflict($pdo, 'email', $email, $targetUserId)) {
             $flashError = build_user_conflict_message('email', $email, $existingEmailUser);
@@ -580,7 +588,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $existingUsersByEmail = [];
             $existingUsersByUsername = [];
-            foreach ($pdo->query('SELECT id, email, username FROM users')->fetchAll(PDO::FETCH_ASSOC) as $existingUserRow) {
+            $existingUsersPinHashById = [];
+            foreach ($pdo->query('SELECT id, email, username, pin_code_hash FROM users')->fetchAll(PDO::FETCH_ASSOC) as $existingUserRow) {
                 $existingId = (int) ($existingUserRow['id'] ?? 0);
                 $normalizedEmail = mb_strtolower(trim((string) ($existingUserRow['email'] ?? '')), 'UTF-8');
                 if ($existingId > 0 && $normalizedEmail !== '') {
@@ -590,6 +599,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $normalizedUsername = mb_strtolower(trim((string) ($existingUserRow['username'] ?? '')), 'UTF-8');
                 if ($existingId > 0 && $normalizedUsername !== '') {
                     $existingUsersByUsername[$normalizedUsername] = $existingId;
+                }
+
+                if ($existingId > 0) {
+                    $existingUsersPinHashById[$existingId] = trim((string) ($existingUserRow['pin_code_hash'] ?? ''));
                 }
             }
 
@@ -722,8 +735,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     continue;
                 }
 
-                if ($pinOnlyLogin === 1 && $pinCodeHash === null && $targetUserId === null) {
-                    $errors[] = 'Linha ' . $lineNumber . ': para login apenas com PIN, preencha pin_code (6 dígitos) em novos utilizadores.';
+                $existingPinHash = $targetUserId !== null ? ($existingUsersPinHashById[(int) $targetUserId] ?? '') : '';
+                if ($pinOnlyLogin === 1 && $pinCodeHash === null && trim((string) $existingPinHash) === '') {
+                    $errors[] = 'Linha ' . $lineNumber . ': para login apenas com PIN, preencha pin_code (6 dígitos).';
                     continue;
                 }
 
