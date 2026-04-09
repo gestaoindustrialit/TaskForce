@@ -353,11 +353,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
 
         header('Content-Type: application/json; charset=UTF-8');
 
-        if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $newTime)) {
-            echo json_encode(['ok' => false, 'message' => 'Hora inválida. Use HH:MM.']);
-            exit;
-        }
-
         if ($entryId > 0) {
             $entryStmt = $pdo->prepare('SELECT id, occurred_at FROM shopfloor_time_entries WHERE id = ? LIMIT 1');
             $entryStmt->execute([$entryId]);
@@ -368,6 +363,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
             }
 
             $resolvedDate = date('Y-m-d', strtotime((string) $entryRow['occurred_at']));
+            if ($newTime === '') {
+                $pdo->prepare('DELETE FROM shopfloor_time_entries WHERE id = ?')->execute([$entryId]);
+
+                log_app_event($pdo, $userId, 'shopfloor.time_entry.delete', 'Picagem removida nos resultados.', [
+                    'entry_id' => $entryId,
+                    'entry_date' => $resolvedDate,
+                ]);
+
+                echo json_encode(['ok' => true, 'entry_id' => null, 'entry_time' => null, 'deleted' => true]);
+                exit;
+            }
+
+            if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $newTime)) {
+                echo json_encode(['ok' => false, 'message' => 'Hora inválida. Use HH:MM.']);
+                exit;
+            }
+
             $newOccurredAt = $resolvedDate . ' ' . $newTime . ':00';
             $pdo->prepare('UPDATE shopfloor_time_entries SET occurred_at = ? WHERE id = ?')->execute([$newOccurredAt, $entryId]);
 
@@ -378,6 +390,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
             ]);
 
             echo json_encode(['ok' => true, 'entry_id' => $entryId, 'entry_time' => $newTime]);
+            exit;
+        }
+
+        if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $newTime)) {
+            echo json_encode(['ok' => false, 'message' => 'Hora inválida. Use HH:MM.']);
             exit;
         }
 
@@ -1565,7 +1582,8 @@ require __DIR__ . '/partials/header.php';
             const entryInputs = Array.from(row.querySelectorAll('.js-entry-time'));
             for (const input of entryInputs) {
                 const value = (input.value || '').trim();
-                if (value === '' || value === '--:--') {
+                const normalizedValue = value === '--:--' ? '' : value;
+                if (normalizedValue === '' && !input.dataset.entryId) {
                     continue;
                 }
                 const body = new URLSearchParams();
@@ -1574,7 +1592,7 @@ require __DIR__ . '/partials/header.php';
                 body.set('slot_index', input.dataset.slotIndex || '0');
                 body.set('entry_date', input.dataset.entryDate || '');
                 body.set('target_user_id', input.dataset.targetUserId || '0');
-                body.set('entry_time', value);
+                body.set('entry_time', normalizedValue);
                 body.set('validate_date', input.dataset.entryDate || '');
                 const response = await fetch('resultados.php', {
                     method: 'POST',
@@ -1586,7 +1604,9 @@ require __DIR__ . '/partials/header.php';
                     alert(result.message || 'Não foi possível guardar uma das picagens.');
                     return;
                 }
-                if (result.entry_id) {
+                if (result.deleted) {
+                    delete input.dataset.entryId;
+                } else if (result.entry_id) {
                     input.dataset.entryId = String(result.entry_id);
                 }
             }
