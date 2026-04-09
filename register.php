@@ -7,6 +7,7 @@ if (is_logged_in()) {
 
 $error = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    validate_csrf_or_abort(true);
     $name = trim($_POST['name'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
@@ -17,8 +18,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $stmt = $pdo->prepare('INSERT INTO users(name, email, password) VALUES (?, ?, ?)');
             $stmt->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT)]);
+            session_regenerate_id(true);
             $_SESSION['user_id'] = (int) $pdo->lastInsertId();
+            $_SESSION['login_at'] = date('Y-m-d H:i:s');
             log_app_event($pdo, (int) $_SESSION['user_id'], 'auth.register', 'Novo utilizador registado.', ['email' => $email]);
+            AuditLog::write($pdo, (int) $_SESSION['user_id'], 'auth.register', ['email' => $email]);
             redirect('dashboard.php');
         } catch (PDOException $e) {
             $error = 'Email já está em uso.';
@@ -36,6 +40,7 @@ require __DIR__ . '/partials/header.php';
                 <h1 class="h4 mb-3">Criar conta</h1>
                 <?php if ($error): ?><div class="alert alert-danger"><?= h($error) ?></div><?php endif; ?>
                 <form method="post" class="vstack gap-3">
+                    <?= csrf_input() ?>
                     <input class="form-control" name="name" placeholder="Nome" required>
                     <input class="form-control" type="email" name="email" placeholder="Email" required>
                     <input class="form-control" type="password" name="password" placeholder="Password" required>

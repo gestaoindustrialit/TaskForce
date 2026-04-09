@@ -14,6 +14,7 @@ $error = null;
 $email = trim((string) ($_POST['email'] ?? ''));
 $loginMode = 'identify';
 $pendingUser = null;
+$requestIp = (string) ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
 
 function safe_log_app_event(PDO $pdo, ?int $userId, string $eventType, string $description, array $context = []): void
 {
@@ -25,16 +26,23 @@ function safe_log_app_event(PDO $pdo, ?int $userId, string $eventType, string $d
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    validate_csrf_or_abort(true);
     $action = trim((string) ($_POST['action'] ?? 'identify_user'));
+    $identifier = strtolower($email !== '' ? $email : 'unknown');
 
-    if ($email === '') {
+    if (RateLimiter::tooManyLoginAttempts($pdo, $identifier, $requestIp)) {
+        $error = 'Demasiadas tentativas de login. Tente novamente em 15 minutos.';
+    }
+
+    if ($error === null && $email === '') {
         $error = 'Indique um email válido.';
-    } else {
+    } elseif ($error === null) {
         $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ? AND is_active = 1 LIMIT 1');
         $stmt->execute([$email]);
         $pendingUser = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$pendingUser) {
+            RateLimiter::recordLoginAttempt($pdo, $identifier, $requestIp, false);
             safe_log_app_event($pdo, null, 'auth.login_failed', 'Tentativa de login falhada (email não encontrado ou inativo).', ['email' => $email]);
             $error = 'Credenciais inválidas.';
         } else {
@@ -43,13 +51,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($action === 'login_password' && $loginMode === 'password') {
                 $password = (string) ($_POST['password'] ?? '');
                 if (password_verify($password, (string) ($pendingUser['password'] ?? ''))) {
+                    session_regenerate_id(true);
                     $_SESSION['user_id'] = (int) $pendingUser['id'];
                     $_SESSION['login_at'] = date('Y-m-d H:i:s');
+                    RateLimiter::recordLoginAttempt($pdo, $identifier, $requestIp, true);
                     $pdo->prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([(int) $pendingUser['id']]);
+                    AuditLog::write($pdo, (int) $pendingUser['id'], 'auth.login_success', ['mode' => 'password']);
                     safe_log_app_event($pdo, (int) $pendingUser['id'], 'auth.login_success', 'Login com sucesso.');
                     redirect('dashboard.php');
                 }
 
+                RateLimiter::recordLoginAttempt($pdo, $identifier, $requestIp, false);
                 safe_log_app_event($pdo, (int) $pendingUser['id'], 'auth.login_failed', 'Tentativa de login falhada.', ['email' => $email]);
                 $error = 'Credenciais inválidas.';
             }
@@ -69,9 +81,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if ($matchedPinUser) {
+                    session_regenerate_id(true);
                     $_SESSION['user_id'] = (int) $matchedPinUser['id'];
                     $_SESSION['login_at'] = date('Y-m-d H:i:s');
+                    RateLimiter::recordLoginAttempt($pdo, $identifier, $requestIp, true);
                     $pdo->prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([(int) $matchedPinUser['id']]);
+                    AuditLog::write($pdo, (int) $matchedPinUser['id'], 'auth.login_success', ['mode' => 'pin']);
                     safe_log_app_event(
                         $pdo,
                         (int) $matchedPinUser['id'],
@@ -82,6 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     redirect('shopfloor.php');
                 }
 
+                RateLimiter::recordLoginAttempt($pdo, $identifier, $requestIp, false);
                 safe_log_app_event($pdo, (int) $pendingUser['id'], 'auth.login_failed', 'Tentativa de login com PIN falhada.', ['email' => $email]);
                 $error = 'PIN inválido.';
             }
@@ -123,6 +139,7 @@ require __DIR__ . '/partials/header.php';
 
                 <?php if ($loginMode === 'identify'): ?>
                     <form method="post" class="vstack gap-3" id="identifyOrPasswordForm">
+                        <?= csrf_input() ?>
                         <input type="hidden" name="action" value="identify_user" id="identifyActionInput">
                         <input class="form-control form-control-lg" type="email" name="email" id="identifyEmailInput" placeholder="Email" value="<?= h((string) $email) ?>" required>
                         <div id="identifyPasswordWrapper" class="d-none">
@@ -155,6 +172,7 @@ require __DIR__ . '/partials/header.php';
                     </script>
                 <?php elseif ($loginMode === 'password'): ?>
                     <form method="post" class="vstack gap-3">
+                        <?= csrf_input() ?>
                         <input type="hidden" name="action" value="login_password">
                         <input class="form-control form-control-lg" type="email" name="email" value="<?= h((string) $email) ?>" readonly required>
                         <input class="form-control form-control-lg" type="password" name="password" placeholder="Password" required>
@@ -163,6 +181,7 @@ require __DIR__ . '/partials/header.php';
                     <div class="text-center mt-3"><a href="login.php" class="small">Trocar de utilizador</a></div>
                 <?php else: ?>
                     <form method="post" class="vstack gap-3" id="pinLoginForm">
+                        <?= csrf_input() ?>
                         <input type="hidden" name="action" value="login_pin">
                         <input type="hidden" name="email" value="<?= h((string) $email) ?>">
                         <input type="password" class="form-control form-control-lg text-center" name="pin" id="pinInput" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="PIN de 6 dígitos" readonly required>

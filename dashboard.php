@@ -84,6 +84,7 @@ function infer_team_ticket_preset(string $teamName): array
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    validate_csrf_or_abort(false);
     $action = $_POST['action'] ?? '';
 
     if ($action === 'clock_entry' && !$isPinOnlyUser) {
