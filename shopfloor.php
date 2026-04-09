@@ -17,6 +17,10 @@ if (!$isAdmin && !in_array($profile, ['Utilizador', 'Chefias', 'RH'], true)) {
 $flashSuccess = null;
 $flashError = null;
 $sessionLoginAt = trim((string) ($_SESSION['login_at'] ?? ''));
+$latestClockEntryTodayStmt = $pdo->prepare('SELECT entry_type FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC LIMIT 1');
+$latestClockEntryTodayStmt->execute([$userId]);
+$latestClockEntryToday = (string) ($latestClockEntryTodayStmt->fetchColumn() ?: '');
+$hasOpenClockEntryToday = $latestClockEntryToday === 'entrada';
 if (isset($_GET['announcement_ack_required'])) {
     $flashError = 'Tem de validar o conhecimento do comunicado pendente para continuar.';
 }
@@ -107,6 +111,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'submit_absence') {
         $requestType = trim((string) ($_POST['request_type'] ?? 'Dias inteiros'));
+        if ($hasOpenClockEntryToday) {
+            $flashError = 'Não é possível criar pedidos de ausência enquanto o ponto do dia estiver aberto (sem saída).';
+        } else {
         $startDate = trim((string) ($_POST['start_date'] ?? ''));
         $endDate = trim((string) ($_POST['end_date'] ?? ''));
         $singleDate = trim((string) ($_POST['single_date'] ?? ''));
@@ -160,6 +167,7 @@ $requestType,
             }
             log_app_event($pdo, $userId, 'shopfloor.absence.create', 'Comunicação de ausência submetida.', ['request_type' => $requestType, 'duration_type' => $durationType, 'duration_hours' => $durationHours, 'start_date' => $startDate, 'end_date' => $endDate, 'reason_id' => $reasonId]);
             $flashSuccess = 'Comunicação de ausência submetida com sucesso.';
+        }
         }
     }
 
@@ -334,7 +342,9 @@ $requestType,
         $endDate = trim((string) ($_POST['end_date'] ?? ''));
         $notes = trim((string) ($_POST['notes'] ?? ''));
 
-        if ($startDate === '' || $endDate === '') {
+        if ($hasOpenClockEntryToday) {
+            $flashError = 'Não é possível criar pedidos de férias enquanto o ponto do dia estiver aberto (sem saída).';
+        } elseif ($startDate === '' || $endDate === '') {
             $flashError = 'Indique o período de férias.';
         } elseif ($endDate < $startDate) {
             $flashError = 'A data final das férias não pode ser anterior à inicial.';
@@ -349,6 +359,7 @@ $requestType,
             $flashSuccess = 'Pedido de férias submetido com sucesso.';
         }
     }
+
 
     if ($action === 'publish_announcement' && ($isAdmin || $isRh)) {
         $title = trim((string) ($_POST['title'] ?? ''));
@@ -446,6 +457,8 @@ if (!$hourBank) {
 $todayEntriesStmt = $pdo->prepare('SELECT entry_type, note, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC');
 $todayEntriesStmt->execute([$userId]);
 $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
+$latestTodayEntryType = (string) ($todayEntries[0]['entry_type'] ?? '');
+$hasOpenClockEntryToday = $latestTodayEntryType === 'entrada';
 
 $absenceReasonsStmt = $pdo->prepare('SELECT id, reason_code, sage_code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 AND (? = 1 OR ? = 1 OR show_in_shopfloor = 1) ORDER BY reason_code COLLATE NOCASE ASC, label COLLATE NOCASE ASC');
 $absenceReasonsStmt->execute([$isAdmin ? 1 : 0, $isRh ? 1 : 0]);
@@ -731,8 +744,15 @@ require __DIR__ . '/partials/header.php';
     <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
             <h2 class="h4 mb-0">Pedidos de ausência</h2>
-            <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#absenceFormPanel" aria-expanded="false" aria-controls="absenceFormPanel">Novo pedido</button>
+            <?php if ($hasOpenClockEntryToday): ?>
+                <button class="btn btn-secondary btn-sm fw-semibold" type="button" disabled aria-disabled="true">Novo pedido</button>
+            <?php else: ?>
+                <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#absenceFormPanel" aria-expanded="false" aria-controls="absenceFormPanel">Novo pedido</button>
+            <?php endif; ?>
         </div>
+        <?php if ($hasOpenClockEntryToday): ?>
+            <p class="small text-secondary mb-3">Os pedidos de ausência só podem ser criados quando não existe ponto em aberto no dia atual.</p>
+        <?php endif; ?>
 
         <div class="collapse mb-3" id="absenceFormPanel">
             <form method="post" class="shopfloor-form-grid shopfloor-form-grid-request" id="absenceRequestForm">
@@ -1026,9 +1046,16 @@ require __DIR__ . '/partials/header.php';
                     <input type="number" name="vacation_year" class="form-control form-control-sm" style="width:100px" min="2000" max="2100" value="<?= (int) $vacationYear ?>">
                     <button class="btn btn-outline-secondary btn-sm">Ano</button>
                 </form>
-                <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#vacationFormPanel" aria-expanded="false" aria-controls="vacationFormPanel">Novo pedido</button>
+                <?php if ($hasOpenClockEntryToday): ?>
+                    <button class="btn btn-secondary btn-sm fw-semibold" type="button" disabled aria-disabled="true">Novo pedido</button>
+                <?php else: ?>
+                    <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#vacationFormPanel" aria-expanded="false" aria-controls="vacationFormPanel">Novo pedido</button>
+                <?php endif; ?>
             </div>
         </div>
+        <?php if ($hasOpenClockEntryToday): ?>
+            <p class="small text-secondary mb-3">Os pedidos de férias só podem ser criados quando não existe ponto em aberto no dia atual.</p>
+        <?php endif; ?>
         <div class="row g-2 mb-3">
             <div class="col-lg-3 col-md-6">
                 <div class="border rounded p-2 bg-white h-100">
