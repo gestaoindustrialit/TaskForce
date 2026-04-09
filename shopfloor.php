@@ -614,14 +614,17 @@ if ($rangeEnd >= $rangeStart) {
     $absenceImpactStmt->execute([$userId, $rangeEnd, $rangeStart]);
     $absenceImpactRows = $absenceImpactStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $code100MinutesByDate = [];
+    $approvedMinutesByDate = [];
+    $excludedCode100MinutesByDate = [];
     foreach ($absenceImpactRows as $absenceImpact) {
-        $absenceCode = shopfloor_parse_absence_code((string) ($absenceImpact['reason'] ?? ''));
-        if (!shopfloor_should_exclude_absence_credit($absenceCode)) {
+        $absenceMinutes = shopfloor_resolve_absence_minutes($absenceImpact, $targetMinutes);
+        if ($absenceMinutes <= 0) {
             continue;
         }
 
-        $absenceMinutes = shopfloor_resolve_absence_minutes($absenceImpact, $targetMinutes);
+        $absenceCode = shopfloor_parse_absence_code((string) ($absenceImpact['reason'] ?? ''));
+        $isCode100 = shopfloor_should_exclude_absence_credit($absenceCode);
+
         try {
             $start = new DateTimeImmutable(max((string) ($absenceImpact['start_date'] ?? ''), $rangeStart));
             $end = new DateTimeImmutable(min((string) ($absenceImpact['end_date'] ?? ''), $rangeEnd));
@@ -631,7 +634,10 @@ if ($rangeEnd >= $rangeStart) {
 
         for ($dateCursor = $start; $dateCursor <= $end; $dateCursor = $dateCursor->modify('+1 day')) {
             $dateKey = $dateCursor->format('Y-m-d');
-            $code100MinutesByDate[$dateKey] = ($code100MinutesByDate[$dateKey] ?? 0) + $absenceMinutes;
+            $approvedMinutesByDate[$dateKey] = ($approvedMinutesByDate[$dateKey] ?? 0) + $absenceMinutes;
+            if ($isCode100) {
+                $excludedCode100MinutesByDate[$dateKey] = ($excludedCode100MinutesByDate[$dateKey] ?? 0) + $absenceMinutes;
+            }
         }
     }
 
@@ -645,15 +651,21 @@ if ($rangeEnd >= $rangeStart) {
         }
     }
 
-    for ($currentDate = new DateTimeImmutable($rangeStart); $currentDate <= new DateTimeImmutable($rangeEnd); $currentDate = $currentDate->modify('+1 day')) {
-        $dateKey = $currentDate->format('Y-m-d');
-        $weekday = (string) $currentDate->format('N');
+    foreach ($approvedMinutesByDate as $dateKey => $approvedMinutes) {
+        try {
+            $dateObj = new DateTimeImmutable($dateKey);
+        } catch (Exception $exception) {
+            continue;
+        }
+
+        $weekday = (string) $dateObj->format('N');
         if (!isset($scheduleWeekdaysMap[$weekday]) || isset($blockedDates[$dateKey]) || isset($workedDateMap[$dateKey])) {
             continue;
         }
 
-        $code100Minutes = (int) ($code100MinutesByDate[$dateKey] ?? 0);
-        $bhAdjustmentMinutes += max(0, $targetMinutes - $code100Minutes);
+        $excludedMinutes = (int) ($excludedCode100MinutesByDate[$dateKey] ?? 0);
+        $creditMinutes = max(0, (int) $approvedMinutes - $excludedMinutes);
+        $bhAdjustmentMinutes += $creditMinutes;
     }
 }
 
