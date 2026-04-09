@@ -457,6 +457,8 @@ if (!$hourBank) {
 $todayEntriesStmt = $pdo->prepare('SELECT entry_type, note, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC');
 $todayEntriesStmt->execute([$userId]);
 $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
+$latestTodayEntryType = (string) ($todayEntries[0]['entry_type'] ?? '');
+$hasOpenClockEntryToday = $latestTodayEntryType === 'entrada';
 
 $absenceReasonsStmt = $pdo->prepare('SELECT id, reason_code, sage_code, label, color FROM shopfloor_absence_reasons WHERE is_active = 1 AND (? = 1 OR ? = 1 OR show_in_shopfloor = 1) ORDER BY reason_code COLLATE NOCASE ASC, label COLLATE NOCASE ASC');
 $absenceReasonsStmt->execute([$isAdmin ? 1 : 0, $isRh ? 1 : 0]);
