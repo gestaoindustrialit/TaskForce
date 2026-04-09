@@ -162,6 +162,12 @@ function parse_absence_sage_code(string $reason): string
     return '';
 }
 
+function should_exclude_absence_from_bank_credit(string $absenceCode): bool
+{
+    $normalized = preg_replace('/\D+/', '', $absenceCode) ?? '';
+    return $normalized === '100';
+}
+
 function format_sage_employee_number(string $value, int $fallbackUserId): string
 {
     $digits = preg_replace('/\D+/', '', $value) ?? '';
@@ -780,7 +786,7 @@ if ($selectedUsers) {
     }
 }
 
-$absenceSql = 'SELECT a.id, a.user_id, a.start_date, a.end_date, a.reason, a.duration_type, a.duration_hours, a.status, u.user_number
+$absenceSql = 'SELECT a.id, a.user_id, a.start_date, a.end_date, a.reason, a.duration_type, a.duration_hours, a.status, u.user_number, u.name AS user_name
     FROM shopfloor_absence_requests a
     INNER JOIN users u ON u.id = a.user_id
     WHERE ' . implode(' AND ', $absenceWhere) . '
@@ -800,6 +806,36 @@ foreach ($absenceReasonColorStmt->fetchAll(PDO::FETCH_ASSOC) as $colorRow) {
 
 $approvedAbsencesByDay = [];
 foreach ($approvedAbsences as $absence) {
+    $absenceUserId = (int) ($absence['user_id'] ?? 0);
+    $absenceUserName = (string) ($absence['user_name'] ?? '');
+    $absenceUserNumber = (string) ($absence['user_number'] ?? '');
+
+    foreach (list_weekdays_between((string) $absence['start_date'], (string) $absence['end_date']) as $absenceDate) {
+        $dailyKey = $absenceUserId . '|' . $absenceDate;
+        if (!isset($daily[$dailyKey])) {
+            $daily[$dailyKey] = [
+                'user_id' => $absenceUserId,
+                'user_name' => $absenceUserName,
+                'user_number' => $absenceUserNumber,
+                'date' => $absenceDate,
+                'entries' => [],
+                'validated_at' => null,
+                'seconds' => 0,
+                'entries_count' => 0,
+                'has_pending_entries' => false,
+                'validated_entries_count' => 0,
+                'status' => 'Em curso',
+                'type_label' => 'Ausência',
+                'effective' => '00:00',
+                'target' => '08:15',
+                'bh_seconds' => 0,
+                'bh' => format_signed_hhmm(0),
+                'bh_is_override' => false,
+                'bh_reason' => '',
+            ];
+        }
+    }
+
     $absenceCode = parse_absence_sage_code((string) ($absence['reason'] ?? ''));
     if ($absenceCode === '') {
         continue;
@@ -890,7 +926,8 @@ foreach ($daily as &$row) {
 
     $row['absence_options'] = $dayAbsences;
     $row['absence_allocation'] = $allocation;
-    $row['absence_allocated_seconds'] = $allocation ? ((int) ($allocation['allocated_minutes'] ?? 0) * 60) : 0;
+    $allocationCode = $allocation ? (string) ($allocation['absence_code'] ?? '') : '';
+    $row['absence_allocated_seconds'] = ($allocation && !should_exclude_absence_from_bank_credit($allocationCode)) ? ((int) ($allocation['allocated_minutes'] ?? 0) * 60) : 0;
     $row['computed_bh_seconds'] = ((int) $row['seconds'] - ((8 * 3600) + (15 * 60))) + (int) $row['absence_allocated_seconds'];
     $override = $overrideMap[$rowKey] ?? null;
     $row['bh_seconds'] = $override ? (((int) $override['bh_minutes']) * 60) : (int) $row['computed_bh_seconds'];
