@@ -741,7 +741,11 @@ require __DIR__ . '/partials/header.php';
     <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
             <h2 class="h4 mb-0">Pedidos de ausência</h2>
-            <button class="btn btn-primary btn-sm fw-semibold<?= $hasClockEntriesToday ? " disabled" : "" ?>" type="button" data-bs-toggle="collapse" data-bs-target="#absenceFormPanel" aria-expanded="false" aria-controls="absenceFormPanel"<?= $hasClockEntriesToday ? " disabled aria-disabled=\"true\"" : "" ?>>Novo pedido</button>
+            <?php if ($hasClockEntriesToday): ?>
+                <button class="btn btn-secondary btn-sm fw-semibold" type="button" disabled aria-disabled="true">Novo pedido</button>
+            <?php else: ?>
+                <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#absenceFormPanel" aria-expanded="false" aria-controls="absenceFormPanel">Novo pedido</button>
+            <?php endif; ?>
         </div>
         <?php if ($hasClockEntriesToday): ?>
             <p class="small text-secondary mb-3">Os pedidos de ausência só podem ser criados quando ainda não existe registo de ponto no dia atual.</p>
@@ -1039,7 +1043,11 @@ require __DIR__ . '/partials/header.php';
                     <input type="number" name="vacation_year" class="form-control form-control-sm" style="width:100px" min="2000" max="2100" value="<?= (int) $vacationYear ?>">
                     <button class="btn btn-outline-secondary btn-sm">Ano</button>
                 </form>
-                <button class="btn btn-primary btn-sm fw-semibold<?= $hasClockEntriesToday ? " disabled" : "" ?>" type="button" data-bs-toggle="collapse" data-bs-target="#vacationFormPanel" aria-expanded="false" aria-controls="vacationFormPanel"<?= $hasClockEntriesToday ? " disabled aria-disabled=\"true\"" : "" ?>>Novo pedido</button>
+                <?php if ($hasClockEntriesToday): ?>
+                    <button class="btn btn-secondary btn-sm fw-semibold" type="button" disabled aria-disabled="true">Novo pedido</button>
+                <?php else: ?>
+                    <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#vacationFormPanel" aria-expanded="false" aria-controls="vacationFormPanel">Novo pedido</button>
+                <?php endif; ?>
             </div>
         </div>
         <div class="row g-2 mb-3">
