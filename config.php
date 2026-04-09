@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/bootstrap/app.php';
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -135,6 +137,11 @@ try {
     echo '<p>Não foi possível iniciar a base de dados SQLite.</p>';
     echo '<p>Verifique permissões de escrita para o ficheiro <code>database.sqlite</code> e para a pasta da aplicação.</p>';
     exit;
+}
+
+$GLOBALS['pdo'] = $pdo;
+if (function_exists('taskforce_ensure_security_tables')) {
+    taskforce_ensure_security_tables($pdo);
 }
 
 $pdo->exec(
