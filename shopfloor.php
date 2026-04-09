@@ -17,9 +17,10 @@ if (!$isAdmin && !in_array($profile, ['Utilizador', 'Chefias', 'RH'], true)) {
 $flashSuccess = null;
 $flashError = null;
 $sessionLoginAt = trim((string) ($_SESSION['login_at'] ?? ''));
-$hasClockEntriesTodayStmt = $pdo->prepare('SELECT EXISTS(SELECT 1 FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime"))');
-$hasClockEntriesTodayStmt->execute([$userId]);
-$hasClockEntriesToday = ((int) $hasClockEntriesTodayStmt->fetchColumn()) === 1;
+$latestClockEntryTodayStmt = $pdo->prepare('SELECT entry_type FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC LIMIT 1');
+$latestClockEntryTodayStmt->execute([$userId]);
+$latestClockEntryToday = (string) ($latestClockEntryTodayStmt->fetchColumn() ?: '');
+$hasOpenClockEntryToday = $latestClockEntryToday === 'entrada';
 if (isset($_GET['announcement_ack_required'])) {
     $flashError = 'Tem de validar o conhecimento do comunicado pendente para continuar.';
 }
@@ -110,8 +111,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'submit_absence') {
         $requestType = trim((string) ($_POST['request_type'] ?? 'Dias inteiros'));
-        if ($hasClockEntriesToday) {
-            $flashError = 'Não é possível criar pedidos de ausência após registar ponto no dia atual.';
+        if ($hasOpenClockEntryToday) {
+            $flashError = 'Não é possível criar pedidos de ausência enquanto o ponto do dia estiver aberto (sem saída).';
         } else {
         $startDate = trim((string) ($_POST['start_date'] ?? ''));
         $endDate = trim((string) ($_POST['end_date'] ?? ''));
@@ -341,8 +342,8 @@ $requestType,
         $endDate = trim((string) ($_POST['end_date'] ?? ''));
         $notes = trim((string) ($_POST['notes'] ?? ''));
 
-        if ($hasClockEntriesToday) {
-            $flashError = 'Não é possível criar pedidos de férias após registar ponto no dia atual.';
+        if ($hasOpenClockEntryToday) {
+            $flashError = 'Não é possível criar pedidos de férias enquanto o ponto do dia estiver aberto (sem saída).';
         } elseif ($startDate === '' || $endDate === '') {
             $flashError = 'Indique o período de férias.';
         } elseif ($endDate < $startDate) {
@@ -741,14 +742,14 @@ require __DIR__ . '/partials/header.php';
     <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
             <h2 class="h4 mb-0">Pedidos de ausência</h2>
-            <?php if ($hasClockEntriesToday): ?>
+            <?php if ($hasOpenClockEntryToday): ?>
                 <button class="btn btn-secondary btn-sm fw-semibold" type="button" disabled aria-disabled="true">Novo pedido</button>
             <?php else: ?>
                 <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#absenceFormPanel" aria-expanded="false" aria-controls="absenceFormPanel">Novo pedido</button>
             <?php endif; ?>
         </div>
-        <?php if ($hasClockEntriesToday): ?>
-            <p class="small text-secondary mb-3">Os pedidos de ausência só podem ser criados quando ainda não existe registo de ponto no dia atual.</p>
+        <?php if ($hasOpenClockEntryToday): ?>
+            <p class="small text-secondary mb-3">Os pedidos de ausência só podem ser criados quando não existe ponto em aberto no dia atual.</p>
         <?php endif; ?>
 
         <div class="collapse mb-3" id="absenceFormPanel">
@@ -1043,13 +1044,16 @@ require __DIR__ . '/partials/header.php';
                     <input type="number" name="vacation_year" class="form-control form-control-sm" style="width:100px" min="2000" max="2100" value="<?= (int) $vacationYear ?>">
                     <button class="btn btn-outline-secondary btn-sm">Ano</button>
                 </form>
-                <?php if ($hasClockEntriesToday): ?>
+                <?php if ($hasOpenClockEntryToday): ?>
                     <button class="btn btn-secondary btn-sm fw-semibold" type="button" disabled aria-disabled="true">Novo pedido</button>
                 <?php else: ?>
                     <button class="btn btn-primary btn-sm fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#vacationFormPanel" aria-expanded="false" aria-controls="vacationFormPanel">Novo pedido</button>
                 <?php endif; ?>
             </div>
         </div>
+        <?php if ($hasOpenClockEntryToday): ?>
+            <p class="small text-secondary mb-3">Os pedidos de férias só podem ser criados quando não existe ponto em aberto no dia atual.</p>
+        <?php endif; ?>
         <div class="row g-2 mb-3">
             <div class="col-lg-3 col-md-6">
                 <div class="border rounded p-2 bg-white h-100">
