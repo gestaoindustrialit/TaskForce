@@ -21,6 +21,57 @@ if (isset($_GET['announcement_ack_required'])) {
     $flashError = 'Tem de validar o conhecimento do comunicado pendente para continuar.';
 }
 
+if (!function_exists('shopfloor_parse_absence_code')) {
+    function shopfloor_parse_absence_code(string $reason): string
+    {
+        if (preg_match('/·\s*([A-Z0-9\-]+)\s*-/', $reason, $matches)) {
+            return normalize_sage_code((string) ($matches[1] ?? ''));
+        }
+
+        return '';
+    }
+}
+
+if (!function_exists('shopfloor_should_exclude_absence_credit')) {
+    function shopfloor_should_exclude_absence_credit(string $absenceCode): bool
+    {
+        $normalized = preg_replace('/\D+/', '', $absenceCode) ?? '';
+        return $normalized === '100';
+    }
+}
+
+if (!function_exists('shopfloor_format_signed_hhmm')) {
+    function shopfloor_format_signed_hhmm(int $seconds): string
+    {
+        $abs = abs($seconds);
+        $hours = intdiv($abs, 3600);
+        $minutes = intdiv($abs % 3600, 60);
+        $prefix = $seconds < 0 ? '-' : '';
+
+        return sprintf('%s%02dh%02dm', $prefix, $hours, $minutes);
+    }
+}
+
+if (!function_exists('shopfloor_resolve_absence_minutes')) {
+    function shopfloor_resolve_absence_minutes(array $absence, int $targetMinutes): int
+    {
+        $durationType = trim((string) ($absence['duration_type'] ?? 'Completa'));
+        if ($durationType === 'Parcial') {
+            return (int) round($targetMinutes / 2);
+        }
+
+        if ($durationType === 'Horas') {
+            $hoursValue = trim((string) ($absence['duration_hours'] ?? ''));
+            if (preg_match('/^(\d{1,2}):(\d{2})$/', $hoursValue, $matches)) {
+                $minutes = (((int) $matches[1]) * 60) + (int) $matches[2];
+                return max(0, min($targetMinutes, $minutes));
+            }
+        }
+
+        return $targetMinutes;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = trim((string) ($_POST['action'] ?? ''));
     $pendingAnnouncementForAck = fetch_pending_shopfloor_announcement_ack($pdo, $userId, $sessionLoginAt);
@@ -462,7 +513,7 @@ if ($vacationYear < 2000 || $vacationYear > 2100) {
     $vacationYear = (int) date('Y');
 }
 
-$scheduleContextStmt = $pdo->prepare('SELECT s.name AS schedule_name, s.weekdays_mask FROM users u LEFT JOIN hr_schedules s ON s.id = u.schedule_id WHERE u.id = ? LIMIT 1');
+$scheduleContextStmt = $pdo->prepare('SELECT s.name AS schedule_name, s.weekdays_mask, s.start_time, s.end_time, s.break_minutes FROM users u LEFT JOIN hr_schedules s ON s.id = u.schedule_id WHERE u.id = ? LIMIT 1');
 $scheduleContextStmt->execute([$userId]);
 $scheduleContext = $scheduleContextStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 $scheduleName = trim((string) ($scheduleContext['schedule_name'] ?? ''));
@@ -557,8 +608,98 @@ $pendingVacationDaysStmt = $pdo->prepare('SELECT COALESCE(SUM(total_days), 0) FR
 $pendingVacationDaysStmt->execute([$userId]);
 $pendingVacationDays = (float) $pendingVacationDaysStmt->fetchColumn();
 
-$formattedHourBank = sprintf('%02dh%02dm', (int) floor((float) $hourBank['balance_hours']), (int) round((((float) $hourBank['balance_hours']) - floor((float) $hourBank['balance_hours'])) * 60));
+$targetMinutes = (8 * 60) + 15;
+if (!empty($scheduleContext['start_time']) && !empty($scheduleContext['end_time'])) {
+    [$startHour, $startMinute] = array_map('intval', explode(':', (string) $scheduleContext['start_time']));
+    [$endHour, $endMinute] = array_map('intval', explode(':', (string) $scheduleContext['end_time']));
+    $targetMinutes = (($endHour * 60) + $endMinute) - (($startHour * 60) + $startMinute) - (int) ($scheduleContext['break_minutes'] ?? 0);
+    if ($targetMinutes < 0) {
+        $targetMinutes = 0;
+    }
+}
 
+$annualBhSeconds = 0;
+$rangeStart = $yearStart;
+$rangeEnd = min($yearEnd, date('Y-m-d', strtotime('-1 day')));
+if ($rangeEnd >= $rangeStart) {
+    $entriesStmt = $pdo->prepare('SELECT entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) BETWEEN ? AND ? ORDER BY occurred_at ASC');
+    $entriesStmt->execute([$userId, $rangeStart, $rangeEnd]);
+    $entriesByDate = [];
+    foreach ($entriesStmt->fetchAll(PDO::FETCH_ASSOC) as $entryRow) {
+        $entryDate = date('Y-m-d', strtotime((string) ($entryRow['occurred_at'] ?? '')));
+        $entriesByDate[$entryDate][] = $entryRow;
+    }
+
+    $overrideStmt = $pdo->prepare('SELECT work_date, bh_minutes FROM shopfloor_bh_overrides WHERE user_id = ? AND work_date BETWEEN ? AND ?');
+    $overrideStmt->execute([$userId, $rangeStart, $rangeEnd]);
+    $overrideMap = [];
+    foreach ($overrideStmt->fetchAll(PDO::FETCH_ASSOC) as $overrideRow) {
+        $overrideMap[(string) ($overrideRow['work_date'] ?? '')] = (int) ($overrideRow['bh_minutes'] ?? 0);
+    }
+
+    $absenceStmt = $pdo->prepare('SELECT id, start_date, end_date, reason, duration_type, duration_hours FROM shopfloor_absence_requests WHERE user_id = ? AND status = "Aprovado" AND start_date <= ? AND end_date >= ?');
+    $absenceStmt->execute([$userId, $rangeEnd, $rangeStart]);
+    $absences = $absenceStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $absenceMinutesByDate = [];
+    foreach ($absences as $absenceRow) {
+        $absenceMinutes = shopfloor_resolve_absence_minutes($absenceRow, $targetMinutes);
+        $absenceCode = shopfloor_parse_absence_code((string) ($absenceRow['reason'] ?? ''));
+        if (shopfloor_should_exclude_absence_credit($absenceCode)) {
+            $absenceMinutes = 0;
+        }
+
+        try {
+            $start = new DateTimeImmutable(max((string) ($absenceRow['start_date'] ?? ''), $rangeStart));
+            $end = new DateTimeImmutable(min((string) ($absenceRow['end_date'] ?? ''), $rangeEnd));
+        } catch (Exception $exception) {
+            continue;
+        }
+
+        for ($dateCursor = $start; $dateCursor <= $end; $dateCursor = $dateCursor->modify('+1 day')) {
+            $dateKey = $dateCursor->format('Y-m-d');
+            $weekday = (string) $dateCursor->format('N');
+            if (!isset($scheduleWeekdaysMap[$weekday]) || isset($blockedDates[$dateKey])) {
+                continue;
+            }
+            $absenceMinutesByDate[$dateKey] = max($absenceMinutesByDate[$dateKey] ?? 0, $absenceMinutes);
+        }
+    }
+
+    $allDates = array_fill_keys(array_keys($entriesByDate), true);
+    foreach (array_keys($absenceMinutesByDate) as $absenceDateKey) {
+        $allDates[$absenceDateKey] = true;
+    }
+
+    foreach (array_keys($allDates) as $workDate) {
+        $bhMinutes = 0;
+        if (array_key_exists($workDate, $overrideMap)) {
+            $bhMinutes = (int) $overrideMap[$workDate];
+        } else {
+            $effectiveMinutes = 0;
+            $openIn = null;
+            foreach ($entriesByDate[$workDate] ?? [] as $entry) {
+                $entryType = (string) ($entry['entry_type'] ?? '');
+                $timestamp = strtotime((string) ($entry['occurred_at'] ?? ''));
+                if ($timestamp === false) {
+                    continue;
+                }
+                if ($entryType === 'entrada') {
+                    $openIn = $timestamp;
+                } elseif ($entryType === 'saida' && $openIn !== null && $timestamp > $openIn) {
+                    $effectiveMinutes += (int) round(($timestamp - $openIn) / 60);
+                    $openIn = null;
+                }
+            }
+
+            $bhMinutes = $effectiveMinutes - $targetMinutes + (int) ($absenceMinutesByDate[$workDate] ?? 0);
+        }
+
+        $annualBhSeconds += ($bhMinutes * 60);
+    }
+}
+
+$formattedHourBank = shopfloor_format_signed_hhmm($annualBhSeconds);
 
 $pageTitle = 'Shopfloor';
 $bodyClass = 'bg-light';
