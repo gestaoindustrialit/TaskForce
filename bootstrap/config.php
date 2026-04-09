@@ -30,7 +30,7 @@ if (!function_exists('app_config')) {
                 ],
                 'security' => [
                     'install_enabled' => !$isProduction,
-                    'csp' => "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'",
+                    'csp' => "default-src 'self' data: blob: https:; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'",
                 ],
                 'paths' => [
                     'root' => $root,

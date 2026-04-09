@@ -139,6 +139,11 @@ try {
     exit;
 }
 
+$GLOBALS['pdo'] = $pdo;
+if (function_exists('taskforce_ensure_security_tables')) {
+    taskforce_ensure_security_tables($pdo);
+}
+
 $pdo->exec(
     'CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
