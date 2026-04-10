@@ -408,13 +408,25 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
 
     $pdfContent = taskforce_generate_pdf_from_html($html);
     if (!is_string($pdfContent) || $pdfContent === '') {
-        $pdfContent = taskforce_generate_basic_pdf([
-            'TaskForce RH - Histórico de avaliações',
-            'Colaborador: ' . $employeeLabel,
-            'Ano: ' . $year,
-            'Nº avaliações: ' . (int) ($metrics['count'] ?? 0),
-            'Soma prémios período: ' . taskforce_money((float) ($metrics['sum_period_total'] ?? 0)),
-            'Regra predominante: ' . $predominantRule,
+        $pdfContent = taskforce_generate_evaluation_history_layout_pdf([
+            'title' => 'Histórico de avaliações',
+            'employee' => $employeeLabel,
+            'year' => (string) $year,
+            'department' => (string) ($employee['department_name'] ?? '—'),
+            'profile' => (string) ($employee['award_profile'] ?? 'operador'),
+            'predominant_rule' => $predominantRule,
+            'metrics' => $metrics,
+            'closure' => $closure ?? [],
+            'evaluations' => $evaluations,
+            'sent_by' => $sentBy ?? '',
+            'lines' => [
+                'TaskForce RH - Histórico de avaliações',
+                'Colaborador: ' . $employeeLabel,
+                'Ano: ' . $year,
+                'Nº avaliações: ' . (int) ($metrics['count'] ?? 0),
+                'Soma prémios período: ' . taskforce_money((float) ($metrics['sum_period_total'] ?? 0)),
+                'Regra predominante: ' . $predominantRule,
+            ],
         ]);
     }
 
@@ -432,4 +444,135 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
     return $sent
         ? ['ok' => true, 'message' => 'PDF do histórico enviado por email para o colaborador avaliado.']
         : ['ok' => false, 'message' => 'Não foi possível enviar o email com o PDF do histórico.'];
+}
+
+function taskforce_generate_evaluation_history_layout_pdf(array $reportData): string
+{
+    if (!extension_loaded('gd') || !function_exists('imagecreatetruecolor')) {
+        return taskforce_generate_basic_pdf($reportData['lines'] ?? []);
+    }
+
+    $fontPath = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
+    if (!is_file($fontPath)) {
+        $fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+    }
+    $canUseTtf = function_exists('imagettftext') && is_file($fontPath);
+    $layoutScale = $canUseTtf ? 1.0 : 0.5;
+    $scale = static fn(float $value): int => (int) round($value * $layoutScale);
+    $width = $scale(1240);
+    $height = $scale(1754);
+
+    $image = imagecreatetruecolor($width, $height);
+    $white = imagecolorallocate($image, 255, 255, 255);
+    $text = imagecolorallocate($image, 31, 41, 55);
+    $muted = imagecolorallocate($image, 75, 85, 99);
+    $border = imagecolorallocate($image, 209, 213, 219);
+    $cardBg = imagecolorallocate($image, 249, 250, 251);
+    imagefill($image, 0, 0, $white);
+
+    $toRenderableText = static function (string $value): string {
+        if (!function_exists('iconv')) {
+            return $value;
+        }
+        $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        return $converted !== false ? $converted : $value;
+    };
+    $drawText = static function ($image, int $size, int $x, int $y, int $color, string $content) use ($canUseTtf, $fontPath, $toRenderableText): void {
+        if ($canUseTtf) {
+            imagettftext($image, $size, 0, $x, $y, $color, $fontPath, $content);
+            return;
+        }
+        $font = $size >= 18 ? 5 : ($size >= 14 ? 4 : 3);
+        imagestring($image, $font, $x, $y - imagefontheight($font), $toRenderableText($content), $color);
+    };
+
+    $y = $scale(70);
+    $drawText($image, $scale(30), $scale(60), $y, $text, (string) ($reportData['title'] ?? 'Histórico de avaliações'));
+    $y += $scale(44);
+
+    imagefilledrectangle($image, $scale(60), $y, $scale(1180), $y + $scale(120), $cardBg);
+    imagerectangle($image, $scale(60), $y, $scale(1180), $y + $scale(120), $border);
+    $drawText($image, $scale(16), $scale(80), $y + $scale(34), $text, (string) ($reportData['employee'] ?? ''));
+    $drawText($image, $scale(14), $scale(80), $y + $scale(64), $muted, 'Ano: ' . (string) ($reportData['year'] ?? ''));
+    $drawText($image, $scale(14), $scale(420), $y + $scale(64), $muted, 'Regra predominante: ' . (string) ($reportData['predominant_rule'] ?? '—'));
+    $drawText($image, $scale(14), $scale(800), $y + $scale(64), $muted, 'Departamento: ' . (string) ($reportData['department'] ?? '—'));
+    $y += $scale(150);
+
+    $metrics = (array) ($reportData['metrics'] ?? []);
+    $closure = (array) ($reportData['closure'] ?? []);
+    $metricCards = [
+        ['Nº avaliações', (string) ((int) ($metrics['count'] ?? 0))],
+        ['Soma prémios período', taskforce_money((float) ($metrics['sum_period_total'] ?? 0))],
+        ['Bónus final', taskforce_money((float) ($closure['final_bonus_value'] ?? 0))],
+        ['Total anual', taskforce_money((float) ($closure['year_total_with_bonus'] ?? ($metrics['sum_period_total'] ?? 0)))],
+    ];
+    $cardWidth = $scale(270);
+    $x = $scale(60);
+    foreach ($metricCards as [$label, $value]) {
+        imagefilledrectangle($image, $x, $y, $x + $cardWidth, $y + $scale(105), $cardBg);
+        imagerectangle($image, $x, $y, $x + $cardWidth, $y + $scale(105), $border);
+        $drawText($image, $scale(12), $x + $scale(14), $y + $scale(30), $muted, $label);
+        $drawText($image, $scale(24), $x + $scale(14), $y + $scale(76), $text, $value);
+        $x += $cardWidth + $scale(18);
+    }
+    $y += $scale(140);
+
+    $drawText($image, $scale(20), $scale(60), $y, $text, 'Avaliações do ano');
+    $y += $scale(25);
+    $columns = [
+        ['Período', $scale(180)],
+        ['Entrevista', $scale(150)],
+        ['Performance', $scale(180)],
+        ['Comportamento', $scale(180)],
+        ['Pontualidade', $scale(170)],
+        ['Absentismo', $scale(160)],
+        ['Total', $scale(120)],
+    ];
+    $x = $scale(60);
+    foreach ($columns as [$label, $w]) {
+        imagefilledrectangle($image, $x, $y, $x + $w, $y + $scale(34), $cardBg);
+        imagerectangle($image, $x, $y, $x + $w, $y + $scale(34), $border);
+        $drawText($image, $scale(12), $x + $scale(8), $y + $scale(22), $text, $label);
+        $x += $w;
+    }
+    $y += $scale(34);
+
+    foreach ((array) ($reportData['evaluations'] ?? []) as $evaluation) {
+        if ($y > $scale(1440)) {
+            break;
+        }
+        $cells = [
+            taskforce_evaluation_period_label((string) ($evaluation['award_period'] ?? '')),
+            (string) (($evaluation['interview_date'] ?? '') ?: '—'),
+            (int) ($evaluation['performance_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['performance_value'] ?? 0)) . ')',
+            (int) ($evaluation['behavior_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['behavior_value'] ?? 0)) . ')',
+            (int) ($evaluation['punctuality_count'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['punctuality_value'] ?? 0)) . ')',
+            (int) ($evaluation['absence_count'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['absence_value'] ?? 0)) . ')',
+            taskforce_money((float) ($evaluation['period_total'] ?? 0)),
+        ];
+        $x = $scale(60);
+        foreach ($columns as $idx => $column) {
+            [, $w] = $column;
+            imagerectangle($image, $x, $y, $x + $w, $y + $scale(30), $border);
+            $txt = function_exists('mb_substr') ? mb_substr((string) $cells[$idx], 0, 28) : substr((string) $cells[$idx], 0, 28);
+            $drawText($image, $scale(11), $x + $scale(7), $y + $scale(20), $text, $txt);
+            $x += $w;
+        }
+        $y += $scale(30);
+    }
+
+    if (!empty($reportData['sent_by'])) {
+        $drawText($image, $scale(12), $scale(60), $scale(1690), $muted, 'Enviado por: ' . (string) $reportData['sent_by']);
+    }
+
+    ob_start();
+    imagejpeg($image, null, 90);
+    $jpeg = (string) ob_get_clean();
+    imagedestroy($image);
+
+    if ($jpeg === '') {
+        return taskforce_generate_basic_pdf($reportData['lines'] ?? []);
+    }
+
+    return taskforce_pdf_from_jpeg($jpeg, $width, $height);
 }
