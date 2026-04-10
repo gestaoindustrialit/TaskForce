@@ -23,6 +23,39 @@ $closureStmt = $pdo->prepare('SELECT * FROM hr_evaluation_year_closures WHERE us
 $closureStmt->execute([$targetUserId, $year]);
 $closure = $closureStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = (string) ($_POST['action'] ?? '');
+    if ($action === 'send_history_pdf') {
+        $evaluationId = (int) ($_POST['evaluation_id'] ?? 0);
+        if ($evaluationId <= 0) {
+            $flashError = 'Avaliação inválida para envio.';
+        } else {
+            $evaluationStmt = $pdo->prepare('SELECT * FROM hr_evaluations WHERE id = ? LIMIT 1');
+            $evaluationStmt->execute([$evaluationId]);
+            $evaluation = $evaluationStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+            if (!$evaluation || !$employee || (int) $evaluation['user_id'] !== (int) $targetUserId) {
+                $flashError = 'Não foi possível localizar a avaliação selecionada.';
+            } else {
+                $sendResult = taskforce_send_evaluation_pdf(
+                    $pdo,
+                    $employee,
+                    $evaluation,
+                    $closure,
+                    (int) $year,
+                    taskforce_evaluation_period_label((string) $evaluation['award_period']),
+                    $currentUserName !== '' ? $currentUserName : null
+                );
+                if ($sendResult['ok']) {
+                    $flashSuccess = $sendResult['message'];
+                } else {
+                    $flashError = $sendResult['message'];
+                }
+            }
+        }
+    }
+}
+
 $profiles = taskforce_evaluation_profiles();
 $metrics = [
     'count' => count($evaluations),
@@ -127,19 +160,56 @@ require __DIR__ . '/partials/header.php';
 <div class="soft-card p-3 mb-3 table-responsive">
     <h2 class="h5">Avaliações do ano</h2>
     <table class="table table-sm align-middle">
-        <thead><tr><th>Período</th><th>Entrevista</th><th>Performance</th><th>Comportamento</th><th>Pontualidade</th><th>Absentismo</th><th>Total período</th><th>Observações RH</th></tr></thead>
+        <thead><tr><th>Período</th><th>Entrevista</th><th>Performance</th><th>Comportamento</th><th>Pontualidade</th><th>Absentismo</th><th>Total período</th><th>Observações RH</th><th>Ações</th></tr></thead>
         <tbody>
-        <?php if (!$evaluations): ?><tr><td colspan="8" class="text-muted">Sem avaliações neste ano.</td></tr><?php endif; ?>
+        <?php if (!$evaluations): ?><tr><td colspan="9" class="text-muted">Sem avaliações neste ano.</td></tr><?php endif; ?>
         <?php foreach ($evaluations as $evaluation): ?>
+            <?php
+            $evaluationDateRaw = trim((string) ($evaluation['interview_date'] ?? ''));
+            if ($evaluationDateRaw === '') {
+                $evaluationDateRaw = (string) ($evaluation['created_at'] ?? '');
+            }
+            $evaluationDate = '—';
+            if ($evaluationDateRaw !== '') {
+                $ts = strtotime($evaluationDateRaw);
+                if ($ts !== false) {
+                    $evaluationDate = date('d/m/Y', $ts);
+                }
+            }
+
+            $performanceNotes = trim((string) ($evaluation['performance_notes'] ?? ''));
+            $behaviorNotes = trim((string) ($evaluation['behavior_notes'] ?? ''));
+            $punctualityNotes = trim((string) ($evaluation['punctuality_notes'] ?? ''));
+            $absenceNotes = trim((string) ($evaluation['absence_notes'] ?? ''));
+            ?>
             <tr>
                 <td><?= h(taskforce_evaluation_period_label((string) $evaluation['award_period'])) ?></td>
-                <td><?= h((string) ($evaluation['interview_date'] ?? '—')) ?></td>
-                <td><?= (int) $evaluation['performance_score'] ?> (<?= h(taskforce_money((float) $evaluation['performance_value'])) ?>)</td>
-                <td><?= (int) $evaluation['behavior_score'] ?> (<?= h(taskforce_money((float) $evaluation['behavior_value'])) ?>)</td>
-                <td><?= (int) $evaluation['punctuality_count'] ?> (<?= h(taskforce_money((float) $evaluation['punctuality_value'])) ?>)</td>
-                <td><?= (int) $evaluation['absence_count'] ?> (<?= h(taskforce_money((float) $evaluation['absence_value'])) ?>)</td>
+                <td><?= h($evaluationDate) ?></td>
+                <td>
+                    <?= (int) $evaluation['performance_score'] ?> (<?= h(taskforce_money((float) $evaluation['performance_value'])) ?>)
+                    <div class="small text-muted"><?= h($performanceNotes !== '' ? $performanceNotes : 'Sem notas') ?></div>
+                </td>
+                <td>
+                    <?= (int) $evaluation['behavior_score'] ?> (<?= h(taskforce_money((float) $evaluation['behavior_value'])) ?>)
+                    <div class="small text-muted"><?= h($behaviorNotes !== '' ? $behaviorNotes : 'Sem notas') ?></div>
+                </td>
+                <td>
+                    <?= (int) $evaluation['punctuality_count'] ?> (<?= h(taskforce_money((float) $evaluation['punctuality_value'])) ?>)
+                    <div class="small text-muted"><?= h($punctualityNotes !== '' ? $punctualityNotes : 'Sem notas') ?></div>
+                </td>
+                <td>
+                    <?= (int) $evaluation['absence_count'] ?> (<?= h(taskforce_money((float) $evaluation['absence_value'])) ?>)
+                    <div class="small text-muted"><?= h($absenceNotes !== '' ? $absenceNotes : 'Sem notas') ?></div>
+                </td>
                 <td><strong><?= h(taskforce_money((float) $evaluation['period_total'])) ?></strong></td>
                 <td><?= h((string) ($evaluation['general_notes'] ?? '')) ?></td>
+                <td>
+                    <form method="post">
+                        <input type="hidden" name="action" value="send_history_pdf">
+                        <input type="hidden" name="evaluation_id" value="<?= (int) $evaluation['id'] ?>">
+                        <button class="btn btn-sm btn-outline-primary">Enviar PDF</button>
+                    </form>
+                </td>
             </tr>
         <?php endforeach; ?>
         </tbody>
