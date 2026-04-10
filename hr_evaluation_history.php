@@ -8,6 +8,10 @@ if (!can_access_hr_module($pdo, $userId)) {
     http_response_code(403);
     exit('Acesso reservado a administradores e equipa RH.');
 }
+$currentUser = current_user($pdo);
+$currentUserName = trim((string) ($currentUser['name'] ?? ''));
+$flashSuccess = null;
+$flashError = null;
 
 $targetUserId = (int) ($_GET['user_id'] ?? 0);
 $year = (int) ($_GET['year'] ?? date('Y'));
@@ -18,6 +22,39 @@ $evaluations = $employee ? taskforce_fetch_year_evaluations($pdo, $targetUserId,
 $closureStmt = $pdo->prepare('SELECT * FROM hr_evaluation_year_closures WHERE user_id = ? AND award_year = ? LIMIT 1');
 $closureStmt->execute([$targetUserId, $year]);
 $closure = $closureStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = (string) ($_POST['action'] ?? '');
+    if ($action === 'send_history_pdf') {
+        $evaluationId = (int) ($_POST['evaluation_id'] ?? 0);
+        if ($evaluationId <= 0) {
+            $flashError = 'Avaliação inválida para envio.';
+        } else {
+            $evaluationStmt = $pdo->prepare('SELECT * FROM hr_evaluations WHERE id = ? LIMIT 1');
+            $evaluationStmt->execute([$evaluationId]);
+            $evaluation = $evaluationStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+            if (!$evaluation || !$employee || (int) $evaluation['user_id'] !== (int) $targetUserId) {
+                $flashError = 'Não foi possível localizar a avaliação selecionada.';
+            } else {
+                $sendResult = taskforce_send_evaluation_pdf(
+                    $pdo,
+                    $employee,
+                    $evaluation,
+                    $closure,
+                    (int) $year,
+                    taskforce_evaluation_period_label((string) $evaluation['award_period']),
+                    $currentUserName !== '' ? $currentUserName : null
+                );
+                if ($sendResult['ok']) {
+                    $flashSuccess = $sendResult['message'];
+                } else {
+                    $flashError = $sendResult['message'];
+                }
+            }
+        }
+    }
+}
 
 $profiles = taskforce_evaluation_profiles();
 $metrics = [
@@ -57,6 +94,8 @@ require __DIR__ . '/partials/header.php';
 ?>
 <a href="hr_evaluations.php" class="btn btn-link px-0">&larr; Voltar às avaliações</a>
 <h1 class="h3 mb-3">Histórico de avaliações</h1>
+<?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
+<?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
 
 <?php if (!$employee): ?>
 <div class="alert alert-warning">Colaborador não encontrado.</div>
@@ -88,9 +127,9 @@ require __DIR__ . '/partials/header.php';
 <div class="soft-card p-3 mb-3 table-responsive">
     <h2 class="h5">Avaliações do ano</h2>
     <table class="table table-sm align-middle">
-        <thead><tr><th>Período</th><th>Entrevista</th><th>Performance</th><th>Comportamento</th><th>Pontualidade</th><th>Absentismo</th><th>Total período</th><th>Observações RH</th></tr></thead>
+        <thead><tr><th>Período</th><th>Entrevista</th><th>Performance</th><th>Comportamento</th><th>Pontualidade</th><th>Absentismo</th><th>Total período</th><th>Observações RH</th><th>Ações</th></tr></thead>
         <tbody>
-        <?php if (!$evaluations): ?><tr><td colspan="8" class="text-muted">Sem avaliações neste ano.</td></tr><?php endif; ?>
+        <?php if (!$evaluations): ?><tr><td colspan="9" class="text-muted">Sem avaliações neste ano.</td></tr><?php endif; ?>
         <?php foreach ($evaluations as $evaluation): ?>
             <tr>
                 <td><?= h(taskforce_evaluation_period_label((string) $evaluation['award_period'])) ?></td>
@@ -101,6 +140,13 @@ require __DIR__ . '/partials/header.php';
                 <td><?= (int) $evaluation['absence_count'] ?> (<?= h(taskforce_money((float) $evaluation['absence_value'])) ?>)</td>
                 <td><strong><?= h(taskforce_money((float) $evaluation['period_total'])) ?></strong></td>
                 <td><?= h((string) ($evaluation['general_notes'] ?? '')) ?></td>
+                <td>
+                    <form method="post">
+                        <input type="hidden" name="action" value="send_history_pdf">
+                        <input type="hidden" name="evaluation_id" value="<?= (int) $evaluation['id'] ?>">
+                        <button class="btn btn-sm btn-outline-primary">Enviar PDF</button>
+                    </form>
+                </td>
             </tr>
         <?php endforeach; ?>
         </tbody>
