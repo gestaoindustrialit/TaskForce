@@ -342,3 +342,94 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
         ? ['ok' => true, 'message' => 'PDF enviado por email para o colaborador avaliado.']
         : ['ok' => false, 'message' => 'Não foi possível enviar o email com o PDF da avaliação.'];
 }
+
+function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $year, array $evaluations, array $metrics, string $predominantRule, ?array $closure, ?string $sentBy = null): array
+{
+    $recipientEmail = trim((string) ($employee['email'] ?? ''));
+    if ($recipientEmail === '') {
+        return ['ok' => false, 'message' => 'O colaborador avaliado não tem email configurado.'];
+    }
+
+    $employeeLabel = trim((string) ($employee['user_number'] ?? '')) !== ''
+        ? (string) $employee['user_number'] . ' - ' . (string) ($employee['name'] ?? '')
+        : (string) ($employee['name'] ?? 'Colaborador');
+
+    $rowsHtml = '';
+    foreach ($evaluations as $evaluation) {
+        $rowsHtml .= '<tr>'
+            . '<td>' . h(taskforce_evaluation_period_label((string) ($evaluation['award_period'] ?? ''))) . '</td>'
+            . '<td>' . h((string) (($evaluation['interview_date'] ?? '') ?: '—')) . '</td>'
+            . '<td>' . (int) ($evaluation['performance_score'] ?? 0) . ' (' . h(taskforce_money((float) ($evaluation['performance_value'] ?? 0))) . ')</td>'
+            . '<td>' . (int) ($evaluation['behavior_score'] ?? 0) . ' (' . h(taskforce_money((float) ($evaluation['behavior_value'] ?? 0))) . ')</td>'
+            . '<td>' . (int) ($evaluation['punctuality_count'] ?? 0) . ' (' . h(taskforce_money((float) ($evaluation['punctuality_value'] ?? 0))) . ')</td>'
+            . '<td>' . (int) ($evaluation['absence_count'] ?? 0) . ' (' . h(taskforce_money((float) ($evaluation['absence_value'] ?? 0))) . ')</td>'
+            . '<td><strong>' . h(taskforce_money((float) ($evaluation['period_total'] ?? 0))) . '</strong></td>'
+            . '<td>' . h((string) ($evaluation['general_notes'] ?? '')) . '</td>'
+            . '</tr>';
+    }
+    if ($rowsHtml === '') {
+        $rowsHtml = '<tr><td colspan="8">Sem avaliações neste ano.</td></tr>';
+    }
+
+    $closureHtml = !$closure
+        ? '<p>Ainda sem fecho anual registado para este colaborador.</p>'
+        : '<p>Absentismo final: <strong>' . (int) ($closure['final_absence_count'] ?? 0) . '</strong></p>'
+            . '<p>Bónus final: <strong>' . h(taskforce_money((float) ($closure['final_bonus_value'] ?? 0))) . '</strong></p>'
+            . '<p>Total anual c/ bónus: <strong>' . h(taskforce_money((float) ($closure['year_total_with_bonus'] ?? 0))) . '</strong></p>'
+            . '<p>Notas: ' . h((string) ($closure['final_notes'] ?? '')) . '</p>';
+
+    $html = '<!doctype html><html lang="pt"><head><meta charset="utf-8"><style>'
+        . 'body{font-family:Arial,sans-serif;color:#1f2937;font-size:12px;padding:18px;}'
+        . 'h1{font-size:24px;margin:0 0 12px;} h2{font-size:18px;margin:0 0 10px;}'
+        . '.card{border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-bottom:12px;}'
+        . '.grid{width:100%;border-collapse:separate;border-spacing:8px;} .grid td{border:1px solid #e5e7eb;border-radius:10px;padding:10px;vertical-align:top;}'
+        . '.label{display:block;color:#6b7280;font-size:11px;margin-bottom:2px;} .value{font-size:24px;font-weight:700;}'
+        . 'table{width:100%;border-collapse:collapse;} th,td{border-bottom:1px solid #e5e7eb;padding:7px;text-align:left;font-size:11px;}'
+        . 'th{font-size:12px;} .muted{color:#6b7280;}'
+        . '</style></head><body>'
+        . '<h1>Histórico de avaliações</h1>'
+        . '<div class="card">'
+        . '<strong>' . h($employeeLabel) . '</strong><br>'
+        . 'Ano: ' . $year . ' &nbsp;|&nbsp; Departamento: ' . h((string) ($employee['department_name'] ?? '—')) . '<br>'
+        . 'Perfil: ' . h((string) ($employee['award_profile'] ?? 'operador')) . ' &nbsp;|&nbsp; Regra predominante: ' . h($predominantRule)
+        . '</div>'
+        . '<table class="grid"><tr>'
+        . '<td><span class="label">Nº avaliações</span><span class="value">' . (int) ($metrics['count'] ?? 0) . '</span></td>'
+        . '<td><span class="label">Soma prémios período</span><span class="value">' . h(taskforce_money((float) ($metrics['sum_period_total'] ?? 0))) . '</span></td>'
+        . '<td><span class="label">Bónus final</span><span class="value">' . h(taskforce_money((float) ($closure['final_bonus_value'] ?? 0))) . '</span></td>'
+        . '<td><span class="label">Total anual</span><span class="value">' . h(taskforce_money((float) ($closure['year_total_with_bonus'] ?? ($metrics['sum_period_total'] ?? 0)))) . '</span></td>'
+        . '</tr></table>'
+        . '<div class="card"><h2>Avaliações do ano</h2>'
+        . '<table><thead><tr><th>Período</th><th>Entrevista</th><th>Performance</th><th>Comportamento</th><th>Pontualidade</th><th>Absentismo</th><th>Total período</th><th>Observações RH</th></tr></thead><tbody>'
+        . $rowsHtml . '</tbody></table></div>'
+        . '<div class="card"><h2>Fecho anual</h2>' . $closureHtml . '</div>'
+        . ($sentBy ? '<p class="muted">Enviado por: ' . h($sentBy) . '</p>' : '')
+        . '</body></html>';
+
+    $pdfContent = taskforce_generate_pdf_from_html($html);
+    if (!is_string($pdfContent) || $pdfContent === '') {
+        $pdfContent = taskforce_generate_basic_pdf([
+            'TaskForce RH - Histórico de avaliações',
+            'Colaborador: ' . $employeeLabel,
+            'Ano: ' . $year,
+            'Nº avaliações: ' . (int) ($metrics['count'] ?? 0),
+            'Soma prémios período: ' . taskforce_money((float) ($metrics['sum_period_total'] ?? 0)),
+            'Regra predominante: ' . $predominantRule,
+        ]);
+    }
+
+    $safeName = preg_replace('/[^a-z0-9\-]+/i', '-', strtolower((string) ($employee['name'] ?? 'colaborador')));
+    $fileName = 'historico-avaliacoes-' . trim((string) $safeName, '-') . '-' . $year . '.pdf';
+    $subject = '[TaskForce RH] Histórico de avaliações ' . $year . ' - ' . (string) ($employee['name'] ?? 'Colaborador');
+    $body = "Olá " . (string) ($employee['name'] ?? '') . ",\n\nSegue em anexo o PDF do seu histórico de avaliações de " . $year . ".\n\nCumprimentos,\nEquipa RH";
+
+    $sent = deliver_report($recipientEmail, $subject, $body, null, [[
+        'name' => $fileName,
+        'mime' => 'application/pdf',
+        'content' => $pdfContent,
+    ]]);
+
+    return $sent
+        ? ['ok' => true, 'message' => 'PDF do histórico enviado por email para o colaborador avaliado.']
+        : ['ok' => false, 'message' => 'Não foi possível enviar o email com o PDF do histórico.'];
+}

@@ -89,11 +89,44 @@ if ($evaluations) {
     $predominantRule = (string) array_key_first($ruleCount);
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = (string) ($_POST['action'] ?? '');
+    if ($action === 'send_history_pdf') {
+        if (!$employee) {
+            $flashError = 'Colaborador não encontrado para envio do histórico.';
+        } else {
+            $sendResult = taskforce_send_evaluation_history_pdf(
+                $pdo,
+                $employee,
+                $year,
+                $evaluations,
+                $metrics,
+                $predominantRule,
+                $closure,
+                $currentUserName !== '' ? $currentUserName : null
+            );
+            if ($sendResult['ok']) {
+                $flashSuccess = $sendResult['message'];
+            } else {
+                $flashError = $sendResult['message'];
+            }
+        }
+    }
+}
+
 $pageTitle = 'Histórico de Avaliações';
 require __DIR__ . '/partials/header.php';
 ?>
 <a href="hr_evaluations.php" class="btn btn-link px-0">&larr; Voltar às avaliações</a>
-<h1 class="h3 mb-3">Histórico de avaliações</h1>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">Histórico de avaliações</h1>
+    <?php if ($employee): ?>
+        <form method="post" class="mb-0">
+            <input type="hidden" name="action" value="send_history_pdf">
+            <button class="btn btn-outline-primary">Enviar PDF</button>
+        </form>
+    <?php endif; ?>
+</div>
 <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
 
