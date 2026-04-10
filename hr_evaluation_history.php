@@ -131,13 +131,43 @@ require __DIR__ . '/partials/header.php';
         <tbody>
         <?php if (!$evaluations): ?><tr><td colspan="9" class="text-muted">Sem avaliações neste ano.</td></tr><?php endif; ?>
         <?php foreach ($evaluations as $evaluation): ?>
+            <?php
+            $evaluationDateRaw = trim((string) ($evaluation['interview_date'] ?? ''));
+            if ($evaluationDateRaw === '') {
+                $evaluationDateRaw = (string) ($evaluation['created_at'] ?? '');
+            }
+            $evaluationDate = '—';
+            if ($evaluationDateRaw !== '') {
+                $ts = strtotime($evaluationDateRaw);
+                if ($ts !== false) {
+                    $evaluationDate = date('d/m/Y', $ts);
+                }
+            }
+
+            $performanceNotes = trim((string) ($evaluation['performance_notes'] ?? ''));
+            $behaviorNotes = trim((string) ($evaluation['behavior_notes'] ?? ''));
+            $punctualityNotes = trim((string) ($evaluation['punctuality_notes'] ?? ''));
+            $absenceNotes = trim((string) ($evaluation['absence_notes'] ?? ''));
+            ?>
             <tr>
                 <td><?= h(taskforce_evaluation_period_label((string) $evaluation['award_period'])) ?></td>
-                <td><?= h((string) ($evaluation['interview_date'] ?? '—')) ?></td>
-                <td><?= (int) $evaluation['performance_score'] ?> (<?= h(taskforce_money((float) $evaluation['performance_value'])) ?>)</td>
-                <td><?= (int) $evaluation['behavior_score'] ?> (<?= h(taskforce_money((float) $evaluation['behavior_value'])) ?>)</td>
-                <td><?= (int) $evaluation['punctuality_count'] ?> (<?= h(taskforce_money((float) $evaluation['punctuality_value'])) ?>)</td>
-                <td><?= (int) $evaluation['absence_count'] ?> (<?= h(taskforce_money((float) $evaluation['absence_value'])) ?>)</td>
+                <td><?= h($evaluationDate) ?></td>
+                <td>
+                    <?= (int) $evaluation['performance_score'] ?> (<?= h(taskforce_money((float) $evaluation['performance_value'])) ?>)
+                    <div class="small text-muted"><?= h($performanceNotes !== '' ? $performanceNotes : 'Sem notas') ?></div>
+                </td>
+                <td>
+                    <?= (int) $evaluation['behavior_score'] ?> (<?= h(taskforce_money((float) $evaluation['behavior_value'])) ?>)
+                    <div class="small text-muted"><?= h($behaviorNotes !== '' ? $behaviorNotes : 'Sem notas') ?></div>
+                </td>
+                <td>
+                    <?= (int) $evaluation['punctuality_count'] ?> (<?= h(taskforce_money((float) $evaluation['punctuality_value'])) ?>)
+                    <div class="small text-muted"><?= h($punctualityNotes !== '' ? $punctualityNotes : 'Sem notas') ?></div>
+                </td>
+                <td>
+                    <?= (int) $evaluation['absence_count'] ?> (<?= h(taskforce_money((float) $evaluation['absence_value'])) ?>)
+                    <div class="small text-muted"><?= h($absenceNotes !== '' ? $absenceNotes : 'Sem notas') ?></div>
+                </td>
                 <td><strong><?= h(taskforce_money((float) $evaluation['period_total'])) ?></strong></td>
                 <td><?= h((string) ($evaluation['general_notes'] ?? '')) ?></td>
                 <td>
