@@ -112,7 +112,7 @@ function taskforce_normalize_rule_config(array $config, string $profileKey): arr
 function taskforce_fetch_evaluation_employee(PDO $pdo, int $userId): ?array
 {
     $stmt = $pdo->prepare(
-        'SELECT u.id, u.user_number, u.name, u.department_id, u.award_profile, u.award_eligible,
+        'SELECT u.id, u.user_number, u.name, u.email, u.department_id, u.award_profile, u.award_eligible,
                 d.name AS department_name, d.group_id AS department_group_id,
                 g.name AS department_group_name
          FROM users u
@@ -279,4 +279,66 @@ function taskforce_calculate_year_summary(PDO $pdo, int $userId, int $year, arra
 function taskforce_money(float $value): string
 {
     return number_format($value, 2, ',', ' ') . ' €';
+}
+
+function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluation, ?array $closure, int $year, string $periodLabel, ?string $sentBy = null): array
+{
+    $recipientEmail = trim((string) ($employee['email'] ?? ''));
+    if ($recipientEmail === '') {
+        return ['ok' => false, 'message' => 'O colaborador avaliado não tem email configurado.'];
+    }
+
+    $employeeLabel = trim((string) ($employee['user_number'] ?? '')) !== ''
+        ? (string) $employee['user_number'] . ' - ' . (string) ($employee['name'] ?? '')
+        : (string) ($employee['name'] ?? 'Colaborador');
+
+    $lines = [
+        'TaskForce RH - Avaliação de desempenho',
+        'Colaborador: ' . $employeeLabel,
+        'Ano: ' . $year . ' | Período: ' . $periodLabel,
+        'Departamento: ' . (string) ($evaluation['department_name'] ?? $employee['department_name'] ?? '—'),
+        'Perfil: ' . (string) ($evaluation['award_profile'] ?? $employee['award_profile'] ?? '—'),
+        'Data entrevista: ' . (string) (($evaluation['interview_date'] ?? '') ?: '—'),
+        '',
+        'Performance: ' . (int) ($evaluation['performance_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['performance_value'] ?? 0)) . ')',
+        'Comportamento: ' . (int) ($evaluation['behavior_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['behavior_value'] ?? 0)) . ')',
+        'Pontualidade: ' . (int) ($evaluation['punctuality_count'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['punctuality_value'] ?? 0)) . ')',
+        'Absentismo: ' . (int) ($evaluation['absence_count'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['absence_value'] ?? 0)) . ')',
+        'Total período: ' . taskforce_money((float) ($evaluation['period_total'] ?? 0)),
+    ];
+
+    if ($closure) {
+        $lines[] = '';
+        $lines[] = 'Fecho anual';
+        $lines[] = 'Bónus final: ' . taskforce_money((float) ($closure['final_bonus_value'] ?? 0));
+        $lines[] = 'Total anual: ' . taskforce_money((float) ($closure['year_total_with_bonus'] ?? 0));
+    }
+
+    $notes = trim((string) ($evaluation['general_notes'] ?? ''));
+    if ($notes !== '') {
+        $lines[] = '';
+        $lines[] = 'Observações RH: ' . $notes;
+    }
+
+    if ($sentBy) {
+        $lines[] = '';
+        $lines[] = 'Enviado por: ' . $sentBy;
+    }
+
+    $pdfContent = taskforce_generate_basic_pdf($lines);
+    $safeName = preg_replace('/[^a-z0-9\-]+/i', '-', strtolower((string) ($employee['name'] ?? 'colaborador')));
+    $fileName = 'avaliacao-' . trim((string) $safeName, '-') . '-' . $year . '-' . (string) ($evaluation['award_period'] ?? 'periodo') . '.pdf';
+
+    $subject = '[TaskForce RH] Avaliação ' . $periodLabel . ' - ' . (string) ($employee['name'] ?? 'Colaborador');
+    $body = "Olá " . (string) ($employee['name'] ?? '') . ",\n\nSegue em anexo o PDF da sua avaliação (" . $periodLabel . ' de ' . $year . ").\n\nCumprimentos,\nEquipa RH";
+
+    $sent = deliver_report($recipientEmail, $subject, $body, null, [[
+        'name' => $fileName,
+        'mime' => 'application/pdf',
+        'content' => $pdfContent,
+    ]]);
+
+    return $sent
+        ? ['ok' => true, 'message' => 'PDF enviado por email para o colaborador avaliado.']
+        : ['ok' => false, 'message' => 'Não foi possível enviar o email com o PDF da avaliação.'];
 }
