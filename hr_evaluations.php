@@ -10,6 +10,7 @@ if (!can_access_hr_module($pdo, $userId)) {
 }
 $currentUser = current_user($pdo);
 $canDeleteEvaluation = $currentUser && (((int) ($currentUser['is_admin'] ?? 0) === 1) || ((string) ($currentUser['access_profile'] ?? '') === 'RH'));
+$currentUserName = trim((string) ($currentUser['name'] ?? ''));
 
 $flashSuccess = null;
 $flashError = null;
@@ -66,6 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
 
     if ($action === 'save_evaluation') {
+        $sendAfterSave = isset($_POST['save_and_send']);
+        $savedEvaluationId = 0;
         $formData = array_merge($formData, [
             'evaluation_id' => (int) ($_POST['evaluation_id'] ?? 0), 'user_id' => (int) ($_POST['user_id'] ?? 0), 'award_year' => (int) ($_POST['award_year'] ?? $currentYear),
             'award_period' => (string) ($_POST['award_period'] ?? ''), 'interview_date' => trim((string) ($_POST['interview_date'] ?? '')), 'award_profile' => trim((string) ($_POST['award_profile'] ?? '')),
@@ -111,6 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $periodValues['period_total'], $periodValues['max_period_total'], $periodValues['period_gap'], $formData['general_notes'] ?: null,
                             $formData['evaluation_id'],
                         ]);
+                        $savedEvaluationId = (int) $formData['evaluation_id'];
                         $flashSuccess = 'Avaliação atualizada com sucesso.';
                     } else {
                         $dupStmt = $pdo->prepare('SELECT id FROM hr_evaluations WHERE user_id = ? AND award_year = ? AND award_period = ? LIMIT 1');
@@ -129,12 +133,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $periodValues['period_total'], $periodValues['max_period_total'], $periodValues['period_gap'], $formData['general_notes'] ?: null,
                                 $userId,
                             ]);
+                            $savedEvaluationId = (int) $pdo->lastInsertId();
                             $flashSuccess = 'Avaliação criada com sucesso.';
                             $formData['evaluation_id'] = 0;
                         }
                     }
                 } catch (Throwable $exception) {
                     $errors[] = 'Não foi possível gravar a avaliação.';
+                }
+            }
+        }
+        if (!$errors && $sendAfterSave && $savedEvaluationId > 0) {
+            $evaluationStmt = $pdo->prepare('SELECT * FROM hr_evaluations WHERE id = ? LIMIT 1');
+            $evaluationStmt->execute([$savedEvaluationId]);
+            $savedEvaluation = $evaluationStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            $employee = $savedEvaluation ? taskforce_fetch_evaluation_employee($pdo, (int) ($savedEvaluation['user_id'] ?? 0)) : null;
+
+            if (!$savedEvaluation || !$employee) {
+                $flashError = 'Avaliação guardada, mas não foi possível preparar o envio do PDF.';
+            } else {
+                $closureStmt = $pdo->prepare('SELECT * FROM hr_evaluation_year_closures WHERE user_id = ? AND award_year = ? LIMIT 1');
+                $closureStmt->execute([(int) $savedEvaluation['user_id'], (int) $savedEvaluation['award_year']]);
+                $closure = $closureStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+                $sendResult = taskforce_send_evaluation_pdf(
+                    $pdo,
+                    $employee,
+                    $savedEvaluation,
+                    $closure,
+                    (int) $savedEvaluation['award_year'],
+                    taskforce_evaluation_period_label((string) $savedEvaluation['award_period']),
+                    $currentUserName !== '' ? $currentUserName : null
+                );
+
+                if ($sendResult['ok']) {
+                    $flashSuccess = 'Avaliação guardada e enviada por email com sucesso.';
+                } else {
+                    $flashError = 'Avaliação guardada, mas o envio por email falhou: ' . (string) $sendResult['message'];
                 }
             }
         }
@@ -192,6 +227,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flashSuccess = 'Avaliação eliminada com sucesso.';
             if ((int) $formData['evaluation_id'] === $deleteId) {
                 $formData['evaluation_id'] = 0;
+            }
+        }
+    }
+
+    if ($action === 'send_evaluation_pdf') {
+        $evaluationId = (int) ($_POST['evaluation_id'] ?? 0);
+        if ($evaluationId <= 0) {
+            $flashError = 'Avaliação inválida para envio de PDF.';
+        } else {
+            $evaluationStmt = $pdo->prepare('SELECT * FROM hr_evaluations WHERE id = ? LIMIT 1');
+            $evaluationStmt->execute([$evaluationId]);
+            $evaluation = $evaluationStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            $employee = $evaluation ? taskforce_fetch_evaluation_employee($pdo, (int) ($evaluation['user_id'] ?? 0)) : null;
+            if (!$evaluation || !$employee) {
+                $flashError = 'Não foi possível encontrar a avaliação para envio.';
+            } else {
+                $closureStmt = $pdo->prepare('SELECT * FROM hr_evaluation_year_closures WHERE user_id = ? AND award_year = ? LIMIT 1');
+                $closureStmt->execute([(int) $evaluation['user_id'], (int) $evaluation['award_year']]);
+                $closure = $closureStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+                $sendResult = taskforce_send_evaluation_pdf(
+                    $pdo,
+                    $employee,
+                    $evaluation,
+                    $closure,
+                    (int) $evaluation['award_year'],
+                    taskforce_evaluation_period_label((string) $evaluation['award_period']),
+                    $currentUserName !== '' ? $currentUserName : null
+                );
+                if ($sendResult['ok']) {
+                    $flashSuccess = $sendResult['message'];
+                } else {
+                    $flashError = $sendResult['message'];
+                }
             }
         }
     }
@@ -289,6 +357,11 @@ require __DIR__ . '/partials/header.php';
     <div class="d-flex gap-1">
         <a class="btn btn-sm btn-outline-secondary" href="hr_evaluations.php?edit_id=<?= (int) $row['id'] ?>">Editar</a>
         <a class="btn btn-sm btn-outline-dark" href="hr_evaluation_history.php?user_id=<?= (int) $row['user_id'] ?>&year=<?= (int) $row['award_year'] ?>">Histórico</a>
+        <form method="post">
+            <input type="hidden" name="action" value="send_evaluation_pdf">
+            <input type="hidden" name="evaluation_id" value="<?= (int) $row['id'] ?>">
+            <button class="btn btn-sm btn-outline-primary" type="submit">Enviar PDF</button>
+        </form>
         <?php if ($canDeleteEvaluation): ?>
             <form method="post" onsubmit="return confirm('Eliminar esta avaliação? Esta ação não pode ser anulada.');">
                 <input type="hidden" name="action" value="delete_evaluation">
@@ -343,7 +416,11 @@ require __DIR__ . '/partials/header.php';
 <div class="col-md-9"><label class="form-label">Notas absentismo</label><input class="form-control form-control-sm" name="absence_notes" value="<?= h($formData['absence_notes']) ?>"></div>
 
 <div class="col-12"><label class="form-label">Notas gerais</label><textarea class="form-control form-control-sm" name="general_notes" rows="2"><?= h($formData['general_notes']) ?></textarea></div>
-<div class="col-12 d-flex gap-2"><button class="btn btn-dark">Guardar avaliação</button><a class="btn btn-outline-secondary" href="hr_evaluations.php">Limpar</a></div>
+<div class="col-12 d-flex gap-2 flex-wrap">
+    <button class="btn btn-dark">Guardar avaliação</button>
+    <button class="btn btn-outline-primary" name="save_and_send" value="1">Guardar e enviar avaliação</button>
+    <a class="btn btn-outline-secondary" href="hr_evaluations.php">Limpar</a>
+</div>
 </form>
 </div>
 </div>
