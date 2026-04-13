@@ -83,6 +83,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!isset($employeeMap[$formData['user_id']])) { $errors[] = 'Colaborador inválido.'; }
         if ($formData['award_year'] < 2024 || $formData['award_year'] > 2100) { $errors[] = 'Ano inválido.'; }
         if (!array_key_exists($formData['award_period'], $periods)) { $errors[] = 'Período inválido.'; }
+        if ($formData['interview_date'] === '') {
+            $errors[] = 'Data da avaliação é obrigatória.';
+        } elseif (strtotime($formData['interview_date']) === false) {
+            $errors[] = 'Data da avaliação inválida.';
+        }
         if ($formData['performance_score'] < 0 || $formData['performance_score'] > 3) { $errors[] = 'Score performance inválido.'; }
         if ($formData['behavior_score'] < 0 || $formData['behavior_score'] > 3) { $errors[] = 'Score comportamento inválido.'; }
         if ($formData['punctuality_count'] < 0 || $formData['absence_count'] < 0) { $errors[] = 'Pontualidade/Absentismo inválidos.'; }
@@ -396,7 +401,7 @@ require __DIR__ . '/partials/header.php';
 </div>
 <div class="col-md-2"><label class="form-label">Ano</label><input type="number" class="form-control form-control-sm js-calc-field" name="award_year" id="award_year" min="2024" max="2100" value="<?= (int) $formData['award_year'] ?>" required></div>
 <div class="col-md-3"><label class="form-label">Período</label><select class="form-select form-select-sm js-calc-field" name="award_period" id="award_period" required><?php foreach ($periods as $k => $l): ?><option value="<?= h($k) ?>" <?= $formData['award_period'] === $k ? 'selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?></select></div>
-<div class="col-md-3"><label class="form-label">Data entrevista</label><input type="date" class="form-control form-control-sm" name="interview_date" value="<?= h($formData['interview_date']) ?>"></div>
+<div class="col-md-3"><label class="form-label">Data avaliação</label><input type="date" class="form-control form-control-sm" name="interview_date" value="<?= h($formData['interview_date']) ?>" required></div>
 
 <div class="col-md-3"><label class="form-label">Nº colaborador</label><input class="form-control form-control-sm" id="user_number_readonly" readonly></div>
 <div class="col-md-4"><label class="form-label">Nome</label><input class="form-control form-control-sm" id="user_name_readonly" readonly></div>
