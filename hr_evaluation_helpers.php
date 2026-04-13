@@ -1,5 +1,10 @@
 <?php
 
+$taskforceComposerAutoload = __DIR__ . '/vendor/autoload.php';
+if (is_file($taskforceComposerAutoload)) {
+    require_once $taskforceComposerAutoload;
+}
+
 function taskforce_evaluation_periods(): array
 {
     return [
@@ -406,28 +411,36 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
         . ($sentBy ? '<p class="muted">Enviado por: ' . h($sentBy) . '</p>' : '')
         . '</body></html>';
 
+    $fallbackPayload = [
+        'title' => 'Histórico de avaliações',
+        'employee' => $employeeLabel,
+        'year' => (string) $year,
+        'department' => (string) ($employee['department_name'] ?? '—'),
+        'profile' => (string) ($employee['award_profile'] ?? 'operador'),
+        'predominant_rule' => $predominantRule,
+        'metrics' => $metrics,
+        'closure' => $closure ?? [],
+        'evaluations' => $evaluations,
+        'sent_by' => $sentBy ?? '',
+        'lines' => [
+            'TaskForce RH - Histórico de avaliações',
+            'Colaborador: ' . $employeeLabel,
+            'Ano: ' . $year,
+            'Nº avaliações: ' . (int) ($metrics['count'] ?? 0),
+            'Soma prémios período: ' . taskforce_money((float) ($metrics['sum_period_total'] ?? 0)),
+            'Regra predominante: ' . $predominantRule,
+        ],
+    ];
+
     $pdfContent = taskforce_generate_pdf_from_html($html);
     if (!is_string($pdfContent) || $pdfContent === '') {
-        $pdfContent = taskforce_generate_evaluation_history_layout_pdf([
-            'title' => 'Histórico de avaliações',
-            'employee' => $employeeLabel,
-            'year' => (string) $year,
-            'department' => (string) ($employee['department_name'] ?? '—'),
-            'profile' => (string) ($employee['award_profile'] ?? 'operador'),
-            'predominant_rule' => $predominantRule,
-            'metrics' => $metrics,
-            'closure' => $closure ?? [],
-            'evaluations' => $evaluations,
-            'sent_by' => $sentBy ?? '',
-            'lines' => [
-                'TaskForce RH - Histórico de avaliações',
-                'Colaborador: ' . $employeeLabel,
-                'Ano: ' . $year,
-                'Nº avaliações: ' . (int) ($metrics['count'] ?? 0),
-                'Soma prémios período: ' . taskforce_money((float) ($metrics['sum_period_total'] ?? 0)),
-                'Regra predominante: ' . $predominantRule,
-            ],
-        ]);
+        $pdfContent = taskforce_generate_evaluation_history_fpdf_pdf($fallbackPayload);
+    }
+    if (!is_string($pdfContent) || $pdfContent === '') {
+        $pdfContent = taskforce_generate_evaluation_history_layout_pdf($fallbackPayload);
+    }
+    if (!is_string($pdfContent) || $pdfContent === '') {
+        $pdfContent = taskforce_generate_basic_pdf($fallbackPayload['lines']);
     }
 
     $safeName = preg_replace('/[^a-z0-9\-]+/i', '-', strtolower((string) ($employee['name'] ?? 'colaborador')));
@@ -444,6 +457,111 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
     return $sent
         ? ['ok' => true, 'message' => 'PDF do histórico enviado por email para o colaborador avaliado.']
         : ['ok' => false, 'message' => 'Não foi possível enviar o email com o PDF do histórico.'];
+}
+
+function taskforce_generate_evaluation_history_fpdf_pdf(array $reportData): ?string
+{
+    if (!class_exists('FPDF')) {
+        return null;
+    }
+
+    $pdf = new FPDF('P', 'mm', 'A4');
+    $pdf->SetAutoPageBreak(true, 12);
+    $pdf->AddPage();
+
+    $toPdfText = static function (string $value): string {
+        if (!function_exists('iconv')) {
+            return $value;
+        }
+        $converted = @iconv('UTF-8', 'windows-1252//TRANSLIT//IGNORE', $value);
+        return $converted !== false ? $converted : $value;
+    };
+
+    $metrics = (array) ($reportData['metrics'] ?? []);
+    $closure = (array) ($reportData['closure'] ?? []);
+    $evaluations = (array) ($reportData['evaluations'] ?? []);
+
+    $pdf->SetFillColor(245, 247, 250);
+    $pdf->SetDrawColor(220, 226, 234);
+    $pdf->SetTextColor(31, 41, 55);
+
+    $pdf->SetFont('Arial', 'B', 18);
+    $pdf->Cell(0, 10, $toPdfText((string) ($reportData['title'] ?? 'Histórico de avaliações')), 0, 1);
+
+    $pdf->SetFont('Arial', 'B', 11);
+    $pdf->Cell(0, 8, $toPdfText((string) ($reportData['employee'] ?? '')), 1, 1, 'L', true);
+    $pdf->SetFont('Arial', '', 10);
+    $pdf->Cell(45, 7, $toPdfText('Ano: ' . (string) ($reportData['year'] ?? '')), 1);
+    $pdf->Cell(95, 7, $toPdfText('Regra predominante: ' . (string) ($reportData['predominant_rule'] ?? '—')), 1);
+    $pdf->Cell(50, 7, $toPdfText('Departamento: ' . (string) ($reportData['department'] ?? '—')), 1, 1);
+    $pdf->Ln(3);
+
+    $metricWidth = 47;
+    $metricBlocks = [
+        ['Nº avaliações', (string) ((int) ($metrics['count'] ?? 0))],
+        ['Soma prémios período', taskforce_money((float) ($metrics['sum_period_total'] ?? 0))],
+        ['Bónus final', taskforce_money((float) ($closure['final_bonus_value'] ?? 0))],
+        ['Total anual', taskforce_money((float) ($closure['year_total_with_bonus'] ?? ($metrics['sum_period_total'] ?? 0)))],
+    ];
+    foreach ($metricBlocks as [$label, $value]) {
+        $pdf->SetFont('Arial', '', 9);
+        $pdf->Cell($metricWidth, 6, $toPdfText($label), 1, 0, 'L', true);
+    }
+    $pdf->Ln();
+    foreach ($metricBlocks as [, $value]) {
+        $pdf->SetFont('Arial', 'B', 12);
+        $pdf->Cell($metricWidth, 9, $toPdfText($value), 1, 0, 'L');
+    }
+    $pdf->Ln(13);
+
+    $pdf->SetFont('Arial', 'B', 12);
+    $pdf->Cell(0, 8, $toPdfText('Avaliações do ano'), 0, 1);
+    $pdf->SetFont('Arial', 'B', 9);
+    $headers = [
+        ['Período', 28], ['Entrevista', 22], ['Performance', 28], ['Comportamento', 30],
+        ['Pontualidade', 28], ['Absentismo', 24], ['Total', 18], ['Obs. RH', 32],
+    ];
+    foreach ($headers as [$label, $w]) {
+        $pdf->Cell($w, 7, $toPdfText($label), 1, 0, 'L', true);
+    }
+    $pdf->Ln();
+
+    $pdf->SetFont('Arial', '', 8.5);
+    if (!$evaluations) {
+        $pdf->Cell(210 - 20, 7, $toPdfText('Sem avaliações neste ano.'), 1, 1);
+    } else {
+        foreach ($evaluations as $evaluation) {
+            $row = [
+                taskforce_evaluation_period_label((string) ($evaluation['award_period'] ?? '')),
+                (string) (($evaluation['interview_date'] ?? '') ?: '—'),
+                (int) ($evaluation['performance_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['performance_value'] ?? 0)) . ')',
+                (int) ($evaluation['behavior_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['behavior_value'] ?? 0)) . ')',
+                (int) ($evaluation['punctuality_count'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['punctuality_value'] ?? 0)) . ')',
+                (int) ($evaluation['absence_count'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['absence_value'] ?? 0)) . ')',
+                taskforce_money((float) ($evaluation['period_total'] ?? 0)),
+                (string) ($evaluation['general_notes'] ?? ''),
+            ];
+            foreach ($row as $idx => $cell) {
+                $w = (int) $headers[$idx][1];
+                $txt = function_exists('mb_substr') ? mb_substr($cell, 0, 30) : substr($cell, 0, 30);
+                $pdf->Cell($w, 7, $toPdfText($txt), 1, 0, 'L');
+            }
+            $pdf->Ln();
+        }
+    }
+
+    if (!empty($reportData['sent_by'])) {
+        $pdf->Ln(4);
+        $pdf->SetFont('Arial', '', 9);
+        $pdf->SetTextColor(75, 85, 99);
+        $pdf->Cell(0, 6, $toPdfText('Enviado por: ' . (string) $reportData['sent_by']), 0, 1);
+    }
+
+    try {
+        return (string) $pdf->Output('S');
+    } catch (Throwable $exception) {
+        return null;
+    }
 }
 
 function taskforce_generate_evaluation_history_layout_pdf(array $reportData): string
