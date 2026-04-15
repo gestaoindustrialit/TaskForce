@@ -527,11 +527,20 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
         . $footerContactHtml
         . '</footer></body></html>';
 
+    $pdfEngine = 'layout oficial';
     $pdfContent = taskforce_generate_pdf_from_html($html);
     if (!is_string($pdfContent) || $pdfContent === '') {
         return [
             'ok' => false,
             'message' => 'Não foi possível gerar o PDF com o layout oficial. ' . taskforce_pdf_generation_diagnostics(),
+        ];
+        $pdfContent = taskforce_generate_evaluation_history_layout_pdf($singleFallbackPayload);
+        $pdfEngine = 'modo compatibilidade';
+    }
+    if (!is_string($pdfContent) || $pdfContent === '' || strncmp($pdfContent, '%PDF', 4) !== 0) {
+        return [
+            'ok' => false,
+            'message' => 'Não foi possível gerar o PDF. ' . taskforce_pdf_generation_diagnostics(),
         ];
     }
 
@@ -555,7 +564,7 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
     ]]);
 
     return $sent
-        ? ['ok' => true, 'message' => 'PDF guardado no servidor e enviado por email para o colaborador avaliado.']
+        ? ['ok' => true, 'message' => 'PDF guardado no servidor e enviado por email para o colaborador avaliado (' . $pdfEngine . ').']
         : ['ok' => false, 'message' => 'Não foi possível enviar o email com o PDF da avaliação.'];
 }
 
@@ -643,11 +652,40 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
         . '</footer>'
         . '</body></html>';
 
+    $fallbackPayload = [
+        'title' => 'Histórico de avaliações',
+        'employee' => $employeeLabel,
+        'year' => (string) $year,
+        'department' => (string) ($employee['department_name'] ?? '—'),
+        'profile' => (string) ($employee['award_profile'] ?? 'operador'),
+        'predominant_rule' => $predominantRule,
+        'metrics' => $metrics,
+        'closure' => $closure ?? [],
+        'evaluations' => $evaluations,
+        'sent_by' => $sentBy ?? '',
+        'lines' => [
+            'TaskForce RH - Histórico de avaliações',
+            (string) ($branding['company_name'] ?? 'TaskForce'),
+            (string) ($branding['company_address'] ?? ''),
+            $companyContactLine,
+            'Colaborador: ' . $employeeLabel,
+            'Ano: ' . $year,
+            'Nº avaliações: ' . (int) ($metrics['count'] ?? 0),
+            'Soma prémios período: ' . taskforce_money((float) ($metrics['sum_period_total'] ?? 0)),
+            'Regra predominante: ' . $predominantRule,
+        ],
+    ];
+
+    $pdfEngine = 'layout oficial';
     $pdfContent = taskforce_generate_pdf_from_html($html);
     if (!is_string($pdfContent) || $pdfContent === '') {
+        $pdfContent = taskforce_generate_evaluation_history_layout_pdf($fallbackPayload);
+        $pdfEngine = 'modo compatibilidade';
+    }
+    if (!is_string($pdfContent) || $pdfContent === '' || strncmp($pdfContent, '%PDF', 4) !== 0) {
         return [
             'ok' => false,
-            'message' => 'Não foi possível gerar o PDF com o layout oficial. ' . taskforce_pdf_generation_diagnostics(),
+            'message' => 'Não foi possível gerar o PDF. ' . taskforce_pdf_generation_diagnostics(),
         ];
     }
 
@@ -672,7 +710,7 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
     ]]);
 
     return $sent
-        ? ['ok' => true, 'message' => 'PDF do histórico guardado no servidor e enviado por email para o colaborador avaliado.']
+        ? ['ok' => true, 'message' => 'PDF do histórico guardado no servidor e enviado por email para o colaborador avaliado (' . $pdfEngine . ').']
         : ['ok' => false, 'message' => 'Não foi possível enviar o email com o PDF do histórico.'];
 }
 
