@@ -39,7 +39,7 @@ if ($user && !isset($navbarClockControl)) {
         'latest_time_label' => $latestEntryTimeLabel,
     ];
 
-    $activeBreakStmt = $pdo->prepare('SELECT b.id, b.break_reason_id, b.started_at, b.comment, r.code, r.label, r.break_type, r.requires_comment FROM shopfloor_break_entries b INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id WHERE b.user_id = ? AND b.ended_at IS NULL ORDER BY b.started_at DESC LIMIT 1');
+    $activeBreakStmt = $pdo->prepare('SELECT b.id, b.break_reason_id, b.started_at, b.comment, r.code, r.label, r.break_type, r.requires_comment, CAST((julianday(CURRENT_TIMESTAMP) - julianday(b.started_at)) * 86400 AS INTEGER) AS elapsed_seconds FROM shopfloor_break_entries b INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id WHERE b.user_id = ? AND b.ended_at IS NULL ORDER BY b.started_at DESC LIMIT 1');
     $activeBreakStmt->execute([(int) $user['id']]);
     $activeBreak = $activeBreakStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
@@ -187,6 +187,7 @@ header('Content-Type: text/html; charset=UTF-8');
         aria-hidden="true"
         <?= $activeBreak ? 'data-bs-backdrop="static" data-bs-keyboard="false"' : '' ?>
         <?= $activeBreak ? ('data-break-started-at="' . h((string) ($activeBreak['started_at'] ?? '')) . '"') : '' ?>
+        <?= $activeBreak ? ('data-break-elapsed-seconds="' . (int) ($activeBreak['elapsed_seconds'] ?? 0) . '"') : '' ?>
     >
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -242,7 +243,7 @@ header('Content-Type: text/html; charset=UTF-8');
         </div>
     </div>
     <script>
-        (function () {
+        document.addEventListener('DOMContentLoaded', function () {
             const modalElement = document.getElementById('navbarBreakModal');
             const reasonSelect = document.getElementById('navbarBreakReasonSelect');
             const commentWrap = document.getElementById('navbarBreakCommentWrap');
@@ -265,8 +266,9 @@ header('Content-Type: text/html; charset=UTF-8');
                 syncCommentVisibility();
             }
 
-            if (modalElement && elapsedElement && modalElement.dataset.breakStartedAt) {
-                const startTimestamp = Date.parse(modalElement.dataset.breakStartedAt.replace(' ', 'T'));
+            if (modalElement && elapsedElement && modalElement.dataset.breakElapsedSeconds) {
+                const initialElapsedSeconds = Math.max(0, Number.parseInt(modalElement.dataset.breakElapsedSeconds || '0', 10) || 0);
+                const clientTimerStartedAt = Date.now();
                 const formatSeconds = (seconds) => {
                     const safeSeconds = Math.max(0, seconds);
                     const hours = Math.floor(safeSeconds / 3600);
@@ -276,21 +278,23 @@ header('Content-Type: text/html; charset=UTF-8');
                 };
 
                 const renderElapsed = () => {
-                    if (Number.isNaN(startTimestamp)) {
-                        elapsedElement.textContent = '00:00:00';
-                        return;
-                    }
-                    const elapsedSeconds = Math.floor((Date.now() - startTimestamp) / 1000);
+                    const clientElapsedSeconds = Math.floor((Date.now() - clientTimerStartedAt) / 1000);
+                    const elapsedSeconds = initialElapsedSeconds + Math.max(0, clientElapsedSeconds);
                     elapsedElement.textContent = formatSeconds(elapsedSeconds);
                 };
 
                 renderElapsed();
                 timerIntervalId = window.setInterval(renderElapsed, 1000);
 
-                if (window.bootstrap && window.bootstrap.Modal) {
+                const showActiveBreakModal = () => {
+                    if (!window.bootstrap || !window.bootstrap.Modal) {
+                        return;
+                    }
                     const modalInstance = window.bootstrap.Modal.getOrCreateInstance(modalElement);
                     modalInstance.show();
-                }
+                };
+
+                showActiveBreakModal();
             }
 
             window.addEventListener('beforeunload', () => {
@@ -298,7 +302,7 @@ header('Content-Type: text/html; charset=UTF-8');
                     window.clearInterval(timerIntervalId);
                 }
             });
-        })();
+        });
     </script>
 <?php endif; ?>
 <main class="container py-4">
