@@ -706,11 +706,38 @@ function taskforce_generate_evaluation_history_fpdf_pdf(array $reportData): ?str
     $pdf->AddPage();
 
     $toPdfText = static function (string $value): string {
-        if (!function_exists('iconv')) {
-            return $value;
+        $clean = preg_replace('/\s+/u', ' ', trim($value));
+        $clean = is_string($clean) ? $clean : trim($value);
+        if ($clean === '') {
+            return '';
         }
-        $converted = @iconv('UTF-8', 'windows-1252//TRANSLIT//IGNORE', $value);
-        return $converted !== false ? $converted : $value;
+        if (function_exists('iconv')) {
+            $converted = @iconv('UTF-8', 'windows-1252//TRANSLIT//IGNORE', $clean);
+            if ($converted !== false && $converted !== '') {
+                return $converted;
+            }
+        }
+        if (function_exists('utf8_decode')) {
+            return utf8_decode($clean);
+        }
+        return $clean;
+    };
+    $fitText = static function (string $value, int $limit = 48): string {
+        if ($limit <= 0) {
+            return '';
+        }
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return '—';
+        }
+        if (function_exists('mb_strimwidth')) {
+            $short = mb_strimwidth($trimmed, 0, $limit, '…', 'UTF-8');
+            return $short !== '' ? $short : '—';
+        }
+        if (strlen($trimmed) <= $limit) {
+            return $trimmed;
+        }
+        return substr($trimmed, 0, max(0, $limit - 3)) . '...';
     };
 
     $metrics = (array) ($reportData['metrics'] ?? []);
@@ -726,13 +753,13 @@ function taskforce_generate_evaluation_history_fpdf_pdf(array $reportData): ?str
 
     $pdf->SetFont('Arial', 'B', 11);
     $pdf->Cell(0, 8, $toPdfText((string) ($reportData['employee'] ?? '')), 1, 1, 'L', true);
-    $pdf->SetFont('Arial', '', 10);
-    $pdf->Cell(45, 7, $toPdfText('Ano: ' . (string) ($reportData['year'] ?? '')), 1);
-    $pdf->Cell(95, 7, $toPdfText('Regra predominante: ' . (string) ($reportData['predominant_rule'] ?? '—')), 1);
-    $pdf->Cell(50, 7, $toPdfText('Departamento: ' . (string) ($reportData['department'] ?? '—')), 1, 1);
+    $pdf->SetFont('Arial', '', 9.5);
+    $pdf->Cell(40, 7, $toPdfText('Ano: ' . (string) ($reportData['year'] ?? '')), 1);
+    $pdf->Cell(150, 7, $toPdfText('Departamento: ' . $fitText((string) ($reportData['department'] ?? '—'), 76)), 1, 1);
+    $pdf->Cell(0, 7, $toPdfText('Regra predominante: ' . $fitText((string) ($reportData['predominant_rule'] ?? '—'), 96)), 1, 1);
     $pdf->Ln(3);
 
-    $metricWidth = 47;
+    $metricWidth = 47.5;
     $metricBlocks = [
         ['Nº avaliações', (string) ((int) ($metrics['count'] ?? 0))],
         ['Soma prémios período', taskforce_money((float) ($metrics['sum_period_total'] ?? 0))],
@@ -752,35 +779,34 @@ function taskforce_generate_evaluation_history_fpdf_pdf(array $reportData): ?str
 
     $pdf->SetFont('Arial', 'B', 12);
     $pdf->Cell(0, 8, $toPdfText('Avaliações do ano'), 0, 1);
-    $pdf->SetFont('Arial', 'B', 9);
+    $pdf->SetFont('Arial', 'B', 8.2);
     $headers = [
-        ['Período', 28], ['Entrevista', 22], ['Performance', 28], ['Comportamento', 30],
-        ['Pontualidade', 28], ['Absentismo', 24], ['Total', 18], ['Obs. RH', 32],
+        ['Período', 25], ['Entrevista', 20], ['Performance', 25], ['Comportamento', 25],
+        ['Pontualidade', 24], ['Absentismo', 22], ['Total', 18], ['Obs. RH', 31],
     ];
     foreach ($headers as [$label, $w]) {
         $pdf->Cell($w, 7, $toPdfText($label), 1, 0, 'L', true);
     }
     $pdf->Ln();
 
-    $pdf->SetFont('Arial', '', 8.5);
+    $pdf->SetFont('Arial', '', 7.8);
     if (!$evaluations) {
         $pdf->Cell(210 - 20, 7, $toPdfText('Sem avaliações neste ano.'), 1, 1);
     } else {
         foreach ($evaluations as $evaluation) {
             $row = [
-                taskforce_evaluation_period_label((string) ($evaluation['award_period'] ?? '')),
-                (string) (($evaluation['interview_date'] ?? '') ?: '—'),
-                (int) ($evaluation['performance_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['performance_value'] ?? 0)) . ')',
-                (int) ($evaluation['behavior_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['behavior_value'] ?? 0)) . ')',
-                (int) ($evaluation['punctuality_count'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['punctuality_value'] ?? 0)) . ')',
-                (int) ($evaluation['absence_count'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['absence_value'] ?? 0)) . ')',
-                taskforce_money((float) ($evaluation['period_total'] ?? 0)),
-                (string) ($evaluation['general_notes'] ?? ''),
+                $fitText(taskforce_evaluation_period_label((string) ($evaluation['award_period'] ?? '')), 18),
+                $fitText((string) (($evaluation['interview_date'] ?? '') ?: '—'), 12),
+                $fitText((int) ($evaluation['performance_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['performance_value'] ?? 0)) . ')', 22),
+                $fitText((int) ($evaluation['behavior_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['behavior_value'] ?? 0)) . ')', 22),
+                $fitText((int) ($evaluation['punctuality_count'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['punctuality_value'] ?? 0)) . ')', 22),
+                $fitText((int) ($evaluation['absence_count'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['absence_value'] ?? 0)) . ')', 20),
+                $fitText(taskforce_money((float) ($evaluation['period_total'] ?? 0)), 14),
+                $fitText((string) ($evaluation['general_notes'] ?? ''), 30),
             ];
             foreach ($row as $idx => $cell) {
                 $w = (int) $headers[$idx][1];
-                $txt = function_exists('mb_substr') ? mb_substr($cell, 0, 30) : substr($cell, 0, 30);
-                $pdf->Cell($w, 7, $toPdfText($txt), 1, 0, 'L');
+                $pdf->Cell($w, 7, $toPdfText($cell), 1, 0, 'L');
             }
             $pdf->Ln();
         }
