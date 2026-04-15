@@ -839,6 +839,66 @@ require __DIR__ . '/partials/header.php';
 
     <div class="<?= $pendingAnnouncementAck ? 'd-none' : '' ?>">
     <div class="shopfloor-panel mb-4">
+        <div class="shopfloor-panel-header flex-wrap gap-2">
+            <h2 class="h4 mb-0">Pausas e paragens</h2>
+            <?php if ($isAdmin || $isRh): ?>
+                <a href="shopfloor_break_reasons.php" class="btn btn-outline-primary btn-sm fw-semibold">Configurar tipos</a>
+            <?php endif; ?>
+        </div>
+        <form method="post" class="row g-2 align-items-end mt-1 mb-3">
+            <?php if ($activeBreakEntry): ?>
+                <div class="col-md-8">
+                    <div class="small text-secondary">Em curso: <?= h((string) ($activeBreakEntry['break_type'] ?? 'Pausa')) ?> · <?= h((string) ($activeBreakEntry['code'] ?? '')) ?> | <?= h((string) ($activeBreakEntry['label'] ?? '')) ?> (<?= h((string) ($activeBreakEntry['started_at'] ?? '')) ?>)</div>
+                </div>
+                <div class="col-md-4 text-md-end">
+                    <input type="hidden" name="action" value="stop_break">
+                    <button type="submit" class="btn btn-warning fw-semibold">Terminar pausa/paragem</button>
+                </div>
+            <?php else: ?>
+                <div class="col-md-5">
+                    <label class="form-label">Tipo</label>
+                    <select name="break_reason_id" class="form-select" required>
+                        <option value="">Selecionar</option>
+                        <?php foreach ($breakReasonOptions as $breakReasonOption): ?>
+                            <option value="<?= (int) $breakReasonOption['id'] ?>"><?= h((string) $breakReasonOption['code']) ?> | <?= h((string) $breakReasonOption['label']) ?> (<?= h((string) $breakReasonOption['break_type']) ?>)</option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label">Comentário</label>
+                    <input type="text" class="form-control" name="break_comment" placeholder="Opcional (obrigatório para alguns tipos)">
+                </div>
+                <div class="col-md-2">
+                    <input type="hidden" name="action" value="start_break">
+                    <button type="submit" class="btn btn-outline-warning fw-semibold w-100">Iniciar</button>
+                </div>
+            <?php endif; ?>
+        </form>
+        <div class="table-responsive">
+            <table class="table table-sm shopfloor-table mb-0">
+                <thead>
+                    <tr><th>Tipo</th><th>Código</th><th>Nome</th><th>Contagem</th><th>Tempo</th></tr>
+                </thead>
+                <tbody>
+                    <?php if ($dailyBreakByReason): ?>
+                        <?php foreach ($dailyBreakByReason as $dailyBreakReason): ?>
+                            <tr>
+                                <td><?= h((string) ($dailyBreakReason['break_type'] ?? '')) ?></td>
+                                <td><?= h((string) ($dailyBreakReason['code'] ?? '')) ?></td>
+                                <td><?= h((string) ($dailyBreakReason['label'] ?? '')) ?></td>
+                                <td><?= (int) ($dailyBreakReason['total_count'] ?? 0) ?></td>
+                                <td><?= h(format_minutes((int) ($dailyBreakReason['total_seconds'] ?? 0))) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <tr><td colspan="5" class="text-secondary">Sem pausas/paragens registadas hoje.</td></tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="shopfloor-panel mb-4">
         <div class="shopfloor-panel-header">
             <h2 class="h4 mb-0">Pedidos de ausência</h2>
             <?php if ($hasOpenClockEntryToday): ?>
