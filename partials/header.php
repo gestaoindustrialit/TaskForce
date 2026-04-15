@@ -187,6 +187,7 @@ header('Content-Type: text/html; charset=UTF-8');
         aria-hidden="true"
         <?= $activeBreak ? 'data-bs-backdrop="static" data-bs-keyboard="false"' : '' ?>
         <?= $activeBreak ? ('data-break-started-at="' . h((string) ($activeBreak['started_at'] ?? '')) . '"') : '' ?>
+        <?= $activeBreak ? ('data-break-started-ts="' . (string) strtotime((string) ($activeBreak['started_at'] ?? 'now')) . '"') : '' ?>
     >
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -242,7 +243,7 @@ header('Content-Type: text/html; charset=UTF-8');
         </div>
     </div>
     <script>
-        (function () {
+        document.addEventListener('DOMContentLoaded', function () {
             const modalElement = document.getElementById('navbarBreakModal');
             const reasonSelect = document.getElementById('navbarBreakReasonSelect');
             const commentWrap = document.getElementById('navbarBreakCommentWrap');
@@ -266,7 +267,8 @@ header('Content-Type: text/html; charset=UTF-8');
             }
 
             if (modalElement && elapsedElement && modalElement.dataset.breakStartedAt) {
-                const startTimestamp = Date.parse(modalElement.dataset.breakStartedAt.replace(' ', 'T'));
+                const startTimestampFromServer = Number.parseInt(modalElement.dataset.breakStartedTs || '', 10);
+                const startTimestamp = Number.isFinite(startTimestampFromServer) ? startTimestampFromServer * 1000 : Date.parse(modalElement.dataset.breakStartedAt.replace(' ', 'T'));
                 const formatSeconds = (seconds) => {
                     const safeSeconds = Math.max(0, seconds);
                     const hours = Math.floor(safeSeconds / 3600);
@@ -287,10 +289,15 @@ header('Content-Type: text/html; charset=UTF-8');
                 renderElapsed();
                 timerIntervalId = window.setInterval(renderElapsed, 1000);
 
-                if (window.bootstrap && window.bootstrap.Modal) {
+                const showActiveBreakModal = () => {
+                    if (!window.bootstrap || !window.bootstrap.Modal) {
+                        return;
+                    }
                     const modalInstance = window.bootstrap.Modal.getOrCreateInstance(modalElement);
                     modalInstance.show();
-                }
+                };
+
+                showActiveBreakModal();
             }
 
             window.addEventListener('beforeunload', () => {
@@ -298,7 +305,7 @@ header('Content-Type: text/html; charset=UTF-8');
                     window.clearInterval(timerIntervalId);
                 }
             });
-        })();
+        });
     </script>
 <?php endif; ?>
 <main class="container py-4">
