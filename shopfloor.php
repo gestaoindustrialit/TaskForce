@@ -121,6 +121,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!$reason) {
             $flashError = 'Selecione um tipo de pausa/paragem válido.';
+        } elseif (!$hasOpenClockEntryToday) {
+            $flashError = 'Não pode iniciar uma pausa/paragem sem registar primeiro o ponto de entrada.';
         } elseif ($openBreakId > 0) {
             $flashError = 'Já existe uma pausa/paragem em curso.';
         } else {
