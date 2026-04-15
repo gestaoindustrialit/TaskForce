@@ -286,6 +286,59 @@ function taskforce_money(float $value): string
     return number_format($value, 2, ',', ' ') . ' €';
 }
 
+function taskforce_get_evaluation_branding(PDO $pdo): array
+{
+    $companyName = trim((string) app_setting($pdo, 'company_name', 'TaskForce'));
+    $companyAddress = trim((string) app_setting($pdo, 'company_address', ''));
+    $companyPhone = trim((string) app_setting($pdo, 'company_phone', ''));
+    $companyEmail = trim((string) app_setting($pdo, 'company_email', ''));
+    $logoPath = trim((string) app_setting($pdo, 'logo_report_dark', ''));
+
+    $logoUrl = '';
+    if ($logoPath !== '') {
+        $logoUrl = rtrim((string) app_base_url(), '/') . '/' . ltrim($logoPath, '/');
+    }
+
+    return [
+        'company_name' => $companyName !== '' ? $companyName : 'TaskForce',
+        'company_address' => $companyAddress,
+        'company_phone' => $companyPhone,
+        'company_email' => $companyEmail,
+        'logo_url' => $logoUrl,
+    ];
+}
+
+function taskforce_build_company_contact_line(array $branding): string
+{
+    $contacts = [];
+    if ((string) ($branding['company_phone'] ?? '') !== '') {
+        $contacts[] = 'Telefone: ' . (string) $branding['company_phone'];
+    }
+    if ((string) ($branding['company_email'] ?? '') !== '') {
+        $contacts[] = 'Email: ' . (string) $branding['company_email'];
+    }
+
+    return implode(' · ', $contacts);
+}
+
+function taskforce_build_evaluation_mail_html(string $employeeName, string $leadMessage, array $branding): string
+{
+    $companyName = h((string) ($branding['company_name'] ?? 'TaskForce'));
+    $contactLine = h(taskforce_build_company_contact_line($branding));
+    return '<!doctype html><html lang="pt"><head><meta charset="utf-8"><style>'
+        . 'body{margin:0;background:#f3f6fb;padding:20px;font-family:Arial,sans-serif;color:#1f2937;}'
+        . '.card{max-width:640px;margin:0 auto;background:#fff;border:1px solid #d7dde8;border-radius:14px;padding:20px;}'
+        . 'h1{font-size:18px;margin:0 0 12px;} p{margin:0 0 12px;line-height:1.5;}'
+        . '.footer{margin-top:18px;padding-top:12px;border-top:1px solid #e5e7eb;color:#6b7280;font-size:12px;}'
+        . '</style></head><body><div class="card">'
+        . '<h1>Olá ' . h($employeeName) . ',</h1>'
+        . '<p>' . h($leadMessage) . '</p>'
+        . '<p>Cumprimentos,<br><strong>Equipa RH</strong></p>'
+        . '<div class="footer"><strong>' . $companyName . '</strong>'
+        . ($contactLine !== '' ? '<br>' . $contactLine : '')
+        . '</div></div></body></html>';
+}
+
 function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluation, ?array $closure, int $year, string $periodLabel, ?string $sentBy = null): array
 {
     $recipientEmail = trim((string) ($employee['email'] ?? ''));
@@ -297,13 +350,24 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
         ? (string) $employee['user_number'] . ' - ' . (string) ($employee['name'] ?? '')
         : (string) ($employee['name'] ?? 'Colaborador');
 
+    $branding = taskforce_get_evaluation_branding($pdo);
+    $companyContactLine = taskforce_build_company_contact_line($branding);
+    $profileLabel = taskforce_evaluation_profiles()[(string) ($evaluation['award_profile'] ?? $employee['award_profile'] ?? '')]
+        ?? (string) ($evaluation['award_profile'] ?? $employee['award_profile'] ?? '—');
+    $departmentLabel = (string) ($evaluation['department_name'] ?? $employee['department_name'] ?? '—');
+    $interviewDate = (string) (($evaluation['interview_date'] ?? '') ?: '—');
+    $generalNotes = trim((string) ($evaluation['general_notes'] ?? ''));
+
     $lines = [
         'TaskForce RH - Avaliação de desempenho',
+        (string) ($branding['company_name'] ?? 'TaskForce'),
+        (string) ($branding['company_address'] ?? ''),
+        $companyContactLine,
         'Colaborador: ' . $employeeLabel,
         'Ano: ' . $year . ' | Período: ' . $periodLabel,
-        'Departamento: ' . (string) ($evaluation['department_name'] ?? $employee['department_name'] ?? '—'),
-        'Perfil: ' . (string) ($evaluation['award_profile'] ?? $employee['award_profile'] ?? '—'),
-        'Data entrevista: ' . (string) (($evaluation['interview_date'] ?? '') ?: '—'),
+        'Departamento: ' . $departmentLabel,
+        'Perfil: ' . $profileLabel,
+        'Data entrevista: ' . $interviewDate,
         '',
         'Performance: ' . (int) ($evaluation['performance_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['performance_value'] ?? 0)) . ')',
         'Comportamento: ' . (int) ($evaluation['behavior_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['behavior_value'] ?? 0)) . ')',
@@ -319,10 +383,9 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
         $lines[] = 'Total anual: ' . taskforce_money((float) ($closure['year_total_with_bonus'] ?? 0));
     }
 
-    $notes = trim((string) ($evaluation['general_notes'] ?? ''));
-    if ($notes !== '') {
+    if ($generalNotes !== '') {
         $lines[] = '';
-        $lines[] = 'Observações RH: ' . $notes;
+        $lines[] = 'Observações RH: ' . $generalNotes;
     }
 
     if ($sentBy) {
@@ -334,10 +397,71 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
     $safeName = preg_replace('/[^a-z0-9\-]+/i', '-', strtolower((string) ($employee['name'] ?? 'colaborador')));
     $fileName = 'avaliacao-' . trim((string) $safeName, '-') . '-' . $year . '-' . (string) ($evaluation['award_period'] ?? 'periodo') . '.pdf';
 
+    $headerLogoHtml = (string) ($branding['logo_url'] ?? '') !== ''
+        ? '<div class="brand-logo"><img src="' . h((string) $branding['logo_url']) . '" alt="Logótipo"></div>'
+        : '';
+    $headerAddressHtml = (string) ($branding['company_address'] ?? '') !== ''
+        ? '<div class="brand-address">' . nl2br(h((string) $branding['company_address'])) . '</div>'
+        : '';
+    $footerContactHtml = $companyContactLine !== '' ? '<div class="muted">' . h($companyContactLine) . '</div>' : '';
+
+    $html = '<!doctype html><html lang="pt"><head><meta charset="utf-8"><style>'
+        . 'body{font-family:Arial,sans-serif;color:#1f2937;font-size:12px;margin:18px;}'
+        . '.pdf-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #e5e7eb;padding-bottom:8px;margin-bottom:14px;}'
+        . '.brand-name{font-size:14px;font-weight:700;} .brand-address{font-size:11px;color:#4b5563;margin-top:4px;line-height:1.45;}'
+        . '.brand-logo{text-align:right;} .brand-logo img{max-height:56px;max-width:190px;}'
+        . '.title{font-size:24px;font-weight:700;margin:0 0 8px;}'
+        . '.soft-card{border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;padding:10px 12px;margin-bottom:10px;}'
+        . '.meta-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}'
+        . '.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0;}'
+        . '.metric{border:1px solid #e5e7eb;border-radius:10px;padding:8px;background:#fff;} .label{color:#6b7280;font-size:10px;display:block;} .value{font-size:18px;font-weight:700;}'
+        . 'table{width:100%;border-collapse:collapse;margin-top:10px;} th,td{border-bottom:1px solid #e5e7eb;padding:7px;text-align:left;vertical-align:top;} th{font-size:11px;background:#f3f4f6;}'
+        . '.footer{margin-top:14px;padding-top:10px;border-top:1px solid #e5e7eb;color:#6b7280;font-size:11px;}'
+        . '.muted{color:#6b7280;}'
+        . '</style></head><body>'
+        . '<header class="pdf-header"><div><div class="brand-name">' . h((string) ($branding['company_name'] ?? 'TaskForce')) . '</div>' . $headerAddressHtml . '</div>'
+        . $headerLogoHtml . '</header>'
+        . '<h1 class="title">Avaliação de desempenho</h1>'
+        . '<div class="soft-card"><strong>' . h($employeeLabel) . '</strong>'
+        . '<div class="meta-grid">'
+        . '<div><span class="label">Ano</span><strong>' . (int) $year . '</strong></div>'
+        . '<div><span class="label">Período</span><strong>' . h($periodLabel) . '</strong></div>'
+        . '<div><span class="label">Departamento</span><strong>' . h($departmentLabel) . '</strong></div>'
+        . '<div><span class="label">Perfil</span><strong>' . h($profileLabel) . '</strong></div>'
+        . '<div><span class="label">Entrevista</span><strong>' . h($interviewDate) . '</strong></div>'
+        . '</div></div>'
+        . '<div class="metric-grid">'
+        . '<div class="metric"><span class="label">Performance</span><div class="value">' . (int) ($evaluation['performance_score'] ?? 0) . '</div><div>' . h(taskforce_money((float) ($evaluation['performance_value'] ?? 0))) . '</div></div>'
+        . '<div class="metric"><span class="label">Comportamento</span><div class="value">' . (int) ($evaluation['behavior_score'] ?? 0) . '</div><div>' . h(taskforce_money((float) ($evaluation['behavior_value'] ?? 0))) . '</div></div>'
+        . '<div class="metric"><span class="label">Pontualidade</span><div class="value">' . (int) ($evaluation['punctuality_count'] ?? 0) . '</div><div>' . h(taskforce_money((float) ($evaluation['punctuality_value'] ?? 0))) . '</div></div>'
+        . '<div class="metric"><span class="label">Absentismo</span><div class="value">' . (int) ($evaluation['absence_count'] ?? 0) . '</div><div>' . h(taskforce_money((float) ($evaluation['absence_value'] ?? 0))) . '</div></div>'
+        . '</div>'
+        . '<table><thead><tr><th>Total período</th><th>Bónus final</th><th>Total anual</th></tr></thead><tbody><tr>'
+        . '<td><strong>' . h(taskforce_money((float) ($evaluation['period_total'] ?? 0))) . '</strong></td>'
+        . '<td>' . h(taskforce_money((float) ($closure['final_bonus_value'] ?? 0))) . '</td>'
+        . '<td><strong>' . h(taskforce_money((float) ($closure['year_total_with_bonus'] ?? ($evaluation['period_total'] ?? 0)))) . '</strong></td>'
+        . '</tr></tbody></table>'
+        . ($generalNotes !== '' ? '<div class="soft-card" style="margin-top:10px;"><span class="label">Observações RH</span>' . nl2br(h($generalNotes)) . '</div>' : '')
+        . ($sentBy ? '<p class="muted">Enviado por: ' . h($sentBy) . '</p>' : '')
+        . '<footer class="footer"><strong>' . h((string) ($branding['company_name'] ?? 'TaskForce')) . '</strong>'
+        . ((string) ($branding['company_address'] ?? '') !== '' ? '<div>' . nl2br(h((string) $branding['company_address'])) . '</div>' : '')
+        . $footerContactHtml
+        . '</footer></body></html>';
+
+    $pdfContent = taskforce_generate_pdf_from_html($html);
+    if (!is_string($pdfContent) || $pdfContent === '') {
+        $pdfContent = taskforce_generate_basic_pdf(array_values(array_filter($lines, static fn(string $line): bool => trim($line) !== '')));
+    }
+
     $subject = '[TaskForce RH] Avaliação ' . $periodLabel . ' - ' . (string) ($employee['name'] ?? 'Colaborador');
     $body = "Olá " . (string) ($employee['name'] ?? '') . ",\n\nSegue em anexo o PDF da sua avaliação (" . $periodLabel . ' de ' . $year . ").\n\nCumprimentos,\nEquipa RH";
+    $htmlBody = taskforce_build_evaluation_mail_html(
+        (string) ($employee['name'] ?? 'Colaborador'),
+        'Segue em anexo o PDF da sua avaliação (' . $periodLabel . ' de ' . $year . ').',
+        $branding
+    );
 
-    $sent = deliver_report($recipientEmail, $subject, $body, null, [[
+    $sent = deliver_report($recipientEmail, $subject, $body, $htmlBody, [[
         'name' => $fileName,
         'mime' => 'application/pdf',
         'content' => $pdfContent,
@@ -354,6 +478,8 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
     if ($recipientEmail === '') {
         return ['ok' => false, 'message' => 'O colaborador avaliado não tem email configurado.'];
     }
+    $branding = taskforce_get_evaluation_branding($pdo);
+    $companyContactLine = taskforce_build_company_contact_line($branding);
 
     $employeeLabel = trim((string) ($employee['user_number'] ?? '')) !== ''
         ? (string) $employee['user_number'] . ' - ' . (string) ($employee['name'] ?? '')
@@ -383,15 +509,29 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
             . '<p>Total anual c/ bónus: <strong>' . h(taskforce_money((float) ($closure['year_total_with_bonus'] ?? 0))) . '</strong></p>'
             . '<p>Notas: ' . h((string) ($closure['final_notes'] ?? '')) . '</p>';
 
+    $headerLogoHtml = (string) ($branding['logo_url'] ?? '') !== ''
+        ? '<div class="brand-logo"><img src="' . h((string) $branding['logo_url']) . '" alt="Logótipo"></div>'
+        : '';
+    $headerAddressHtml = (string) ($branding['company_address'] ?? '') !== ''
+        ? '<div class="brand-address">' . nl2br(h((string) $branding['company_address'])) . '</div>'
+        : '';
+    $footerContactHtml = $companyContactLine !== '' ? '<div class="muted">' . h($companyContactLine) . '</div>' : '';
+
     $html = '<!doctype html><html lang="pt"><head><meta charset="utf-8"><style>'
         . 'body{font-family:Arial,sans-serif;color:#1f2937;font-size:12px;padding:18px;}'
+        . '.pdf-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #e5e7eb;padding-bottom:8px;margin-bottom:14px;}'
+        . '.brand-name{font-size:14px;font-weight:700;} .brand-address{font-size:11px;color:#4b5563;margin-top:4px;line-height:1.45;}'
+        . '.brand-logo{text-align:right;} .brand-logo img{max-height:56px;max-width:190px;}'
         . 'h1{font-size:24px;margin:0 0 12px;} h2{font-size:18px;margin:0 0 10px;}'
         . '.card{border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-bottom:12px;}'
         . '.grid{width:100%;border-collapse:separate;border-spacing:8px;} .grid td{border:1px solid #e5e7eb;border-radius:10px;padding:10px;vertical-align:top;}'
         . '.label{display:block;color:#6b7280;font-size:11px;margin-bottom:2px;} .value{font-size:24px;font-weight:700;}'
         . 'table{width:100%;border-collapse:collapse;} th,td{border-bottom:1px solid #e5e7eb;padding:7px;text-align:left;font-size:11px;}'
         . 'th{font-size:12px;} .muted{color:#6b7280;}'
+        . '.footer{margin-top:14px;padding-top:10px;border-top:1px solid #e5e7eb;color:#6b7280;font-size:11px;}'
         . '</style></head><body>'
+        . '<header class="pdf-header"><div><div class="brand-name">' . h((string) ($branding['company_name'] ?? 'TaskForce')) . '</div>' . $headerAddressHtml . '</div>'
+        . $headerLogoHtml . '</header>'
         . '<h1>Histórico de avaliações</h1>'
         . '<div class="card">'
         . '<strong>' . h($employeeLabel) . '</strong><br>'
@@ -409,6 +549,10 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
         . $rowsHtml . '</tbody></table></div>'
         . '<div class="card"><h2>Fecho anual</h2>' . $closureHtml . '</div>'
         . ($sentBy ? '<p class="muted">Enviado por: ' . h($sentBy) . '</p>' : '')
+        . '<footer class="footer"><strong>' . h((string) ($branding['company_name'] ?? 'TaskForce')) . '</strong>'
+        . ((string) ($branding['company_address'] ?? '') !== '' ? '<div>' . nl2br(h((string) $branding['company_address'])) . '</div>' : '')
+        . $footerContactHtml
+        . '</footer>'
         . '</body></html>';
 
     $fallbackPayload = [
@@ -424,6 +568,9 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
         'sent_by' => $sentBy ?? '',
         'lines' => [
             'TaskForce RH - Histórico de avaliações',
+            (string) ($branding['company_name'] ?? 'TaskForce'),
+            (string) ($branding['company_address'] ?? ''),
+            $companyContactLine,
             'Colaborador: ' . $employeeLabel,
             'Ano: ' . $year,
             'Nº avaliações: ' . (int) ($metrics['count'] ?? 0),
@@ -447,8 +594,13 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
     $fileName = 'historico-avaliacoes-' . trim((string) $safeName, '-') . '-' . $year . '.pdf';
     $subject = '[TaskForce RH] Histórico de avaliações ' . $year . ' - ' . (string) ($employee['name'] ?? 'Colaborador');
     $body = "Olá " . (string) ($employee['name'] ?? '') . ",\n\nSegue em anexo o PDF do seu histórico de avaliações de " . $year . ".\n\nCumprimentos,\nEquipa RH";
+    $htmlBody = taskforce_build_evaluation_mail_html(
+        (string) ($employee['name'] ?? 'Colaborador'),
+        'Segue em anexo o PDF do seu histórico de avaliações de ' . $year . '.',
+        $branding
+    );
 
-    $sent = deliver_report($recipientEmail, $subject, $body, null, [[
+    $sent = deliver_report($recipientEmail, $subject, $body, $htmlBody, [[
         'name' => $fileName,
         'mime' => 'application/pdf',
         'content' => $pdfContent,
