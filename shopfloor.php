@@ -109,6 +109,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'start_break') {
+        $breakReasonId = (int) ($_POST['break_reason_id'] ?? 0);
+        $reasonStmt = $pdo->prepare('SELECT id, code, label, break_type, requires_comment FROM shopfloor_break_reasons WHERE id = ? AND is_active = 1 LIMIT 1');
+        $reasonStmt->execute([$breakReasonId]);
+        $reason = $reasonStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        $openBreakStmt = $pdo->prepare('SELECT id FROM shopfloor_break_entries WHERE user_id = ? AND ended_at IS NULL LIMIT 1');
+        $openBreakStmt->execute([$userId]);
+        $openBreakId = (int) ($openBreakStmt->fetchColumn() ?: 0);
+
+        if (!$reason) {
+            $flashError = 'Selecione um tipo de pausa/paragem válido.';
+        } elseif ($openBreakId > 0) {
+            $flashError = 'Já existe uma pausa/paragem em curso.';
+        } else {
+            $comment = trim((string) ($_POST['break_comment'] ?? ''));
+            $insertBreakStmt = $pdo->prepare('INSERT INTO shopfloor_break_entries(user_id, break_reason_id, break_type, comment) VALUES (?, ?, ?, ?)');
+            $insertBreakStmt->execute([
+                $userId,
+                (int) $reason['id'],
+                (string) ($reason['break_type'] ?? 'Pausa'),
+                $comment !== '' ? $comment : null,
+            ]);
+            $flashSuccess = ((string) ($reason['break_type'] ?? 'Pausa')) . ' iniciada: ' . (string) ($reason['code'] ?? '') . ' · ' . (string) ($reason['label'] ?? '');
+        }
+    }
+
+    if ($action === 'stop_break') {
+        $activeBreakToStopStmt = $pdo->prepare('SELECT b.id, r.requires_comment FROM shopfloor_break_entries b INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id WHERE b.user_id = ? AND b.ended_at IS NULL ORDER BY b.started_at DESC LIMIT 1');
+        $activeBreakToStopStmt->execute([$userId]);
+        $activeBreakToStop = $activeBreakToStopStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $stopComment = trim((string) ($_POST['break_comment'] ?? ''));
+
+        if (!$activeBreakToStop) {
+            $flashError = 'Não existe pausa/paragem ativa para terminar.';
+        } elseif ((int) ($activeBreakToStop['requires_comment'] ?? 0) === 1 && $stopComment === '') {
+            $flashError = 'Este tipo exige comentário obrigatório para terminar.';
+        } else {
+            $stopBreakStmt = $pdo->prepare('UPDATE shopfloor_break_entries SET ended_at = CURRENT_TIMESTAMP, comment = COALESCE(NULLIF(TRIM(?), ""), comment) WHERE id = ?');
+            $stopBreakStmt->execute([$stopComment, (int) $activeBreakToStop['id']]);
+            $flashSuccess = 'Pausa/paragem terminada com sucesso.';
+        }
+    }
+
     if ($action === 'submit_absence') {
         $requestType = trim((string) ($_POST['request_type'] ?? 'Dias inteiros'));
         if ($hasOpenClockEntryToday) {
@@ -457,6 +501,45 @@ if (!$hourBank) {
 $todayEntriesStmt = $pdo->prepare('SELECT entry_type, note, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC');
 $todayEntriesStmt->execute([$userId]);
 $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$breakReasonsActiveStmt = $pdo->query('SELECT id, code, label, break_type, requires_comment FROM shopfloor_break_reasons WHERE is_active = 1 ORDER BY code COLLATE NOCASE ASC');
+$breakReasonOptions = $breakReasonsActiveStmt ? $breakReasonsActiveStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+
+$activeBreakEntryStmt = $pdo->prepare('SELECT b.id, b.break_reason_id, b.break_type, b.started_at, r.code, r.label, r.requires_comment FROM shopfloor_break_entries b INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id WHERE b.user_id = ? AND b.ended_at IS NULL ORDER BY b.started_at DESC LIMIT 1');
+$activeBreakEntryStmt->execute([$userId]);
+$activeBreakEntry = $activeBreakEntryStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+$dailyBreakSummaryStmt = $pdo->prepare(
+    'SELECT b.break_type, COUNT(*) AS total_count, SUM(CASE WHEN b.ended_at IS NULL THEN CAST((julianday(CURRENT_TIMESTAMP) - julianday(b.started_at)) * 86400 AS INTEGER) ELSE CAST((julianday(b.ended_at) - julianday(b.started_at)) * 86400 AS INTEGER) END) AS total_seconds
+     FROM shopfloor_break_entries b
+     WHERE b.user_id = ? AND date(b.started_at) = date("now", "localtime")
+     GROUP BY b.break_type'
+);
+$dailyBreakSummaryStmt->execute([$userId]);
+$dailyBreakSummaryRows = $dailyBreakSummaryStmt->fetchAll(PDO::FETCH_ASSOC);
+$dailyBreakSummaryMap = ['Pausa' => ['count' => 0, 'seconds' => 0], 'Paragem' => ['count' => 0, 'seconds' => 0]];
+foreach ($dailyBreakSummaryRows as $dailyBreakSummaryRow) {
+    $type = (string) ($dailyBreakSummaryRow['break_type'] ?? 'Pausa');
+    if (!isset($dailyBreakSummaryMap[$type])) {
+        continue;
+    }
+    $dailyBreakSummaryMap[$type] = [
+        'count' => (int) ($dailyBreakSummaryRow['total_count'] ?? 0),
+        'seconds' => max(0, (int) ($dailyBreakSummaryRow['total_seconds'] ?? 0)),
+    ];
+}
+$dailyTotalIdleSeconds = (int) $dailyBreakSummaryMap['Pausa']['seconds'] + (int) $dailyBreakSummaryMap['Paragem']['seconds'];
+
+$dailyBreakByReasonStmt = $pdo->prepare(
+    'SELECT r.code, r.label, b.break_type, COUNT(*) AS total_count, SUM(CASE WHEN b.ended_at IS NULL THEN CAST((julianday(CURRENT_TIMESTAMP) - julianday(b.started_at)) * 86400 AS INTEGER) ELSE CAST((julianday(b.ended_at) - julianday(b.started_at)) * 86400 AS INTEGER) END) AS total_seconds
+     FROM shopfloor_break_entries b
+     INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id
+     WHERE b.user_id = ? AND date(b.started_at) = date("now", "localtime")
+     GROUP BY r.id, r.code, r.label, b.break_type
+     ORDER BY r.code COLLATE NOCASE ASC'
+);
+$dailyBreakByReasonStmt->execute([$userId]);
+$dailyBreakByReason = $dailyBreakByReasonStmt->fetchAll(PDO::FETCH_ASSOC);
 $latestTodayEntryType = (string) ($todayEntries[0]['entry_type'] ?? '');
 $hasOpenClockEntryToday = $latestTodayEntryType === 'entrada';
 
@@ -706,6 +789,20 @@ require __DIR__ . '/partials/header.php';
             <article class="shopfloor-kpi-card shopfloor-kpi-card-compact">
                 <h2>Dias de férias</h2>
                 <strong><?= h(number_format($pendingVacationDays, 1, ',', '.')) ?></strong>
+            </article>
+            <article class="shopfloor-kpi-card shopfloor-kpi-card-compact">
+                <h2>Pausas (dia)</h2>
+                <strong><?= h(format_minutes((int) ($dailyBreakSummaryMap['Pausa']['seconds'] ?? 0))) ?></strong>
+                <span class="small text-secondary">(<?= (int) ($dailyBreakSummaryMap['Pausa']['count'] ?? 0) ?>)</span>
+            </article>
+            <article class="shopfloor-kpi-card shopfloor-kpi-card-compact">
+                <h2>Paragens (dia)</h2>
+                <strong><?= h(format_minutes((int) ($dailyBreakSummaryMap['Paragem']['seconds'] ?? 0))) ?></strong>
+                <span class="small text-secondary">(<?= (int) ($dailyBreakSummaryMap['Paragem']['count'] ?? 0) ?>)</span>
+            </article>
+            <article class="shopfloor-kpi-card shopfloor-kpi-card-compact">
+                <h2>Tempo morto</h2>
+                <strong><?= h(format_minutes($dailyTotalIdleSeconds)) ?></strong>
             </article>
         </div>
     </div>

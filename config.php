@@ -461,6 +461,40 @@ $pdo->exec(
     )'
 );
 
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_break_reasons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL,
+        label TEXT NOT NULL,
+        notes TEXT,
+        planned_seconds INTEGER NOT NULL DEFAULT 0,
+        break_type TEXT NOT NULL DEFAULT "Pausa",
+        requires_comment INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+    )'
+);
+$pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shopfloor_break_reasons_code ON shopfloor_break_reasons(code)');
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS shopfloor_break_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        break_reason_id INTEGER NOT NULL,
+        break_type TEXT NOT NULL DEFAULT "Pausa",
+        comment TEXT,
+        started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        ended_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(break_reason_id) REFERENCES shopfloor_break_reasons(id) ON DELETE RESTRICT
+    )'
+);
+$pdo->exec('CREATE INDEX IF NOT EXISTS idx_shopfloor_break_entries_user_day ON shopfloor_break_entries(user_id, started_at)');
+
 $timeEntryColumns = $pdo->query('PRAGMA table_info(shopfloor_time_entries)')->fetchAll(PDO::FETCH_COLUMN, 1);
 if (!in_array('validated_by', $timeEntryColumns, true)) {
     $pdo->exec('ALTER TABLE shopfloor_time_entries ADD COLUMN validated_by INTEGER');
@@ -622,6 +656,32 @@ $pdo->exec(
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )'
 );
+$breakReasonSeedKey = 'shopfloor_break_reasons_seeded';
+$breakReasonSeedStmt = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1');
+$breakReasonSeedStmt->execute([$breakReasonSeedKey]);
+$breakReasonSeedState = $breakReasonSeedStmt->fetchColumn();
+$breakReasonCountStmt = $pdo->query('SELECT COUNT(*) FROM shopfloor_break_reasons');
+$breakReasonCount = (int) ($breakReasonCountStmt ? $breakReasonCountStmt->fetchColumn() : 0);
+if ($breakReasonSeedState === false && $breakReasonCount === 0) {
+    $defaultBreakReasonStmt = $pdo->prepare('INSERT INTO shopfloor_break_reasons(code, label, notes, planned_seconds, break_type, requires_comment, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, 1, NULL)');
+    foreach ([
+        ['01', 'WC', null, 180, 'Paragem', 0],
+        ['02', 'Pausa Manhã', null, 900, 'Pausa', 0],
+        ['03', 'Pausa Tarde', null, 600, 'Pausa', 0],
+        ['04', 'Limpeza de Posto - Diária', null, 180, 'Paragem', 0],
+        ['05', 'Limpeza de Posto - Semanal', null, 900, 'Paragem', 0],
+        ['06', 'Reunião', null, 600, 'Paragem', 1],
+        ['07', 'Medicina de Trabalho', null, 600, 'Paragem', 0],
+        ['08', 'Outra', null, 60, 'Paragem', 1],
+    ] as $defaultBreakReason) {
+        $defaultBreakReasonStmt->execute($defaultBreakReason);
+    }
+}
+if ($breakReasonSeedState === false) {
+    $breakReasonSeedInsertStmt = $pdo->prepare('INSERT INTO app_settings(setting_key, setting_value) VALUES (?, ?)');
+    $breakReasonSeedInsertStmt->execute([$breakReasonSeedKey, '1']);
+}
+
 $absenceReasonSeedKey = 'shopfloor_absence_reasons_seeded';
 $absenceReasonSeedStmt = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1');
 $absenceReasonSeedStmt->execute([$absenceReasonSeedKey]);
