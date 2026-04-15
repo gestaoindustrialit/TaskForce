@@ -38,6 +38,18 @@ if ($user && !isset($navbarClockControl)) {
         'button_class' => $clockButtonClass,
         'latest_time_label' => $latestEntryTimeLabel,
     ];
+
+    $activeBreakStmt = $pdo->prepare('SELECT b.id, b.break_reason_id, b.started_at, r.code, r.label, r.break_type FROM shopfloor_break_entries b INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id WHERE b.user_id = ? AND b.ended_at IS NULL ORDER BY b.started_at DESC LIMIT 1');
+    $activeBreakStmt->execute([(int) $user['id']]);
+    $activeBreak = $activeBreakStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    $breakReasonOptionsStmt = $pdo->query('SELECT id, code, label, break_type FROM shopfloor_break_reasons WHERE is_active = 1 ORDER BY code COLLATE NOCASE ASC');
+    $breakReasonOptions = $breakReasonOptionsStmt ? $breakReasonOptionsStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+    $navbarBreakControl = [
+        'form_action' => 'shopfloor.php',
+        'active_break' => $activeBreak,
+        'reason_options' => $breakReasonOptions,
+    ];
 }
 
 header('Content-Type: text/html; charset=UTF-8');
@@ -106,6 +118,7 @@ header('Content-Type: text/html; charset=UTF-8');
                                 <li><a class="dropdown-item" href="hr_evaluation_rules.php">Regras de avaliações</a></li>
                                 <li><a class="dropdown-item" href="resultados.php">Resultados</a></li>
                                 <li><a class="dropdown-item" href="shopfloor_absence_reasons.php">Motivos de ausência</a></li>
+                                <li><a class="dropdown-item" href="shopfloor_break_reasons.php">Pausas e paragens</a></li>
                             </ul>
                         </div>
                     <?php endif; ?>
@@ -144,6 +157,24 @@ header('Content-Type: text/html; charset=UTF-8');
                             <button type="submit" class="btn btn-sm fw-semibold <?= h((string) ($navbarClockControl['button_class'] ?? 'btn-primary')) ?>"><?= h((string) ($navbarClockControl['button_label'] ?? 'Ponto de entrada')) ?></button>
                             <?php if (!empty($navbarClockControl['latest_time_label'])): ?>
                                 <span class="small text-white-50"><?= h((string) $navbarClockControl['latest_time_label']) ?></span>
+                            <?php endif; ?>
+                        </form>
+                    <?php endif; ?>
+                    <?php if (isset($navbarBreakControl) && is_array($navbarBreakControl)): ?>
+                        <?php $activeBreak = $navbarBreakControl['active_break'] ?? null; ?>
+                        <form method="post" action="<?= h((string) ($navbarBreakControl['form_action'] ?? 'shopfloor.php')) ?>" class="d-flex align-items-center gap-2 mb-0">
+                            <?php if ($activeBreak): ?>
+                                <input type="hidden" name="action" value="stop_break">
+                                <button type="submit" class="btn btn-sm btn-warning fw-semibold">Terminar <?= h((string) ($activeBreak['break_type'] ?? 'Pausa')) ?></button>
+                            <?php else: ?>
+                                <input type="hidden" name="action" value="start_break">
+                                <select class="form-select form-select-sm" name="break_reason_id" required>
+                                    <option value="">Pausa/Paragem</option>
+                                    <?php foreach (($navbarBreakControl['reason_options'] ?? []) as $breakReasonOption): ?>
+                                        <option value="<?= (int) $breakReasonOption['id'] ?>"><?= h((string) $breakReasonOption['code']) ?> | <?= h((string) $breakReasonOption['label']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <button type="submit" class="btn btn-sm btn-outline-warning fw-semibold">Iniciar</button>
                             <?php endif; ?>
                         </form>
                     <?php endif; ?>
