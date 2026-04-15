@@ -502,29 +502,15 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
 
     $pdfContent = taskforce_generate_pdf_from_html($html);
     if (!is_string($pdfContent) || $pdfContent === '') {
-        $singleFallbackPayload = [
-            'title' => 'Avaliação de desempenho',
-            'employee' => $employeeLabel,
-            'year' => (string) $year,
-            'department' => $departmentLabel,
-            'profile' => $profileLabel,
-            'predominant_rule' => (string) ($evaluation['rule_set_name'] ?? '—'),
-            'metrics' => [
-                'count' => 1,
-                'sum_period_total' => (float) ($evaluation['period_total'] ?? 0),
-            ],
-            'closure' => $closure ?? [],
-            'evaluations' => [$evaluation],
-            'sent_by' => $sentBy ?? '',
-            'lines' => $lines,
+        return [
+            'ok' => false,
+            'message' => 'Não foi possível gerar o PDF com o layout oficial. Verifique a instalação do motor de PDF (wkhtmltopdf/chromium).',
         ];
-        $pdfContent = taskforce_generate_evaluation_history_layout_pdf($singleFallbackPayload);
     }
-    if (!is_string($pdfContent) || $pdfContent === '') {
-        $pdfContent = taskforce_generate_evaluation_history_fpdf_pdf($singleFallbackPayload ?? ['lines' => $lines]);
-    }
-    if (!is_string($pdfContent) || $pdfContent === '') {
-        $pdfContent = taskforce_generate_basic_pdf(array_values(array_filter($lines, static fn(string $line): bool => trim($line) !== '')));
+
+    $storedPdf = taskforce_store_generated_pdf_on_server($pdfContent, $fileName, 'avaliacoes');
+    if (!is_array($storedPdf) || !isset($storedPdf['content'])) {
+        return ['ok' => false, 'message' => 'Não foi possível guardar o PDF no servidor antes do envio.'];
     }
 
     $storedPdf = taskforce_store_generated_pdf_on_server($pdfContent, $fileName, 'avaliacoes');
@@ -635,39 +621,12 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
         . '</footer>'
         . '</body></html>';
 
-    $fallbackPayload = [
-        'title' => 'Histórico de avaliações',
-        'employee' => $employeeLabel,
-        'year' => (string) $year,
-        'department' => (string) ($employee['department_name'] ?? '—'),
-        'profile' => (string) ($employee['award_profile'] ?? 'operador'),
-        'predominant_rule' => $predominantRule,
-        'metrics' => $metrics,
-        'closure' => $closure ?? [],
-        'evaluations' => $evaluations,
-        'sent_by' => $sentBy ?? '',
-        'lines' => [
-            'TaskForce RH - Histórico de avaliações',
-            (string) ($branding['company_name'] ?? 'TaskForce'),
-            (string) ($branding['company_address'] ?? ''),
-            $companyContactLine,
-            'Colaborador: ' . $employeeLabel,
-            'Ano: ' . $year,
-            'Nº avaliações: ' . (int) ($metrics['count'] ?? 0),
-            'Soma prémios período: ' . taskforce_money((float) ($metrics['sum_period_total'] ?? 0)),
-            'Regra predominante: ' . $predominantRule,
-        ],
-    ];
-
     $pdfContent = taskforce_generate_pdf_from_html($html);
     if (!is_string($pdfContent) || $pdfContent === '') {
-        $pdfContent = taskforce_generate_evaluation_history_layout_pdf($fallbackPayload);
-    }
-    if (!is_string($pdfContent) || $pdfContent === '') {
-        $pdfContent = taskforce_generate_evaluation_history_fpdf_pdf($fallbackPayload);
-    }
-    if (!is_string($pdfContent) || $pdfContent === '') {
-        $pdfContent = taskforce_generate_basic_pdf($fallbackPayload['lines']);
+        return [
+            'ok' => false,
+            'message' => 'Não foi possível gerar o PDF com o layout oficial. Verifique a instalação do motor de PDF (wkhtmltopdf/chromium).',
+        ];
     }
 
     $safeName = preg_replace('/[^a-z0-9\-]+/i', '-', strtolower((string) ($employee['name'] ?? 'colaborador')));
