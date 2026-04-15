@@ -339,6 +339,56 @@ function taskforce_build_evaluation_mail_html(string $employeeName, string $lead
         . '</div></div></body></html>';
 }
 
+function taskforce_store_generated_pdf_on_server(string $pdfContent, string $fileName, string $scope = 'hr-evaluations'): ?array
+{
+    if ($pdfContent === '' || strncmp($pdfContent, '%PDF', 4) !== 0) {
+        return null;
+    }
+
+    $safeName = preg_replace('/[^A-Za-z0-9_.-]+/', '-', basename($fileName));
+    if (!is_string($safeName) || $safeName === '' || $safeName === '.' || $safeName === '..') {
+        $safeName = 'documento.pdf';
+    }
+    if (!str_ends_with(strtolower($safeName), '.pdf')) {
+        $safeName .= '.pdf';
+    }
+
+    $rootStorage = function_exists('app_config')
+        ? (string) app_config('paths.storage', __DIR__ . '/storage')
+        : __DIR__ . '/storage';
+    $folderDate = date('Y/m');
+    $targetDir = rtrim($rootStorage, '/\\') . '/generated-pdfs/' . trim($scope, '/\\') . '/' . $folderDate;
+    if (!is_dir($targetDir) && !@mkdir($targetDir, 0750, true) && !is_dir($targetDir)) {
+        return null;
+    }
+
+    try {
+        $suffix = bin2hex(random_bytes(4));
+    } catch (Throwable $exception) {
+        $suffix = substr(sha1(uniqid((string) mt_rand(), true)), 0, 8);
+    }
+
+    $storedName = date('Ymd-His') . '-' . $suffix . '-' . $safeName;
+    $targetPath = $targetDir . '/' . $storedName;
+    $written = @file_put_contents($targetPath, $pdfContent, LOCK_EX);
+    if ($written === false || (int) $written !== strlen($pdfContent)) {
+        @unlink($targetPath);
+        return null;
+    }
+
+    $diskContent = @file_get_contents($targetPath);
+    if (!is_string($diskContent) || $diskContent === '' || strncmp($diskContent, '%PDF', 4) !== 0) {
+        @unlink($targetPath);
+        return null;
+    }
+
+    return [
+        'absolute_path' => $targetPath,
+        'relative_path' => 'storage/generated-pdfs/' . trim($scope, '/\\') . '/' . $folderDate . '/' . $storedName,
+        'content' => $diskContent,
+    ];
+}
+
 function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluation, ?array $closure, int $year, string $periodLabel, ?string $sentBy = null): array
 {
     $recipientEmail = trim((string) ($employee['email'] ?? ''));
@@ -477,6 +527,11 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
         $pdfContent = taskforce_generate_basic_pdf(array_values(array_filter($lines, static fn(string $line): bool => trim($line) !== '')));
     }
 
+    $storedPdf = taskforce_store_generated_pdf_on_server($pdfContent, $fileName, 'avaliacoes');
+    if (!is_array($storedPdf) || !isset($storedPdf['content'])) {
+        return ['ok' => false, 'message' => 'Não foi possível guardar o PDF no servidor antes do envio.'];
+    }
+
     $subject = '[TaskForce RH] Avaliação ' . $periodLabel . ' - ' . (string) ($employee['name'] ?? 'Colaborador');
     $body = "Olá " . (string) ($employee['name'] ?? '') . ",\n\nSegue em anexo o PDF da sua avaliação (" . $periodLabel . ' de ' . $year . ").\n\nCumprimentos,\nEquipa RH";
     $htmlBody = taskforce_build_evaluation_mail_html(
@@ -488,11 +543,11 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
     $sent = deliver_report($recipientEmail, $subject, $body, $htmlBody, [[
         'name' => $fileName,
         'mime' => 'application/pdf',
-        'content' => $pdfContent,
+        'content' => (string) $storedPdf['content'],
     ]]);
 
     return $sent
-        ? ['ok' => true, 'message' => 'PDF enviado por email para o colaborador avaliado.']
+        ? ['ok' => true, 'message' => 'PDF guardado no servidor e enviado por email para o colaborador avaliado.']
         : ['ok' => false, 'message' => 'Não foi possível enviar o email com o PDF da avaliação.'];
 }
 
@@ -617,6 +672,10 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
 
     $safeName = preg_replace('/[^a-z0-9\-]+/i', '-', strtolower((string) ($employee['name'] ?? 'colaborador')));
     $fileName = 'historico-avaliacoes-' . trim((string) $safeName, '-') . '-' . $year . '.pdf';
+    $storedPdf = taskforce_store_generated_pdf_on_server($pdfContent, $fileName, 'historico-avaliacoes');
+    if (!is_array($storedPdf) || !isset($storedPdf['content'])) {
+        return ['ok' => false, 'message' => 'Não foi possível guardar o PDF no servidor antes do envio.'];
+    }
     $subject = '[TaskForce RH] Histórico de avaliações ' . $year . ' - ' . (string) ($employee['name'] ?? 'Colaborador');
     $body = "Olá " . (string) ($employee['name'] ?? '') . ",\n\nSegue em anexo o PDF do seu histórico de avaliações de " . $year . ".\n\nCumprimentos,\nEquipa RH";
     $htmlBody = taskforce_build_evaluation_mail_html(
@@ -628,11 +687,11 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
     $sent = deliver_report($recipientEmail, $subject, $body, $htmlBody, [[
         'name' => $fileName,
         'mime' => 'application/pdf',
-        'content' => $pdfContent,
+        'content' => (string) $storedPdf['content'],
     ]]);
 
     return $sent
-        ? ['ok' => true, 'message' => 'PDF do histórico enviado por email para o colaborador avaliado.']
+        ? ['ok' => true, 'message' => 'PDF do histórico guardado no servidor e enviado por email para o colaborador avaliado.']
         : ['ok' => false, 'message' => 'Não foi possível enviar o email com o PDF do histórico.'];
 }
 
