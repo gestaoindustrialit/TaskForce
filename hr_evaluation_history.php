@@ -23,39 +23,6 @@ $closureStmt = $pdo->prepare('SELECT * FROM hr_evaluation_year_closures WHERE us
 $closureStmt->execute([$targetUserId, $year]);
 $closure = $closureStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = (string) ($_POST['action'] ?? '');
-    if ($action === 'send_history_pdf') {
-        $evaluationId = (int) ($_POST['evaluation_id'] ?? 0);
-        if ($evaluationId <= 0) {
-            $flashError = 'Avaliação inválida para envio.';
-        } else {
-            $evaluationStmt = $pdo->prepare('SELECT * FROM hr_evaluations WHERE id = ? LIMIT 1');
-            $evaluationStmt->execute([$evaluationId]);
-            $evaluation = $evaluationStmt->fetch(PDO::FETCH_ASSOC) ?: null;
-
-            if (!$evaluation || !$employee || (int) $evaluation['user_id'] !== (int) $targetUserId) {
-                $flashError = 'Não foi possível localizar a avaliação selecionada.';
-            } else {
-                $sendResult = taskforce_send_evaluation_pdf(
-                    $pdo,
-                    $employee,
-                    $evaluation,
-                    $closure,
-                    (int) $year,
-                    taskforce_evaluation_period_label((string) $evaluation['award_period']),
-                    $currentUserName !== '' ? $currentUserName : null
-                );
-                if ($sendResult['ok']) {
-                    $flashSuccess = $sendResult['message'];
-                } else {
-                    $flashError = $sendResult['message'];
-                }
-            }
-        }
-    }
-}
-
 $profiles = taskforce_evaluation_profiles();
 $metrics = [
     'count' => count($evaluations),
@@ -94,6 +61,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'send_history_pdf') {
         if (!$employee) {
             $flashError = 'Colaborador não encontrado para envio do histórico.';
+        } elseif ((int) ($_POST['evaluation_id'] ?? 0) > 0) {
+            $evaluationId = (int) ($_POST['evaluation_id'] ?? 0);
+            $evaluationStmt = $pdo->prepare('SELECT * FROM hr_evaluations WHERE id = ? LIMIT 1');
+            $evaluationStmt->execute([$evaluationId]);
+            $evaluation = $evaluationStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            if (!$evaluation || (int) $evaluation['user_id'] !== (int) $targetUserId) {
+                $flashError = 'Não foi possível localizar a avaliação selecionada.';
+            } else {
+                $sendResult = taskforce_send_evaluation_pdf(
+                    $pdo,
+                    $employee,
+                    $evaluation,
+                    $closure,
+                    (int) $year,
+                    taskforce_evaluation_period_label((string) $evaluation['award_period']),
+                    $currentUserName !== '' ? $currentUserName : null
+                );
+                if ($sendResult['ok']) {
+                    $flashSuccess = $sendResult['message'];
+                } else {
+                    $flashError = $sendResult['message'];
+                }
+            }
         } else {
             $sendResult = taskforce_send_evaluation_history_pdf(
                 $pdo,
