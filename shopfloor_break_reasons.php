@@ -223,8 +223,8 @@ $bodyClass = 'bg-light';
 require __DIR__ . '/partials/header.php';
 ?>
 
-<section class="shopfloor-shell">
-    <div class="shopfloor-panel mb-4">
+<section class="shopfloor-shell d-flex flex-column">
+    <div class="shopfloor-panel mb-4" style="order:2;">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <h1 class="h4 mb-0">Pausas e paragens</h1>
             <span class="small text-secondary">Gestão RH/Admin de tipos e histórico.</span>
@@ -269,7 +269,7 @@ require __DIR__ . '/partials/header.php';
         </form>
     </div>
 
-    <div class="shopfloor-panel">
+    <div class="shopfloor-panel" style="order:1;">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <h2 class="h4 mb-0">Registos de pausas e paragens</h2>
             <span class="small text-secondary">Listagem com filtro e edição manual.</span>
