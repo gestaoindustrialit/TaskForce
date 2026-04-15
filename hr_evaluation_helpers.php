@@ -389,6 +389,33 @@ function taskforce_store_generated_pdf_on_server(string $pdfContent, string $fil
     ];
 }
 
+function taskforce_pdf_generation_diagnostics(): string
+{
+    $engines = [];
+    if (class_exists('\Mpdf\Mpdf')) {
+        $engines[] = 'mpdf';
+    }
+    if (function_exists('shell_exec')) {
+        $wkhtml = trim((string) @shell_exec('command -v wkhtmltopdf 2>/dev/null'));
+        if ($wkhtml !== '') {
+            $engines[] = 'wkhtmltopdf';
+        }
+        foreach (['chromium-browser', 'chromium', 'google-chrome', 'google-chrome-stable', 'msedge'] as $bin) {
+            $path = trim((string) @shell_exec('command -v ' . escapeshellarg($bin) . ' 2>/dev/null'));
+            if ($path !== '') {
+                $engines[] = $bin;
+                break;
+            }
+        }
+    }
+
+    if (!$engines) {
+        return 'Nenhum motor PDF disponível (mpdf/wkhtmltopdf/chromium).';
+    }
+
+    return 'Motores detetados: ' . implode(', ', array_unique($engines)) . '.';
+}
+
 function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluation, ?array $closure, int $year, string $periodLabel, ?string $sentBy = null): array
 {
     $recipientEmail = trim((string) ($employee['email'] ?? ''));
@@ -504,13 +531,8 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
     if (!is_string($pdfContent) || $pdfContent === '') {
         return [
             'ok' => false,
-            'message' => 'Não foi possível gerar o PDF com o layout oficial. Verifique a instalação do motor de PDF (wkhtmltopdf/chromium).',
+            'message' => 'Não foi possível gerar o PDF com o layout oficial. ' . taskforce_pdf_generation_diagnostics(),
         ];
-    }
-
-    $storedPdf = taskforce_store_generated_pdf_on_server($pdfContent, $fileName, 'avaliacoes');
-    if (!is_array($storedPdf) || !isset($storedPdf['content'])) {
-        return ['ok' => false, 'message' => 'Não foi possível guardar o PDF no servidor antes do envio.'];
     }
 
     $storedPdf = taskforce_store_generated_pdf_on_server($pdfContent, $fileName, 'avaliacoes');
@@ -625,7 +647,7 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
     if (!is_string($pdfContent) || $pdfContent === '') {
         return [
             'ok' => false,
-            'message' => 'Não foi possível gerar o PDF com o layout oficial. Verifique a instalação do motor de PDF (wkhtmltopdf/chromium).',
+            'message' => 'Não foi possível gerar o PDF com o layout oficial. ' . taskforce_pdf_generation_diagnostics(),
         ];
     }
 
