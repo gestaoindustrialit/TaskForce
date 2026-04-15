@@ -186,6 +186,7 @@ header('Content-Type: text/html; charset=UTF-8');
         aria-labelledby="navbarBreakModalLabel"
         aria-hidden="true"
         <?= $activeBreak ? 'data-bs-backdrop="static" data-bs-keyboard="false"' : '' ?>
+        <?= $activeBreak ? ('data-break-started-at="' . h((string) ($activeBreak['started_at'] ?? '')) . '"') : '' ?>
     >
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -201,9 +202,10 @@ header('Content-Type: text/html; charset=UTF-8');
                             <input type="hidden" name="action" value="stop_break">
                             <p class="mb-2"><strong><?= h((string) ($activeBreak['break_type'] ?? 'Pausa')) ?></strong> em curso: <?= h((string) ($activeBreak['code'] ?? '')) ?> | <?= h((string) ($activeBreak['label'] ?? '')) ?></p>
                             <p class="small text-secondary">Iniciada às <?= h(date('H:i', strtotime((string) ($activeBreak['started_at'] ?? 'now')))) ?>.</p>
+                            <div class="display-5 fw-bold text-center text-danger mb-3" id="navbarBreakElapsed">00:00:00</div>
                             <div class="mb-2 <?= (int) ($activeBreak['requires_comment'] ?? 0) === 1 ? '' : 'd-none' ?>">
                                 <label class="form-label">Comentário</label>
-                                <textarea class="form-control" name="break_comment" rows="3" placeholder="Comentário obrigatório para terminar"></textarea>
+                                <textarea class="form-control" name="break_comment" rows="3" placeholder="Comentário obrigatório para terminar" <?= (int) ($activeBreak['requires_comment'] ?? 0) === 1 ? 'required' : '' ?>></textarea>
                             </div>
                         <?php else: ?>
                             <input type="hidden" name="action" value="start_break">
@@ -241,25 +243,61 @@ header('Content-Type: text/html; charset=UTF-8');
     </div>
     <script>
         (function () {
+            const modalElement = document.getElementById('navbarBreakModal');
             const reasonSelect = document.getElementById('navbarBreakReasonSelect');
             const commentWrap = document.getElementById('navbarBreakCommentWrap');
             const commentField = document.getElementById('navbarBreakComment');
-            if (!reasonSelect || !commentWrap || !commentField) {
-                return;
+            const elapsedElement = document.getElementById('navbarBreakElapsed');
+            let timerIntervalId = null;
+
+            if (reasonSelect && commentWrap && commentField) {
+                const syncCommentVisibility = () => {
+                    const selectedOption = reasonSelect.options[reasonSelect.selectedIndex] || null;
+                    const requiresComment = selectedOption ? selectedOption.getAttribute('data-requires-comment') === '1' : false;
+                    commentWrap.classList.toggle('d-none', !requiresComment);
+                    commentField.required = requiresComment;
+                    if (!requiresComment) {
+                        commentField.value = '';
+                    }
+                };
+
+                reasonSelect.addEventListener('change', syncCommentVisibility);
+                syncCommentVisibility();
             }
 
-            const syncCommentVisibility = () => {
-                const selectedOption = reasonSelect.options[reasonSelect.selectedIndex] || null;
-                const requiresComment = selectedOption ? selectedOption.getAttribute('data-requires-comment') === '1' : false;
-                commentWrap.classList.toggle('d-none', !requiresComment);
-                commentField.required = requiresComment;
-                if (!requiresComment) {
-                    commentField.value = '';
-                }
-            };
+            if (modalElement && elapsedElement && modalElement.dataset.breakStartedAt) {
+                const startTimestamp = Date.parse(modalElement.dataset.breakStartedAt.replace(' ', 'T'));
+                const formatSeconds = (seconds) => {
+                    const safeSeconds = Math.max(0, seconds);
+                    const hours = Math.floor(safeSeconds / 3600);
+                    const minutes = Math.floor((safeSeconds % 3600) / 60);
+                    const remainingSeconds = safeSeconds % 60;
+                    return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(remainingSeconds).padStart(2, '0');
+                };
 
-            reasonSelect.addEventListener('change', syncCommentVisibility);
-            syncCommentVisibility();
+                const renderElapsed = () => {
+                    if (Number.isNaN(startTimestamp)) {
+                        elapsedElement.textContent = '00:00:00';
+                        return;
+                    }
+                    const elapsedSeconds = Math.floor((Date.now() - startTimestamp) / 1000);
+                    elapsedElement.textContent = formatSeconds(elapsedSeconds);
+                };
+
+                renderElapsed();
+                timerIntervalId = window.setInterval(renderElapsed, 1000);
+
+                if (window.bootstrap && window.bootstrap.Modal) {
+                    const modalInstance = window.bootstrap.Modal.getOrCreateInstance(modalElement);
+                    modalInstance.show();
+                }
+            }
+
+            window.addEventListener('beforeunload', () => {
+                if (timerIntervalId !== null) {
+                    window.clearInterval(timerIntervalId);
+                }
+            });
         })();
     </script>
 <?php endif; ?>
