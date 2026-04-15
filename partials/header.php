@@ -225,7 +225,7 @@ header('Content-Type: text/html; charset=UTF-8');
                             </div>
                             <div class="mb-2 d-none" id="navbarBreakCommentWrap">
                                 <label class="form-label">Comentário</label>
-                                <textarea class="form-control" name="break_comment" id="navbarBreakComment" rows="3" placeholder="Obrigatório para este tipo"></textarea>
+                                <textarea class="form-control" name="break_comment" id="navbarBreakComment" rows="3" placeholder="Opcional no início (pode completar antes de terminar)"></textarea>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -255,7 +255,7 @@ header('Content-Type: text/html; charset=UTF-8');
                     const selectedOption = reasonSelect.options[reasonSelect.selectedIndex] || null;
                     const requiresComment = selectedOption ? selectedOption.getAttribute('data-requires-comment') === '1' : false;
                     commentWrap.classList.toggle('d-none', !requiresComment);
-                    commentField.required = requiresComment;
+                    commentField.required = false;
                     if (!requiresComment) {
                         commentField.value = '';
                     }
