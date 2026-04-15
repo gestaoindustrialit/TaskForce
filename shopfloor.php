@@ -125,28 +125,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flashError = 'Já existe uma pausa/paragem em curso.';
         } else {
             $comment = trim((string) ($_POST['break_comment'] ?? ''));
-            if ((int) ($reason['requires_comment'] ?? 0) === 1 && $comment === '') {
-                $flashError = 'Este tipo exige comentário obrigatório.';
-            } else {
-                $insertBreakStmt = $pdo->prepare('INSERT INTO shopfloor_break_entries(user_id, break_reason_id, break_type, comment) VALUES (?, ?, ?, ?)');
-                $insertBreakStmt->execute([
-                    $userId,
-                    (int) $reason['id'],
-                    (string) ($reason['break_type'] ?? 'Pausa'),
-                    $comment !== '' ? $comment : null,
-                ]);
-                $flashSuccess = ((string) ($reason['break_type'] ?? 'Pausa')) . ' iniciada: ' . (string) ($reason['code'] ?? '') . ' · ' . (string) ($reason['label'] ?? '');
-            }
+            $insertBreakStmt = $pdo->prepare('INSERT INTO shopfloor_break_entries(user_id, break_reason_id, break_type, comment) VALUES (?, ?, ?, ?)');
+            $insertBreakStmt->execute([
+                $userId,
+                (int) $reason['id'],
+                (string) ($reason['break_type'] ?? 'Pausa'),
+                $comment !== '' ? $comment : null,
+            ]);
+            $flashSuccess = ((string) ($reason['break_type'] ?? 'Pausa')) . ' iniciada: ' . (string) ($reason['code'] ?? '') . ' · ' . (string) ($reason['label'] ?? '');
         }
     }
 
     if ($action === 'stop_break') {
-        $stopBreakStmt = $pdo->prepare('UPDATE shopfloor_break_entries SET ended_at = CURRENT_TIMESTAMP WHERE id = (SELECT id FROM shopfloor_break_entries WHERE user_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1)');
-        $stopBreakStmt->execute([$userId]);
-        if ($stopBreakStmt->rowCount() > 0) {
-            $flashSuccess = 'Pausa/paragem terminada com sucesso.';
-        } else {
+        $activeBreakToStopStmt = $pdo->prepare('SELECT b.id, r.requires_comment FROM shopfloor_break_entries b INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id WHERE b.user_id = ? AND b.ended_at IS NULL ORDER BY b.started_at DESC LIMIT 1');
+        $activeBreakToStopStmt->execute([$userId]);
+        $activeBreakToStop = $activeBreakToStopStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $stopComment = trim((string) ($_POST['break_comment'] ?? ''));
+
+        if (!$activeBreakToStop) {
             $flashError = 'Não existe pausa/paragem ativa para terminar.';
+        } elseif ((int) ($activeBreakToStop['requires_comment'] ?? 0) === 1 && $stopComment === '') {
+            $flashError = 'Este tipo exige comentário obrigatório para terminar.';
+        } else {
+            $stopBreakStmt = $pdo->prepare('UPDATE shopfloor_break_entries SET ended_at = CURRENT_TIMESTAMP, comment = COALESCE(NULLIF(TRIM(?), ""), comment) WHERE id = ?');
+            $stopBreakStmt->execute([$stopComment, (int) $activeBreakToStop['id']]);
+            $flashSuccess = 'Pausa/paragem terminada com sucesso.';
         }
     }
 

@@ -39,11 +39,11 @@ if ($user && !isset($navbarClockControl)) {
         'latest_time_label' => $latestEntryTimeLabel,
     ];
 
-    $activeBreakStmt = $pdo->prepare('SELECT b.id, b.break_reason_id, b.started_at, r.code, r.label, r.break_type FROM shopfloor_break_entries b INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id WHERE b.user_id = ? AND b.ended_at IS NULL ORDER BY b.started_at DESC LIMIT 1');
+    $activeBreakStmt = $pdo->prepare('SELECT b.id, b.break_reason_id, b.started_at, b.comment, r.code, r.label, r.break_type, r.requires_comment FROM shopfloor_break_entries b INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id WHERE b.user_id = ? AND b.ended_at IS NULL ORDER BY b.started_at DESC LIMIT 1');
     $activeBreakStmt->execute([(int) $user['id']]);
     $activeBreak = $activeBreakStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
-    $breakReasonOptionsStmt = $pdo->query('SELECT id, code, label, break_type FROM shopfloor_break_reasons WHERE is_active = 1 ORDER BY code COLLATE NOCASE ASC');
+    $breakReasonOptionsStmt = $pdo->query('SELECT id, code, label, break_type, requires_comment FROM shopfloor_break_reasons WHERE is_active = 1 ORDER BY code COLLATE NOCASE ASC');
     $breakReasonOptions = $breakReasonOptionsStmt ? $breakReasonOptionsStmt->fetchAll(PDO::FETCH_ASSOC) : [];
     $navbarBreakControl = [
         'form_action' => 'shopfloor.php',
@@ -162,21 +162,14 @@ header('Content-Type: text/html; charset=UTF-8');
                     <?php endif; ?>
                     <?php if (isset($navbarBreakControl) && is_array($navbarBreakControl)): ?>
                         <?php $activeBreak = $navbarBreakControl['active_break'] ?? null; ?>
-                        <form method="post" action="<?= h((string) ($navbarBreakControl['form_action'] ?? 'shopfloor.php')) ?>" class="d-flex align-items-center gap-2 mb-0">
-                            <?php if ($activeBreak): ?>
-                                <input type="hidden" name="action" value="stop_break">
-                                <button type="submit" class="btn btn-sm btn-warning fw-semibold">Terminar <?= h((string) ($activeBreak['break_type'] ?? 'Pausa')) ?></button>
-                            <?php else: ?>
-                                <input type="hidden" name="action" value="start_break">
-                                <select class="form-select form-select-sm" name="break_reason_id" required>
-                                    <option value="">Pausa/Paragem</option>
-                                    <?php foreach (($navbarBreakControl['reason_options'] ?? []) as $breakReasonOption): ?>
-                                        <option value="<?= (int) $breakReasonOption['id'] ?>"><?= h((string) $breakReasonOption['code']) ?> | <?= h((string) $breakReasonOption['label']) ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                                <button type="submit" class="btn btn-sm btn-outline-warning fw-semibold">Iniciar</button>
-                            <?php endif; ?>
-                        </form>
+                        <button
+                            type="button"
+                            class="btn btn-sm fw-semibold <?= $activeBreak ? 'btn-danger' : 'btn-success' ?>"
+                            data-bs-toggle="modal"
+                            data-bs-target="#navbarBreakModal"
+                        >
+                            <?= $activeBreak ? 'Terminar pausa/paragem' : 'Iniciar pausa/paragem' ?>
+                        </button>
                     <?php endif; ?>
                     <a href="logout.php" class="btn btn-outline-light btn-sm">Sair</a>
                 </div>
@@ -184,4 +177,90 @@ header('Content-Type: text/html; charset=UTF-8');
         <?php endif; ?>
     </div>
 </nav>
+<?php if (isset($navbarBreakControl) && is_array($navbarBreakControl)): ?>
+    <?php $activeBreak = $navbarBreakControl['active_break'] ?? null; ?>
+    <div
+        class="modal fade"
+        id="navbarBreakModal"
+        tabindex="-1"
+        aria-labelledby="navbarBreakModalLabel"
+        aria-hidden="true"
+        <?= $activeBreak ? 'data-bs-backdrop="static" data-bs-keyboard="false"' : '' ?>
+    >
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form method="post" action="<?= h((string) ($navbarBreakControl['form_action'] ?? 'shopfloor.php')) ?>">
+                    <div class="modal-header">
+                        <h2 class="modal-title fs-5" id="navbarBreakModalLabel"><?= $activeBreak ? 'Terminar pausa/paragem' : 'Iniciar pausa/paragem' ?></h2>
+                        <?php if (!$activeBreak): ?>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                        <?php endif; ?>
+                    </div>
+                    <div class="modal-body">
+                        <?php if ($activeBreak): ?>
+                            <input type="hidden" name="action" value="stop_break">
+                            <p class="mb-2"><strong><?= h((string) ($activeBreak['break_type'] ?? 'Pausa')) ?></strong> em curso: <?= h((string) ($activeBreak['code'] ?? '')) ?> | <?= h((string) ($activeBreak['label'] ?? '')) ?></p>
+                            <p class="small text-secondary">Iniciada às <?= h(date('H:i', strtotime((string) ($activeBreak['started_at'] ?? 'now')))) ?>.</p>
+                            <div class="mb-2 <?= (int) ($activeBreak['requires_comment'] ?? 0) === 1 ? '' : 'd-none' ?>">
+                                <label class="form-label">Comentário</label>
+                                <textarea class="form-control" name="break_comment" rows="3" placeholder="Comentário obrigatório para terminar"></textarea>
+                            </div>
+                        <?php else: ?>
+                            <input type="hidden" name="action" value="start_break">
+                            <div class="mb-3">
+                                <label class="form-label">Tipo de pausa/paragem</label>
+                                <select class="form-select" name="break_reason_id" id="navbarBreakReasonSelect" required>
+                                    <option value="">Selecionar</option>
+                                    <?php foreach (($navbarBreakControl['reason_options'] ?? []) as $breakReasonOption): ?>
+                                        <option
+                                            value="<?= (int) $breakReasonOption['id'] ?>"
+                                            data-requires-comment="<?= (int) ($breakReasonOption['requires_comment'] ?? 0) ?>"
+                                        >
+                                            <?= h((string) $breakReasonOption['code']) ?> | <?= h((string) $breakReasonOption['label']) ?> (<?= h((string) $breakReasonOption['break_type']) ?>)
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="mb-2 d-none" id="navbarBreakCommentWrap">
+                                <label class="form-label">Comentário</label>
+                                <textarea class="form-control" name="break_comment" id="navbarBreakComment" rows="3" placeholder="Obrigatório para este tipo"></textarea>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                    <div class="modal-footer">
+                        <?php if (!$activeBreak): ?>
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <?php endif; ?>
+                        <button type="submit" class="btn fw-semibold <?= $activeBreak ? 'btn-danger' : 'btn-success' ?>">
+                            <?= $activeBreak ? 'Terminar' : 'Iniciar' ?>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <script>
+        (function () {
+            const reasonSelect = document.getElementById('navbarBreakReasonSelect');
+            const commentWrap = document.getElementById('navbarBreakCommentWrap');
+            const commentField = document.getElementById('navbarBreakComment');
+            if (!reasonSelect || !commentWrap || !commentField) {
+                return;
+            }
+
+            const syncCommentVisibility = () => {
+                const selectedOption = reasonSelect.options[reasonSelect.selectedIndex] || null;
+                const requiresComment = selectedOption ? selectedOption.getAttribute('data-requires-comment') === '1' : false;
+                commentWrap.classList.toggle('d-none', !requiresComment);
+                commentField.required = requiresComment;
+                if (!requiresComment) {
+                    commentField.value = '';
+                }
+            };
+
+            reasonSelect.addEventListener('change', syncCommentVisibility);
+            syncCommentVisibility();
+        })();
+    </script>
+<?php endif; ?>
 <main class="container py-4">
