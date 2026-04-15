@@ -502,9 +502,6 @@ $todayEntriesStmt = $pdo->prepare('SELECT entry_type, note, occurred_at FROM sho
 $todayEntriesStmt->execute([$userId]);
 $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$breakReasonsActiveStmt = $pdo->query('SELECT id, code, label, break_type, requires_comment FROM shopfloor_break_reasons WHERE is_active = 1 ORDER BY code COLLATE NOCASE ASC');
-$breakReasonOptions = $breakReasonsActiveStmt ? $breakReasonsActiveStmt->fetchAll(PDO::FETCH_ASSOC) : [];
-
 $activeBreakEntryStmt = $pdo->prepare('SELECT b.id, b.break_reason_id, b.break_type, b.started_at, r.code, r.label, r.requires_comment FROM shopfloor_break_entries b INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id WHERE b.user_id = ? AND b.ended_at IS NULL ORDER BY b.started_at DESC LIMIT 1');
 $activeBreakEntryStmt->execute([$userId]);
 $activeBreakEntry = $activeBreakEntryStmt->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -528,8 +525,6 @@ foreach ($dailyBreakSummaryRows as $dailyBreakSummaryRow) {
         'seconds' => max(0, (int) ($dailyBreakSummaryRow['total_seconds'] ?? 0)),
     ];
 }
-$dailyTotalIdleSeconds = (int) $dailyBreakSummaryMap['Pausa']['seconds'] + (int) $dailyBreakSummaryMap['Paragem']['seconds'];
-
 $dailyBreakByReasonStmt = $pdo->prepare(
     'SELECT r.code, r.label, b.break_type, COUNT(*) AS total_count, SUM(CASE WHEN b.ended_at IS NULL THEN CAST((julianday(CURRENT_TIMESTAMP) - julianday(b.started_at)) * 86400 AS INTEGER) ELSE CAST((julianday(b.ended_at) - julianday(b.started_at)) * 86400 AS INTEGER) END) AS total_seconds
      FROM shopfloor_break_entries b
@@ -800,10 +795,6 @@ require __DIR__ . '/partials/header.php';
                 <strong><?= h(format_minutes((int) ($dailyBreakSummaryMap['Paragem']['seconds'] ?? 0))) ?></strong>
                 <span class="small text-secondary">(<?= (int) ($dailyBreakSummaryMap['Paragem']['count'] ?? 0) ?>)</span>
             </article>
-            <article class="shopfloor-kpi-card shopfloor-kpi-card-compact">
-                <h2>Tempo morto</h2>
-                <strong><?= h(format_minutes($dailyTotalIdleSeconds)) ?></strong>
-            </article>
         </div>
     </div>
 
@@ -845,35 +836,9 @@ require __DIR__ . '/partials/header.php';
                 <a href="shopfloor_break_reasons.php" class="btn btn-outline-primary btn-sm fw-semibold">Configurar tipos</a>
             <?php endif; ?>
         </div>
-        <form method="post" class="row g-2 align-items-end mt-1 mb-3">
-            <?php if ($activeBreakEntry): ?>
-                <div class="col-md-8">
-                    <div class="small text-secondary">Em curso: <?= h((string) ($activeBreakEntry['break_type'] ?? 'Pausa')) ?> · <?= h((string) ($activeBreakEntry['code'] ?? '')) ?> | <?= h((string) ($activeBreakEntry['label'] ?? '')) ?> (<?= h((string) ($activeBreakEntry['started_at'] ?? '')) ?>)</div>
-                </div>
-                <div class="col-md-4 text-md-end">
-                    <input type="hidden" name="action" value="stop_break">
-                    <button type="submit" class="btn btn-warning fw-semibold">Terminar pausa/paragem</button>
-                </div>
-            <?php else: ?>
-                <div class="col-md-5">
-                    <label class="form-label">Tipo</label>
-                    <select name="break_reason_id" class="form-select" required>
-                        <option value="">Selecionar</option>
-                        <?php foreach ($breakReasonOptions as $breakReasonOption): ?>
-                            <option value="<?= (int) $breakReasonOption['id'] ?>"><?= h((string) $breakReasonOption['code']) ?> | <?= h((string) $breakReasonOption['label']) ?> (<?= h((string) $breakReasonOption['break_type']) ?>)</option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="col-md-5">
-                    <label class="form-label">Comentário</label>
-                    <input type="text" class="form-control" name="break_comment" placeholder="Opcional (obrigatório para alguns tipos)">
-                </div>
-                <div class="col-md-2">
-                    <input type="hidden" name="action" value="start_break">
-                    <button type="submit" class="btn btn-outline-warning fw-semibold w-100">Iniciar</button>
-                </div>
-            <?php endif; ?>
-        </form>
+        <?php if ($activeBreakEntry): ?>
+            <div class="small text-secondary mt-1 mb-3">Em curso: <?= h((string) ($activeBreakEntry['break_type'] ?? 'Pausa')) ?> · <?= h((string) ($activeBreakEntry['code'] ?? '')) ?> | <?= h((string) ($activeBreakEntry['label'] ?? '')) ?> (<?= h((string) ($activeBreakEntry['started_at'] ?? '')) ?>)</div>
+        <?php endif; ?>
         <div class="table-responsive">
             <table class="table table-sm shopfloor-table mb-0">
                 <thead>
