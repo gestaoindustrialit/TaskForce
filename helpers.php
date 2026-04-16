@@ -139,52 +139,58 @@ function run_hr_alerts_inline_if_due(PDO $pdo, int $triggerUserId = 0): void
         return;
     }
 
-    $isEnabled = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_enabled', '1')) !== '0';
-    if (!$isEnabled) {
-        return;
-    }
-
-    $now = new DateTimeImmutable('now');
-    $lastRunAt = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', ''));
-    $runsPerDay = (int) app_setting($pdo, 'hr_alerts_inline_cron_runs_per_day', '1440');
-    $runsPerDay = max(1, min(1440, $runsPerDay));
-    $intervalSeconds = max(60, (int) floor(86400 / $runsPerDay));
-    $shouldRun = true;
-
-    if ($lastRunAt !== '') {
-        try {
-            $lastRun = new DateTimeImmutable($lastRunAt);
-            $shouldRun = ($now->getTimestamp() - $lastRun->getTimestamp()) >= $intervalSeconds;
-        } catch (Throwable $exception) {
-            $shouldRun = true;
-        }
-    }
-
-    if (!$shouldRun) {
-        return;
-    }
-
-    set_app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', $now->format('Y-m-d H:i:s'));
-
     try {
-        ob_start();
-        require __DIR__ . '/cron_hr_alerts.php';
-        ob_end_clean();
-    } catch (Throwable $exception) {
-        if (ob_get_level() > 0) {
-            ob_end_clean();
+        $isEnabled = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_enabled', '1')) !== '0';
+        if (!$isEnabled) {
+            return;
         }
 
+        $now = new DateTimeImmutable('now');
+        $lastRunAt = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', ''));
+        $runsPerDay = (int) app_setting($pdo, 'hr_alerts_inline_cron_runs_per_day', '1440');
+        $runsPerDay = max(1, min(1440, $runsPerDay));
+        $intervalSeconds = max(60, (int) floor(86400 / $runsPerDay));
+        $shouldRun = true;
+
+        if ($lastRunAt !== '') {
+            try {
+                $lastRun = new DateTimeImmutable($lastRunAt);
+                $shouldRun = ($now->getTimestamp() - $lastRun->getTimestamp()) >= $intervalSeconds;
+            } catch (Throwable $exception) {
+                $shouldRun = true;
+            }
+        }
+
+        if (!$shouldRun) {
+            return;
+        }
+
+        set_app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', $now->format('Y-m-d H:i:s'));
+
         try {
-            log_app_event(
-                $pdo,
-                $triggerUserId > 0 ? $triggerUserId : null,
-                'hr.alerts.inline_cron.failed',
-                'Execução inline do cron de alertas RH falhou.',
-                ['error' => $exception->getMessage()]
-            );
-        } catch (Throwable $innerException) {
-            // Ignorar falhas de logging para não bloquear fluxos da aplicação.
+            ob_start();
+            require __DIR__ . '/cron_hr_alerts.php';
+            ob_end_clean();
+        } catch (Throwable $exception) {
+            if (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+
+            try {
+                log_app_event(
+                    $pdo,
+                    $triggerUserId > 0 ? $triggerUserId : null,
+                    'hr.alerts.inline_cron.failed',
+                    'Execução inline do cron de alertas RH falhou.',
+                    ['error' => $exception->getMessage()]
+                );
+            } catch (Throwable $innerException) {
+                // Ignorar falhas de logging para não bloquear fluxos da aplicação.
+            }
+        }
+    } catch (Throwable $outerException) {
+        if (function_exists('error_log')) {
+            @error_log('[TaskForce] run_hr_alerts_inline_if_due fallback: ' . $outerException->getMessage());
         }
     }
 }

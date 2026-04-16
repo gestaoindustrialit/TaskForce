@@ -134,26 +134,31 @@ function has_hr_alert_reached_send_time(array $alert, string $currentTime): bool
 
 function fetch_alert_recipient_users(PDO $pdo, array $selectedUserIds): array
 {
-    $sql = 'SELECT id, name, email, user_number, department
-            FROM users
-            WHERE is_active = 1
-              AND email_notifications_active = 1
-              AND TRIM(email) <> ""';
+    $baseSql = 'SELECT id, name, email, user_number, department
+                FROM users
+                WHERE is_active = 1
+                  AND email_notifications_active = 1
+                  AND TRIM(email) <> ""';
 
     $params = [];
-
     if ($selectedUserIds !== []) {
         $placeholders = implode(',', array_fill(0, count($selectedUserIds), '?'));
-        $sql .= ' AND id IN (' . $placeholders . ')';
+        $baseSql .= ' AND id IN (' . $placeholders . ')';
         $params = $selectedUserIds;
     }
 
-    $sql .= ' ORDER BY name COLLATE NOCASE ASC';
+    $sqlWithCollation = $baseSql . ' ORDER BY name COLLATE NOCASE ASC';
+    $sqlFallback = $baseSql . ' ORDER BY name ASC';
 
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
+    try {
+        $stmt = $pdo->prepare($sqlWithCollation);
+        $stmt->execute($params);
+    } catch (Throwable $exception) {
+        $stmt = $pdo->prepare($sqlFallback);
+        $stmt->execute($params);
+    }
+
     $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
     return is_array($users) ? $users : [];
 }
 
