@@ -119,6 +119,7 @@ header('Content-Type: text/html; charset=UTF-8');
                                 <li><a class="dropdown-item" href="resultados.php">Resultados</a></li>
                                 <li><a class="dropdown-item" href="shopfloor_absence_reasons.php">Motivos de ausência</a></li>
                                 <li><a class="dropdown-item" href="shopfloor_break_reasons.php">Pausas e paragens</a></li>
+                                <li><a class="dropdown-item" href="shopfloor_break_dashboard.php">Dashboard pausas/paragens</a></li>
                             </ul>
                         </div>
                     <?php endif; ?>

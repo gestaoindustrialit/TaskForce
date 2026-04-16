@@ -208,11 +208,25 @@ if ($filters['search'] !== '') {
     $params[] = $searchTerm;
 }
 
+$currentPage = max(1, (int) ($_GET['page'] ?? 1));
+$perPage = 15;
+
+$countSql = 'SELECT COUNT(*) FROM shopfloor_break_entries b INNER JOIN users u ON u.id = b.user_id INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id';
+if ($where) {
+    $countSql .= ' WHERE ' . implode(' AND ', $where);
+}
+$countStmt = $pdo->prepare($countSql);
+$countStmt->execute($params);
+$totalEntries = (int) $countStmt->fetchColumn();
+$totalPages = max(1, (int) ceil($totalEntries / $perPage));
+$currentPage = min($currentPage, $totalPages);
+$offset = ($currentPage - 1) * $perPage;
+
 $entriesSql = 'SELECT b.id, b.user_id, u.name AS user_name, b.started_at, b.ended_at, b.break_type, b.comment, b.break_reason_id, r.code, r.label FROM shopfloor_break_entries b INNER JOIN users u ON u.id = b.user_id INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id';
 if ($where) {
     $entriesSql .= ' WHERE ' . implode(' AND ', $where);
 }
-$entriesSql .= ' ORDER BY b.started_at DESC LIMIT 250';
+$entriesSql .= ' ORDER BY b.started_at DESC LIMIT ' . $perPage . ' OFFSET ' . $offset;
 
 $entriesStmt = $pdo->prepare($entriesSql);
 $entriesStmt->execute($params);
@@ -272,7 +286,10 @@ require __DIR__ . '/partials/header.php';
     <div class="shopfloor-panel" style="order:1;">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <h2 class="h4 mb-0">Registos de pausas e paragens</h2>
-            <span class="small text-secondary">Listagem com filtro e edição manual.</span>
+            <div class="d-flex align-items-center gap-2">
+                <span class="small text-secondary">Listagem simplificada com edição em pop-up.</span>
+                <a href="shopfloor_break_dashboard.php" class="btn btn-outline-primary btn-sm">Abrir dashboard</a>
+            </div>
         </div>
 
         <form method="get" class="row g-2 mb-3">
@@ -285,17 +302,25 @@ require __DIR__ . '/partials/header.php';
             <div class="col-md-4 d-flex align-items-end gap-2"><button type="submit" class="btn btn-outline-primary w-100">Filtrar</button><a href="shopfloor_break_reasons.php" class="btn btn-outline-secondary w-100">Limpar</a></div>
         </form>
 
-        <div class="border rounded p-3 bg-light mb-3">
-            <h3 class="h6">Novo registo</h3>
-            <form method="post" class="row g-2 align-items-end">
-                <input type="hidden" name="action" value="create_entry">
-                <div class="col-md-3"><label class="form-label">Utilizador</label><select name="user_id" class="form-select" required><option value="">Selecionar</option><?php foreach ($users as $listUser): ?><option value="<?= (int) $listUser['id'] ?>"><?= h((string) $listUser['name']) ?></option><?php endforeach; ?></select></div>
-                <div class="col-md-3"><label class="form-label">Motivo</label><select name="break_reason_id" class="form-select" required><option value="">Selecionar</option><?php foreach ($reasons as $reason): ?><option value="<?= (int) $reason['id'] ?>"><?= h((string) $reason['code']) ?> | <?= h((string) $reason['label']) ?> (<?= h((string) $reason['break_type']) ?>)</option><?php endforeach; ?></select></div>
-                <div class="col-md-2"><label class="form-label">Início</label><input type="datetime-local" name="started_at" class="form-control" required></div>
-                <div class="col-md-2"><label class="form-label">Fim</label><input type="datetime-local" name="ended_at" class="form-control"></div>
-                <div class="col-md-2"><label class="form-label">Comentário</label><input type="text" name="comment" class="form-control"></div>
-                <div class="col-12"><button type="submit" class="btn btn-success">Guardar registo</button></div>
-            </form>
+        <div class="mb-3">
+            <button class="btn btn-outline-success btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#newBreakEntryForm" aria-expanded="false" aria-controls="newBreakEntryForm">
+                Criar novo registo
+            </button>
+        </div>
+
+        <div class="collapse mb-3" id="newBreakEntryForm">
+            <div class="border rounded p-3 bg-light">
+                <h3 class="h6">Novo registo</h3>
+                <form method="post" class="row g-2 align-items-end">
+                    <input type="hidden" name="action" value="create_entry">
+                    <div class="col-md-3"><label class="form-label">Utilizador</label><select name="user_id" class="form-select" required><option value="">Selecionar</option><?php foreach ($users as $listUser): ?><option value="<?= (int) $listUser['id'] ?>"><?= h((string) $listUser['name']) ?></option><?php endforeach; ?></select></div>
+                    <div class="col-md-3"><label class="form-label">Motivo</label><select name="break_reason_id" class="form-select" required><option value="">Selecionar</option><?php foreach ($reasons as $reason): ?><option value="<?= (int) $reason['id'] ?>"><?= h((string) $reason['code']) ?> | <?= h((string) $reason['label']) ?> (<?= h((string) $reason['break_type']) ?>)</option><?php endforeach; ?></select></div>
+                    <div class="col-md-2"><label class="form-label">Início</label><input type="datetime-local" name="started_at" class="form-control" required></div>
+                    <div class="col-md-2"><label class="form-label">Fim</label><input type="datetime-local" name="ended_at" class="form-control"></div>
+                    <div class="col-md-2"><label class="form-label">Comentário</label><input type="text" name="comment" class="form-control"></div>
+                    <div class="col-12"><button type="submit" class="btn btn-success">Guardar registo</button></div>
+                </form>
+            </div>
         </div>
 
         <div class="table-responsive">
@@ -306,31 +331,84 @@ require __DIR__ . '/partials/header.php';
                         <tr><td colspan="8" class="text-secondary">Sem registos para os filtros selecionados.</td></tr>
                     <?php endif; ?>
                     <?php foreach ($entries as $entry): ?>
+                        <?php $modalId = 'editBreakEntryModal' . (int) $entry['id']; ?>
                         <tr>
-                            <form method="post">
-                                <input type="hidden" name="action" value="update_entry">
-                                <input type="hidden" name="entry_id" value="<?= (int) $entry['id'] ?>">
-                                <td><?= (int) $entry['id'] ?></td>
-                                <td><select name="user_id" class="form-select form-select-sm"><?php foreach ($users as $listUser): ?><option value="<?= (int) $listUser['id'] ?>" <?= (int) $entry['user_id'] === (int) $listUser['id'] ? 'selected' : '' ?>><?= h((string) $listUser['name']) ?></option><?php endforeach; ?></select></td>
-                                <td><input type="datetime-local" name="started_at" class="form-control form-control-sm" value="<?= h(date('Y-m-d\TH:i', strtotime((string) $entry['started_at']))) ?>"></td>
-                                <td><input type="datetime-local" name="ended_at" class="form-control form-control-sm" value="<?= !empty($entry['ended_at']) ? h(date('Y-m-d\TH:i', strtotime((string) $entry['ended_at']))) : '' ?>"></td>
-                                <td><?= h((string) $entry['break_type']) ?></td>
-                                <td><select name="break_reason_id" class="form-select form-select-sm"><?php foreach ($reasons as $reason): ?><option value="<?= (int) $reason['id'] ?>" <?= (int) $entry['break_reason_id'] === (int) $reason['id'] ? 'selected' : '' ?>><?= h((string) $reason['code']) ?> | <?= h((string) $reason['label']) ?></option><?php endforeach; ?></select></td>
-                                <td><input type="text" name="comment" class="form-control form-control-sm" value="<?= h((string) ($entry['comment'] ?? '')) ?>"></td>
-                                <td class="text-end">
-                                    <button type="submit" class="btn btn-sm btn-outline-primary">Guardar</button>
-                            </form>
-                            <form method="post" class="d-inline" onsubmit="return confirm('Eliminar este registo?');">
-                                <input type="hidden" name="action" value="delete_entry">
-                                <input type="hidden" name="entry_id" value="<?= (int) $entry['id'] ?>">
-                                <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
-                            </form>
-                                </td>
+                            <td><?= (int) $entry['id'] ?></td>
+                            <td><?= h((string) $entry['user_name']) ?></td>
+                            <td><?= h((string) $entry['started_at']) ?></td>
+                            <td><?= h((string) ($entry['ended_at'] ?? '-')) ?></td>
+                            <td><?= h((string) $entry['break_type']) ?></td>
+                            <td><?= h((string) $entry['code']) ?> | <?= h((string) $entry['label']) ?></td>
+                            <td><?= h((string) ($entry['comment'] ?? '')) ?></td>
+                            <td class="text-end">
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-primary"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#<?= h($modalId) ?>"
+                                >
+                                    Editar
+                                </button>
+                                <form method="post" class="d-inline" onsubmit="return confirm('Eliminar este registo?');">
+                                    <input type="hidden" name="action" value="delete_entry">
+                                    <input type="hidden" name="entry_id" value="<?= (int) $entry['id'] ?>">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                                </form>
+                            </td>
+                        </tr>
+
+                        <tr class="d-none">
+                            <td colspan="8">
+                                <div class="modal fade" id="<?= h($modalId) ?>" tabindex="-1" aria-hidden="true">
+                                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">Editar registo #<?= (int) $entry['id'] ?></h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                                            </div>
+                                            <form method="post">
+                                                <div class="modal-body">
+                                                    <input type="hidden" name="action" value="update_entry">
+                                                    <input type="hidden" name="entry_id" value="<?= (int) $entry['id'] ?>">
+                                                    <div class="row g-2">
+                                                        <div class="col-md-6"><label class="form-label">Utilizador</label><select name="user_id" class="form-select"><?php foreach ($users as $listUser): ?><option value="<?= (int) $listUser['id'] ?>" <?= (int) $entry['user_id'] === (int) $listUser['id'] ? 'selected' : '' ?>><?= h((string) $listUser['name']) ?></option><?php endforeach; ?></select></div>
+                                                        <div class="col-md-6"><label class="form-label">Motivo</label><select name="break_reason_id" class="form-select"><?php foreach ($reasons as $reason): ?><option value="<?= (int) $reason['id'] ?>" <?= (int) $entry['break_reason_id'] === (int) $reason['id'] ? 'selected' : '' ?>><?= h((string) $reason['code']) ?> | <?= h((string) $reason['label']) ?></option><?php endforeach; ?></select></div>
+                                                        <div class="col-md-6"><label class="form-label">Início</label><input type="datetime-local" name="started_at" class="form-control" value="<?= h(date('Y-m-d\TH:i', strtotime((string) $entry['started_at']))) ?>"></div>
+                                                        <div class="col-md-6"><label class="form-label">Fim</label><input type="datetime-local" name="ended_at" class="form-control" value="<?= !empty($entry['ended_at']) ? h(date('Y-m-d\TH:i', strtotime((string) $entry['ended_at']))) : '' ?>"></div>
+                                                        <div class="col-12"><label class="form-label">Comentário</label><input type="text" name="comment" class="form-control" value="<?= h((string) ($entry['comment'] ?? '')) ?>"></div>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                    <button type="submit" class="btn btn-primary">Guardar alterações</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
+
+        <?php if ($totalPages > 1): ?>
+            <nav aria-label="Paginação de registos">
+                <ul class="pagination pagination-sm justify-content-end mb-0">
+                    <?php
+                    $baseQuery = $_GET;
+                    unset($baseQuery['page']);
+                    ?>
+                    <?php for ($page = 1; $page <= $totalPages; $page++): ?>
+                        <?php $queryString = http_build_query(array_merge($baseQuery, ['page' => $page])); ?>
+                        <li class="page-item <?= $page === $currentPage ? 'active' : '' ?>">
+                            <a class="page-link" href="?<?= h($queryString) ?>"><?= $page ?></a>
+                        </li>
+                    <?php endfor; ?>
+                </ul>
+            </nav>
+        <?php endif; ?>
     </div>
 </section>
 
