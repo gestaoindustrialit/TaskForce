@@ -556,21 +556,9 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
     $pdfEngine = 'layout oficial';
     $pdfContent = taskforce_generate_pdf_from_html($html);
     if (!is_string($pdfContent) || $pdfContent === '') {
-        $singleFallbackPayload = [
-            'title' => 'Avaliação de desempenho',
-            'employee' => $employeeLabel,
-            'year' => (string) $year,
-            'department' => $departmentLabel,
-            'profile' => $profileLabel,
-            'predominant_rule' => (string) ($evaluation['rule_set_name'] ?? '—'),
-            'metrics' => [
-                'count' => 1,
-                'sum_period_total' => (float) ($evaluation['period_total'] ?? 0),
-            ],
-            'closure' => $closure ?? [],
-            'evaluations' => [$evaluation],
-            'sent_by' => $sentBy ?? '',
-            'lines' => $lines,
+        return [
+            'ok' => false,
+            'message' => 'Não foi possível gerar o PDF com o layout oficial. ' . taskforce_pdf_generation_diagnostics(),
         ];
         $pdfContent = taskforce_generate_compatibility_pdf($singleFallbackPayload);
         $pdfEngine = 'modo compatibilidade';
