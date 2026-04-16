@@ -58,6 +58,12 @@ php cron_daily_reports.php
 php cron_hr_alerts.php
 ```
 
+Recomendado em produção (execução automática a cada minuto):
+
+```bash
+* * * * * php /caminho/TaskForce/cron_hr_alerts.php >/dev/null 2>&1
+```
+
 Se `mail()` não estiver configurado no ambiente, os relatórios/alertas ficam registados em `reports_sent.log`.
 
 ### SMTP autenticado (fallback ao `mail()`)
@@ -80,3 +86,16 @@ export TASKFORCE_MAIL_FROM_NAME="TaskForce"
 ```
 
 Todas as tentativas de entrega (sucesso/falha) ficam registadas em `reports_sent.log`.
+
+## Migração para outro servidor (checklist rápida)
+
+1. Copiar os ficheiros do projeto e garantir permissões de escrita na pasta da aplicação (incluindo `database.sqlite` quando já existir).
+2. Confirmar PHP 8.1+ com `pdo_sqlite` ativo.
+3. Configurar as variáveis SMTP (`TASKFORCE_SMTP_*`) no novo ambiente, se necessário.
+4. Recriar os cron jobs:
+   - `* * * * * php /caminho/TaskForce/cron_hr_alerts.php >/dev/null 2>&1`
+   - `*/5 * * * * php /caminho/TaskForce/cron_daily_reports.php >/dev/null 2>&1`
+5. Validar no browser:
+   - `install.php` (apenas se for instalação nova),
+   - `login.php`,
+   - e envio de teste em `Alertas RH` com **Correr agora**.
