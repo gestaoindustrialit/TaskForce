@@ -111,12 +111,13 @@ require __DIR__ . '/partials/header.php';
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h1 class="h3 mb-0">Histórico de avaliações</h1>
     <?php if ($employee): ?>
-        <form method="post" class="mb-0">
+        <form method="post" class="mb-0 js-send-pdf-form">
             <input type="hidden" name="action" value="send_history_pdf">
-            <button class="btn btn-outline-primary">Enviar PDF</button>
+            <button class="btn btn-outline-primary js-send-pdf-button" data-busy-text="A enviar...">Enviar PDF</button>
         </form>
     <?php endif; ?>
 </div>
+<div id="send-status-pending" class="alert alert-info d-none" role="alert"><strong>Estado do envio:</strong> A gerar PDF e a enviar email. Aguarde...</div>
 <?php if ($flashSuccess): ?><div id="send-status-alert" class="alert alert-success" role="alert"><strong>Estado do envio:</strong> <?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div id="send-status-alert" class="alert alert-danger" role="alert"><strong>Estado do envio:</strong> <?= h($flashError) ?></div><?php endif; ?>
 
@@ -194,10 +195,10 @@ require __DIR__ . '/partials/header.php';
                 <td><strong><?= h(taskforce_money((float) $evaluation['period_total'])) ?></strong></td>
                 <td><?= h((string) ($evaluation['general_notes'] ?? '')) ?></td>
                 <td>
-                    <form method="post">
+                    <form method="post" class="js-send-pdf-form">
                         <input type="hidden" name="action" value="send_history_pdf">
                         <input type="hidden" name="evaluation_id" value="<?= (int) $evaluation['id'] ?>">
-                        <button class="btn btn-sm btn-outline-primary">Enviar PDF</button>
+                        <button class="btn btn-sm btn-outline-primary js-send-pdf-button" data-busy-text="A enviar...">Enviar PDF</button>
                     </form>
                 </td>
             </tr>
@@ -219,14 +220,31 @@ require __DIR__ . '/partials/header.php';
 </div>
 <?php endif; ?>
 
-<?php if ($flashSuccess || $flashError): ?>
 <script>
     (function () {
-        var el = document.getElementById('send-status-alert');
-        if (!el) return;
-        try { el.scrollIntoView({behavior: 'smooth', block: 'center'}); } catch (e) {}
+        var forms = document.querySelectorAll('.js-send-pdf-form');
+        var pending = document.getElementById('send-status-pending');
+        forms.forEach(function (form) {
+            form.addEventListener('submit', function () {
+                var button = form.querySelector('.js-send-pdf-button');
+                if (button) {
+                    if (!button.dataset.originalText) {
+                        button.dataset.originalText = button.innerHTML;
+                    }
+                    button.disabled = true;
+                    button.innerHTML = button.getAttribute('data-busy-text') || 'A enviar...';
+                }
+                if (pending) {
+                    pending.classList.remove('d-none');
+                    try { pending.scrollIntoView({behavior: 'smooth', block: 'center'}); } catch (e) {}
+                }
+            });
+        });
+
+        var alertEl = document.getElementById('send-status-alert');
+        if (!alertEl) return;
+        try { alertEl.scrollIntoView({behavior: 'smooth', block: 'center'}); } catch (e) {}
     })();
 </script>
-<?php endif; ?>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>
