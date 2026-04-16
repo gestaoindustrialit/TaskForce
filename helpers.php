@@ -118,6 +118,75 @@ function require_login(): void
             redirect('shopfloor.php?announcement_ack_required=1');
         }
     }
+
+    run_hr_alerts_inline_if_due($pdo, (int) ($user['id'] ?? 0));
+}
+
+function run_hr_alerts_inline_if_due(PDO $pdo, int $triggerUserId = 0): void
+{
+    static $alreadyExecutedInRequest = false;
+    if ($alreadyExecutedInRequest) {
+        return;
+    }
+    $alreadyExecutedInRequest = true;
+
+    if (PHP_SAPI === 'cli') {
+        return;
+    }
+
+    $currentScript = basename((string) ($_SERVER['SCRIPT_NAME'] ?? ''));
+    if ($currentScript === 'cron_hr_alerts.php') {
+        return;
+    }
+
+    $isEnabled = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_enabled', '1')) !== '0';
+    if (!$isEnabled) {
+        return;
+    }
+
+    $now = new DateTimeImmutable('now');
+    $lastRunAt = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', ''));
+    $runsPerDay = (int) app_setting($pdo, 'hr_alerts_inline_cron_runs_per_day', '1440');
+    $runsPerDay = max(1, min(1440, $runsPerDay));
+    $intervalSeconds = max(60, (int) floor(86400 / $runsPerDay));
+    $shouldRun = true;
+
+    if ($lastRunAt !== '') {
+        try {
+            $lastRun = new DateTimeImmutable($lastRunAt);
+            $shouldRun = ($now->getTimestamp() - $lastRun->getTimestamp()) >= $intervalSeconds;
+        } catch (Throwable $exception) {
+            $shouldRun = true;
+        }
+    }
+
+    if (!$shouldRun) {
+        return;
+    }
+
+    set_app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', $now->format('Y-m-d H:i:s'));
+
+    try {
+        ob_start();
+        require __DIR__ . '/cron_hr_alerts.php';
+        ob_end_clean();
+    } catch (Throwable $exception) {
+        if (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        try {
+            log_app_event(
+                $pdo,
+                $triggerUserId > 0 ? $triggerUserId : null,
+                'hr.alerts.inline_cron.failed',
+                'Execução inline do cron de alertas RH falhou.',
+                ['error' => $exception->getMessage()]
+            );
+        } catch (Throwable $innerException) {
+            // Ignorar falhas de logging para não bloquear fluxos da aplicação.
+        }
+    }
 }
 
 function fetch_pending_shopfloor_announcement_ack(PDO $pdo, int $targetUserId, string $targetSessionLoginAt = ''): ?array
