@@ -416,6 +416,32 @@ function taskforce_pdf_generation_diagnostics(): string
     return 'Motores detetados: ' . implode(', ', array_unique($engines)) . '.';
 }
 
+function taskforce_generate_compatibility_pdf(array $payload): ?string
+{
+    if (class_exists('FPDF')) {
+        $fpdf = taskforce_generate_evaluation_history_fpdf_pdf($payload);
+        if (is_string($fpdf) && $fpdf !== '' && strncmp($fpdf, '%PDF', 4) === 0) {
+            return $fpdf;
+        }
+    }
+
+    $fontPath = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
+    if (!is_file($fontPath)) {
+        $fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+    }
+    $canRenderLayout = extension_loaded('gd')
+        && function_exists('imagecreatetruecolor')
+        && (function_exists('imagettftext') ? is_file($fontPath) : true);
+    if ($canRenderLayout) {
+        $layout = taskforce_generate_evaluation_history_layout_pdf($payload);
+        if (is_string($layout) && $layout !== '' && strncmp($layout, '%PDF', 4) === 0) {
+            return $layout;
+        }
+    }
+
+    return null;
+}
+
 function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluation, ?array $closure, int $year, string $periodLabel, ?string $sentBy = null): array
 {
     $recipientEmail = trim((string) ($employee['email'] ?? ''));
@@ -534,13 +560,13 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
             'ok' => false,
             'message' => 'Não foi possível gerar o PDF com o layout oficial. ' . taskforce_pdf_generation_diagnostics(),
         ];
-        $pdfContent = taskforce_generate_evaluation_history_layout_pdf($singleFallbackPayload);
+        $pdfContent = taskforce_generate_compatibility_pdf($singleFallbackPayload);
         $pdfEngine = 'modo compatibilidade';
     }
     if (!is_string($pdfContent) || $pdfContent === '' || strncmp($pdfContent, '%PDF', 4) !== 0) {
         return [
             'ok' => false,
-            'message' => 'Não foi possível gerar o PDF. ' . taskforce_pdf_generation_diagnostics(),
+            'message' => 'Não foi possível gerar o PDF com qualidade válida. ' . taskforce_pdf_generation_diagnostics(),
         ];
     }
 
@@ -679,13 +705,13 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
     $pdfEngine = 'layout oficial';
     $pdfContent = taskforce_generate_pdf_from_html($html);
     if (!is_string($pdfContent) || $pdfContent === '') {
-        $pdfContent = taskforce_generate_evaluation_history_layout_pdf($fallbackPayload);
+        $pdfContent = taskforce_generate_compatibility_pdf($fallbackPayload);
         $pdfEngine = 'modo compatibilidade';
     }
     if (!is_string($pdfContent) || $pdfContent === '' || strncmp($pdfContent, '%PDF', 4) !== 0) {
         return [
             'ok' => false,
-            'message' => 'Não foi possível gerar o PDF. ' . taskforce_pdf_generation_diagnostics(),
+            'message' => 'Não foi possível gerar o PDF com qualidade válida. ' . taskforce_pdf_generation_diagnostics(),
         ];
     }
 
@@ -856,7 +882,7 @@ function taskforce_generate_evaluation_history_layout_pdf(array $reportData): st
         $fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
     }
     $canUseTtf = function_exists('imagettftext') && is_file($fontPath);
-    $layoutScale = $canUseTtf ? 1.0 : 0.5;
+    $layoutScale = 1.0;
     $scale = static fn(float $value): int => (int) round($value * $layoutScale);
     $width = $scale(1240);
     $height = $scale(1754);
