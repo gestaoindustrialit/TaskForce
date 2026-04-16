@@ -16,8 +16,37 @@ function format_seconds_hhmm(int $seconds): string
     return sprintf('%02d:%02d', $hours, $minutes);
 }
 
+function table_exists(PDO $pdo, string $tableName): bool
+{
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?");
+    $stmt->execute([$tableName]);
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function column_exists(PDO $pdo, string $tableName, string $columnName): bool
+{
+    if (!table_exists($pdo, $tableName)) {
+        return false;
+    }
+
+    $columnsStmt = $pdo->query('PRAGMA table_info(' . $tableName . ')');
+    $columns = $columnsStmt ? $columnsStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+    foreach ($columns as $column) {
+        if ((string) ($column['name'] ?? '') === $columnName) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+$hasUserActiveColumn = column_exists($pdo, 'users', 'is_active');
+$activeUsersSql = $hasUserActiveColumn
+    ? 'SELECT COUNT(*) FROM users WHERE is_active = 1'
+    : 'SELECT COUNT(*) FROM users';
+
 $stats = [
-    'users' => (int) $pdo->query('SELECT COUNT(*) FROM users WHERE is_active = 1')->fetchColumn(),
+    'users' => (int) $pdo->query($activeUsersSql)->fetchColumn(),
     'departments' => (int) $pdo->query('SELECT COUNT(*) FROM hr_departments')->fetchColumn(),
     'schedules' => (int) $pdo->query('SELECT COUNT(*) FROM hr_schedules')->fetchColumn(),
     'vacations' => (int) $pdo->query('SELECT COUNT(*) FROM hr_vacation_events')->fetchColumn(),
@@ -27,8 +56,13 @@ $stats = [
 $todayDate = date('Y-m-d');
 $todayWeekday = (int) date('N');
 
-$approvedLeavesStmt = $pdo->prepare(
-    'SELECT DISTINCT
+$approvedLeavesToday = [];
+$hasVacationEventsTable = table_exists($pdo, 'hr_vacation_events');
+$hasAbsenceRequestsTable = table_exists($pdo, 'shopfloor_absence_requests');
+
+if ($hasVacationEventsTable && $hasAbsenceRequestsTable) {
+    $approvedLeavesStmt = $pdo->prepare(
+        'SELECT DISTINCT
         u.id,
         u.name,
         u.user_number,
@@ -61,12 +95,21 @@ $approvedLeavesStmt = $pdo->prepare(
        AND date(?) BETWEEN date(a.start_date) AND date(a.end_date)
 
      ORDER BY name COLLATE NOCASE ASC'
-);
-$approvedLeavesStmt->execute([$todayDate, $todayDate]);
-$approvedLeavesToday = $approvedLeavesStmt->fetchAll(PDO::FETCH_ASSOC);
+    );
+    $approvedLeavesStmt->execute([$todayDate, $todayDate]);
+    $approvedLeavesToday = $approvedLeavesStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
-$attendanceStmt = $pdo->prepare(
-    'SELECT
+$todayAttendanceRows = [];
+$canComputeAttendance = table_exists($pdo, 'shopfloor_time_entries')
+    && table_exists($pdo, 'hr_schedules')
+    && column_exists($pdo, 'users', 'schedule_id')
+    && $hasVacationEventsTable
+    && $hasAbsenceRequestsTable;
+
+if ($canComputeAttendance) {
+    $attendanceStmt = $pdo->prepare(
+        'SELECT
         u.id,
         u.name,
         u.user_number,
@@ -102,9 +145,10 @@ $attendanceStmt = $pdo->prepare(
               AND date(?) BETWEEN date(a.start_date) AND date(a.end_date)
        )
      ORDER BY s.start_time ASC, u.name COLLATE NOCASE ASC'
-);
-$attendanceStmt->execute([$todayDate, (string) $todayWeekday, $todayDate, $todayDate]);
-$todayAttendanceRows = $attendanceStmt->fetchAll(PDO::FETCH_ASSOC);
+    );
+    $attendanceStmt->execute([$todayDate, (string) $todayWeekday, $todayDate, $todayDate]);
+    $todayAttendanceRows = $attendanceStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 $missingToday = [];
 $lateToday = [];
@@ -133,8 +177,16 @@ foreach ($todayAttendanceRows as $row) {
     $lateToday[] = $row;
 }
 
-$teamsStmt = $pdo->query('SELECT id, name FROM teams ORDER BY name COLLATE NOCASE ASC');
-$teams = $teamsStmt ? $teamsStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+$hasBreakDashboardTables = table_exists($pdo, 'shopfloor_break_entries')
+    && table_exists($pdo, 'shopfloor_break_reasons')
+    && table_exists($pdo, 'team_members')
+    && table_exists($pdo, 'teams');
+
+$teams = [];
+if (table_exists($pdo, 'teams')) {
+    $teamsStmt = $pdo->query('SELECT id, name FROM teams ORDER BY name COLLATE NOCASE ASC');
+    $teams = $teamsStmt ? $teamsStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+}
 
 $usersStmt = $pdo->query('SELECT id, name FROM users ORDER BY name COLLATE NOCASE ASC');
 $users = $usersStmt ? $usersStmt->fetchAll(PDO::FETCH_ASSOC) : [];
@@ -167,8 +219,12 @@ if ($filters['date_to'] !== '') {
 
 $whereSql = $where ? (' WHERE ' . implode(' AND ', $where)) : '';
 
-$globalStmt = $pdo->prepare(
-    'SELECT
+$globalStats = [];
+$topReasons = [];
+$userSummaries = [];
+if ($hasBreakDashboardTables) {
+    $globalStmt = $pdo->prepare(
+        'SELECT
         COUNT(*) AS total_entries,
         SUM(CASE WHEN b.break_type = "Pausa" THEN 1 ELSE 0 END) AS total_pauses,
         SUM(CASE WHEN b.break_type = "Paragem" THEN 1 ELSE 0 END) AS total_stops,
@@ -177,12 +233,12 @@ $globalStmt = $pdo->prepare(
             ELSE CAST((julianday(b.ended_at) - julianday(b.started_at)) * 86400 AS INTEGER)
         END) AS total_seconds
      FROM shopfloor_break_entries b' . $whereSql
-);
-$globalStmt->execute($params);
-$globalStats = $globalStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    );
+    $globalStmt->execute($params);
+    $globalStats = $globalStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-$reasonStmt = $pdo->prepare(
-    'SELECT
+    $reasonStmt = $pdo->prepare(
+        'SELECT
         r.code,
         r.label,
         b.break_type,
@@ -197,12 +253,12 @@ $reasonStmt = $pdo->prepare(
      ' GROUP BY r.id, r.code, r.label, b.break_type
        ORDER BY total_seconds DESC, total_entries DESC
        LIMIT 10'
-);
-$reasonStmt->execute($params);
-$topReasons = $reasonStmt->fetchAll(PDO::FETCH_ASSOC);
+    );
+    $reasonStmt->execute($params);
+    $topReasons = $reasonStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$userSummaryStmt = $pdo->prepare(
-    'SELECT
+    $userSummaryStmt = $pdo->prepare(
+        'SELECT
         u.name AS user_name,
         COUNT(*) AS total_entries,
         SUM(CASE WHEN b.break_type = "Pausa" THEN 1 ELSE 0 END) AS total_pauses,
@@ -217,9 +273,10 @@ $userSummaryStmt = $pdo->prepare(
      ' GROUP BY u.id, u.name
        ORDER BY total_seconds DESC, total_entries DESC
        LIMIT 20'
-);
-$userSummaryStmt->execute($params);
-$userSummaries = $userSummaryStmt->fetchAll(PDO::FETCH_ASSOC);
+    );
+    $userSummaryStmt->execute($params);
+    $userSummaries = $userSummaryStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 $pageTitle = 'Módulo RH';
 $bodyClass = 'bg-light';
