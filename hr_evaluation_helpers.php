@@ -416,30 +416,105 @@ function taskforce_pdf_generation_diagnostics(): string
     return 'Motores detetados: ' . implode(', ', array_unique($engines)) . '.';
 }
 
-function taskforce_generate_compatibility_pdf(array $payload): ?string
+function taskforce_can_use_mpdf_engine(): bool
 {
-    if (class_exists('FPDF')) {
-        $fpdf = taskforce_generate_evaluation_history_fpdf_pdf($payload);
-        if (is_string($fpdf) && $fpdf !== '' && strncmp($fpdf, '%PDF', 4) === 0) {
-            return $fpdf;
-        }
+    return class_exists('\\Mpdf\\Mpdf');
+}
+
+function taskforce_generate_single_evaluation_fpdf_pdf(array $reportData): ?string
+{
+    if (!class_exists('FPDF')) {
+        return null;
     }
 
-    $fontPath = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
-    if (!is_file($fontPath)) {
-        $fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
-    }
-    $canRenderLayout = extension_loaded('gd')
-        && function_exists('imagecreatetruecolor')
-        && (function_exists('imagettftext') ? is_file($fontPath) : true);
-    if ($canRenderLayout) {
-        $layout = taskforce_generate_evaluation_history_layout_pdf($payload);
-        if (is_string($layout) && $layout !== '' && strncmp($layout, '%PDF', 4) === 0) {
-            return $layout;
+    $pdf = new FPDF('P', 'mm', 'A4');
+    $pdf->SetAutoPageBreak(true, 12);
+    $pdf->AddPage();
+
+    $toPdfText = static function (string $value): string {
+        $clean = preg_replace('/\s+/u', ' ', trim($value));
+        $clean = is_string($clean) ? $clean : trim($value);
+        if ($clean === '') {
+            return '';
         }
+        if (function_exists('iconv')) {
+            $converted = @iconv('UTF-8', 'windows-1252//TRANSLIT//IGNORE', $clean);
+            if ($converted !== false && $converted !== '') {
+                return $converted;
+            }
+        }
+        if (function_exists('utf8_decode')) {
+            return utf8_decode($clean);
+        }
+        return $clean;
+    };
+
+    $pdf->SetFillColor(245, 247, 250);
+    $pdf->SetDrawColor(220, 226, 234);
+    $pdf->SetTextColor(31, 41, 55);
+
+    $pdf->SetFont('Arial', 'B', 18);
+    $pdf->Cell(0, 10, $toPdfText((string) ($reportData['title'] ?? 'Avaliação de desempenho')), 0, 1);
+
+    $pdf->SetFont('Arial', 'B', 11);
+    $pdf->Cell(0, 8, $toPdfText((string) ($reportData['employee'] ?? '')), 1, 1, 'L', true);
+    $pdf->SetFont('Arial', '', 9.5);
+    $pdf->Cell(70, 7, $toPdfText('Ano: ' . (string) ($reportData['year'] ?? '')), 1);
+    $pdf->Cell(120, 7, $toPdfText('Período: ' . (string) ($reportData['period'] ?? '—')), 1, 1);
+    $pdf->Cell(95, 7, $toPdfText('Departamento: ' . (string) ($reportData['department'] ?? '—')), 1);
+    $pdf->Cell(95, 7, $toPdfText('Perfil: ' . (string) ($reportData['profile'] ?? '—')), 1, 1);
+    $pdf->Cell(0, 7, $toPdfText('Data entrevista: ' . (string) ($reportData['interview_date'] ?? '—')), 1, 1);
+    $pdf->Ln(4);
+
+    $metrics = (array) ($reportData['metrics'] ?? []);
+    foreach ([
+        ['Performance', $metrics['performance'] ?? '—'],
+        ['Comportamento', $metrics['behavior'] ?? '—'],
+        ['Pontualidade', $metrics['punctuality'] ?? '—'],
+        ['Absentismo', $metrics['absence'] ?? '—'],
+        ['Total período', $metrics['period_total'] ?? '—'],
+    ] as [$label, $value]) {
+        $pdf->SetFont('Arial', 'B', 10);
+        $pdf->Cell(55, 9, $toPdfText((string) $label), 1, 0, 'L', true);
+        $pdf->SetFont('Arial', '', 10);
+        $pdf->Cell(135, 9, $toPdfText((string) $value), 1, 1);
     }
 
-    return null;
+    if (!empty($reportData['closure'])) {
+        $closure = (array) $reportData['closure'];
+        $pdf->Ln(4);
+        $pdf->SetFont('Arial', 'B', 12);
+        $pdf->Cell(0, 8, $toPdfText('Fecho anual'), 0, 1);
+        $pdf->SetFont('Arial', 'B', 10);
+        $pdf->Cell(55, 9, $toPdfText('Bónus final'), 1, 0, 'L', true);
+        $pdf->SetFont('Arial', '', 10);
+        $pdf->Cell(135, 9, $toPdfText((string) ($closure['final_bonus_value'] ?? '—')), 1, 1);
+        $pdf->SetFont('Arial', 'B', 10);
+        $pdf->Cell(55, 9, $toPdfText('Total anual'), 1, 0, 'L', true);
+        $pdf->SetFont('Arial', '', 10);
+        $pdf->Cell(135, 9, $toPdfText((string) ($closure['year_total_with_bonus'] ?? '—')), 1, 1);
+    }
+
+    $notes = trim((string) ($reportData['general_notes'] ?? ''));
+    if ($notes !== '') {
+        $pdf->Ln(4);
+        $pdf->SetFont('Arial', 'B', 12);
+        $pdf->Cell(0, 8, $toPdfText('Observações RH'), 0, 1);
+        $pdf->SetFont('Arial', '', 10);
+        $pdf->MultiCell(0, 7, $toPdfText($notes), 1);
+    }
+
+    if (!empty($reportData['sent_by'])) {
+        $pdf->Ln(4);
+        $pdf->SetFont('Arial', 'I', 9);
+        $pdf->Cell(0, 7, $toPdfText('Enviado por: ' . (string) $reportData['sent_by']), 0, 1);
+    }
+
+    try {
+        return (string) $pdf->Output('S');
+    } catch (Throwable $exception) {
+        return null;
+    }
 }
 
 function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluation, ?array $closure, int $year, string $periodLabel, ?string $sentBy = null): array
@@ -497,6 +572,90 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
     }
 
     $pdfContent = taskforce_generate_basic_pdf($lines);
+    $safeName = preg_replace('/[^a-z0-9\-]+/i', '-', strtolower((string) ($employee['name'] ?? 'colaborador')));
+    $fileName = 'avaliacao-' . trim((string) $safeName, '-') . '-' . $year . '-' . (string) ($evaluation['award_period'] ?? 'periodo') . '.pdf';
+
+    $singlePayload = [
+        'title' => 'Avaliação de desempenho',
+        'employee' => $employeeLabel,
+        'year' => (string) $year,
+        'period' => $periodLabel,
+        'department' => $departmentLabel,
+        'profile' => $profileLabel,
+        'interview_date' => $interviewDate,
+        'general_notes' => $generalNotes,
+        'sent_by' => $sentBy ?? '',
+        'metrics' => [
+            'performance' => (int) ($evaluation['performance_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['performance_value'] ?? 0)) . ')',
+            'behavior' => (int) ($evaluation['behavior_score'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['behavior_value'] ?? 0)) . ')',
+            'punctuality' => (int) ($evaluation['punctuality_count'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['punctuality_value'] ?? 0)) . ')',
+            'absence' => (int) ($evaluation['absence_count'] ?? 0) . ' (' . taskforce_money((float) ($evaluation['absence_value'] ?? 0)) . ')',
+            'period_total' => taskforce_money((float) ($evaluation['period_total'] ?? 0)),
+        ],
+        'closure' => $closure ? [
+            'final_bonus_value' => taskforce_money((float) ($closure['final_bonus_value'] ?? 0)),
+            'year_total_with_bonus' => taskforce_money((float) ($closure['year_total_with_bonus'] ?? 0)),
+        ] : [],
+        'lines' => $lines,
+    ];
+
+    $pdfEngine = 'FPDF';
+    $pdfContent = taskforce_generate_single_evaluation_fpdf_pdf($singlePayload);
+
+    if ((!is_string($pdfContent) || $pdfContent === '') && taskforce_can_use_mpdf_engine()) {
+        $pdfEngine = 'layout oficial';
+        $headerLogoHtml = (string) ($branding['logo_url'] ?? '') !== ''
+            ? '<div class="brand-logo"><img src="' . h((string) ($branding['logo_url'] ?? '')) . '" alt="Logótipo"></div>'
+            : '';
+        $headerAddressHtml = (string) ($branding['company_address'] ?? '') !== ''
+            ? '<div class="brand-address">' . nl2br(h((string) ($branding['company_address'] ?? ''))) . '</div>'
+            : '';
+        $footerContactHtml = $companyContactLine !== '' ? '<div class="muted">' . h($companyContactLine) . '</div>' : '';
+
+        $html = '<!doctype html><html lang="pt"><head><meta charset="utf-8"><style>'
+            . 'body{font-family:Helvetica,Arial,sans-serif;color:#1f2937;font-size:12px;margin:18px;}'
+            . '.pdf-header{width:100%;border-collapse:collapse;border-bottom:2px solid #e5e7eb;margin-bottom:14px;padding-bottom:8px;}'
+            . '.pdf-header td{vertical-align:top;padding-bottom:8px;}'
+            . '.brand-name{font-size:14px;font-weight:700;} .brand-address{font-size:11px;color:#4b5563;margin-top:4px;line-height:1.45;}'
+            . '.brand-logo{text-align:right;} .brand-logo img{max-height:56px;max-width:190px;}'
+            . '.title{font-size:24px;font-weight:700;margin:0 0 8px;}'
+            . '.soft-card{border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;padding:10px 12px;margin-bottom:10px;}'
+            . '.meta-table{width:100%;border-collapse:collapse;margin-top:8px;} .meta-table td{padding:5px 6px;border:1px solid #e5e7eb;}'
+            . '.metric-grid{width:100%;border-collapse:separate;border-spacing:8px;margin:10px 0;} .metric{border:1px solid #e5e7eb;border-radius:10px;padding:8px;background:#fff;} .label{color:#6b7280;font-size:10px;display:block;} .value{font-size:18px;font-weight:700;display:block;margin-top:3px;}'
+            . '.footer{margin-top:14px;padding-top:10px;border-top:1px solid #e5e7eb;color:#6b7280;font-size:11px;}'
+            . '</style></head><body>'
+            . '<table class="pdf-header" role="presentation"><tr><td><div class="brand-name">' . h((string) ($branding['company_name'] ?? 'TaskForce')) . '</div>' . $headerAddressHtml . '</td><td width="220">' . $headerLogoHtml . '</td></tr></table>'
+            . '<div class="title">Avaliação de desempenho</div>'
+            . '<div class="soft-card"><strong>' . h($employeeLabel) . '</strong><table class="meta-table"><tr><td>Ano</td><td>' . $year . '</td><td>Período</td><td>' . h($periodLabel) . '</td></tr><tr><td>Departamento</td><td>' . h($departmentLabel) . '</td><td>Perfil</td><td>' . h($profileLabel) . '</td></tr><tr><td>Data entrevista</td><td colspan="3">' . h($interviewDate) . '</td></tr></table></div>'
+            . '<table class="metric-grid"><tr>'
+            . '<td class="metric"><span class="label">Performance</span><span class="value">' . (int) ($evaluation['performance_score'] ?? 0) . ' (' . h(taskforce_money((float) ($evaluation['performance_value'] ?? 0))) . ')</span></td>'
+            . '<td class="metric"><span class="label">Comportamento</span><span class="value">' . (int) ($evaluation['behavior_score'] ?? 0) . ' (' . h(taskforce_money((float) ($evaluation['behavior_value'] ?? 0))) . ')</span></td>'
+            . '</tr><tr>'
+            . '<td class="metric"><span class="label">Pontualidade</span><span class="value">' . (int) ($evaluation['punctuality_count'] ?? 0) . ' (' . h(taskforce_money((float) ($evaluation['punctuality_value'] ?? 0))) . ')</span></td>'
+            . '<td class="metric"><span class="label">Absentismo</span><span class="value">' . (int) ($evaluation['absence_count'] ?? 0) . ' (' . h(taskforce_money((float) ($evaluation['absence_value'] ?? 0))) . ')</span></td>'
+            . '</tr><tr><td class="metric" colspan="2"><span class="label">Total período</span><span class="value">' . h(taskforce_money((float) ($evaluation['period_total'] ?? 0))) . '</span></td></tr></table>'
+            . ($generalNotes !== '' ? '<div class="soft-card"><strong>Observações RH</strong><div style="margin-top:6px;">' . nl2br(h($generalNotes)) . '</div></div>' : '')
+            . ($closure ? '<div class="soft-card"><strong>Fecho anual</strong><div style="margin-top:6px;">Bónus final: ' . h(taskforce_money((float) ($closure['final_bonus_value'] ?? 0))) . '<br>Total anual: ' . h(taskforce_money((float) ($closure['year_total_with_bonus'] ?? 0))) . '</div></div>' : '')
+            . ($sentBy ? '<p class="muted">Enviado por: ' . h($sentBy) . '</p>' : '')
+            . '<footer class="footer"><strong>' . h((string) ($branding['company_name'] ?? 'TaskForce')) . '</strong>'
+            . ((string) ($branding['company_address'] ?? '') !== '' ? '<div>' . nl2br(h((string) ($branding['company_address'] ?? ''))) . '</div>' : '')
+            . $footerContactHtml
+            . '</footer></body></html>';
+        $pdfContent = taskforce_generate_pdf_from_html($html);
+    }
+
+    if (!is_string($pdfContent) || $pdfContent === '') {
+        $pdfEngine = 'modo compatibilidade';
+        $pdfContent = taskforce_generate_basic_pdf($lines);
+    }
+
+    if (!is_string($pdfContent) || $pdfContent === '' || strncmp($pdfContent, '%PDF', 4) !== 0) {
+        return [
+            'ok' => false,
+            'message' => 'Não foi possível gerar o PDF. ' . taskforce_pdf_generation_diagnostics(),
+        ];
+    }
+
     $safeName = preg_replace('/[^a-z0-9\-]+/i', '-', strtolower((string) ($employee['name'] ?? 'colaborador')));
     $fileName = 'avaliacao-' . trim((string) $safeName, '-') . '-' . $year . '-' . (string) ($evaluation['award_period'] ?? 'periodo') . '.pdf';
 
@@ -560,13 +719,13 @@ function taskforce_send_evaluation_pdf(PDO $pdo, array $employee, array $evaluat
             'ok' => false,
             'message' => 'Não foi possível gerar o PDF com o layout oficial. ' . taskforce_pdf_generation_diagnostics(),
         ];
-        $pdfContent = taskforce_generate_compatibility_pdf($singleFallbackPayload);
+        $pdfContent = taskforce_generate_evaluation_history_layout_pdf($singleFallbackPayload);
         $pdfEngine = 'modo compatibilidade';
     }
     if (!is_string($pdfContent) || $pdfContent === '' || strncmp($pdfContent, '%PDF', 4) !== 0) {
         return [
             'ok' => false,
-            'message' => 'Não foi possível gerar o PDF com qualidade válida. ' . taskforce_pdf_generation_diagnostics(),
+            'message' => 'Não foi possível gerar o PDF. ' . taskforce_pdf_generation_diagnostics(),
         ];
     }
 
@@ -702,16 +861,20 @@ function taskforce_send_evaluation_history_pdf(PDO $pdo, array $employee, int $y
         ],
     ];
 
-    $pdfEngine = 'layout oficial';
-    $pdfContent = taskforce_generate_pdf_from_html($html);
+    $pdfEngine = 'FPDF';
+    $pdfContent = taskforce_generate_evaluation_history_fpdf_pdf($fallbackPayload);
+    if ((!is_string($pdfContent) || $pdfContent === '') && taskforce_can_use_mpdf_engine()) {
+        $pdfEngine = 'layout oficial';
+        $pdfContent = taskforce_generate_pdf_from_html($html);
+    }
     if (!is_string($pdfContent) || $pdfContent === '') {
-        $pdfContent = taskforce_generate_compatibility_pdf($fallbackPayload);
+        $pdfContent = taskforce_generate_evaluation_history_layout_pdf($fallbackPayload);
         $pdfEngine = 'modo compatibilidade';
     }
     if (!is_string($pdfContent) || $pdfContent === '' || strncmp($pdfContent, '%PDF', 4) !== 0) {
         return [
             'ok' => false,
-            'message' => 'Não foi possível gerar o PDF com qualidade válida. ' . taskforce_pdf_generation_diagnostics(),
+            'message' => 'Não foi possível gerar o PDF. ' . taskforce_pdf_generation_diagnostics(),
         ];
     }
 
@@ -882,7 +1045,7 @@ function taskforce_generate_evaluation_history_layout_pdf(array $reportData): st
         $fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
     }
     $canUseTtf = function_exists('imagettftext') && is_file($fontPath);
-    $layoutScale = 1.0;
+    $layoutScale = $canUseTtf ? 1.0 : 0.5;
     $scale = static fn(float $value): int => (int) round($value * $layoutScale);
     $width = $scale(1240);
     $height = $scale(1754);
