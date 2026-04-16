@@ -20,50 +20,6 @@ if (!can_access_hr_module($pdo, $userId)) {
     exit('Acesso reservado a administradores e equipa RH.');
 }
 
-$inlineCronNow = new DateTimeImmutable('now');
-$inlineCronLastRunAt = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', ''));
-$inlineCronRunsPerDay = (int) app_setting($pdo, 'hr_alerts_inline_cron_runs_per_day', '1440');
-$inlineCronRunsPerDay = max(1, min(1440, $inlineCronRunsPerDay));
-$inlineCronIntervalSeconds = max(60, (int) floor(86400 / $inlineCronRunsPerDay));
-$inlineCronShouldRun = true;
-
-if ($inlineCronLastRunAt !== '') {
-    try {
-        $lastInlineRun = new DateTimeImmutable($inlineCronLastRunAt);
-        $inlineCronShouldRun = ($inlineCronNow->getTimestamp() - $lastInlineRun->getTimestamp()) >= $inlineCronIntervalSeconds;
-    } catch (Throwable $exception) {
-        $inlineCronShouldRun = true;
-    }
-}
-
-if ($inlineCronShouldRun) {
-    set_app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', $inlineCronNow->format('Y-m-d H:i:s'));
-
-    try {
-        ob_start();
-        require __DIR__ . '/cron_hr_alerts.php';
-        ob_end_clean();
-    } catch (Throwable $exception) {
-        if (ob_get_level() > 0) {
-            ob_end_clean();
-        }
-
-        if (function_exists('log_app_event')) {
-            try {
-                log_app_event(
-                    $pdo,
-                    $userId,
-                    'hr.alerts.inline_cron.failed',
-                    'Execução inline do cron de alertas RH falhou na interface.',
-                    ['error' => $exception->getMessage()]
-                );
-            } catch (Throwable $innerException) {
-                // Ignorar falhas de logging para não bloquear o ecrã.
-            }
-        }
-    }
-}
-
 function parse_alert_selected_users($value): array
 {
     $rawValues = is_array($value) ? $value : array_filter(explode(',', (string) $value));
@@ -123,23 +79,29 @@ function normalize_alert_monthly_day($value): int
 
 function fetch_alert_target_users(PDO $pdo, array $selectedUserIds): array
 {
-    $sql = 'SELECT id, name, email
-            FROM users
-            WHERE is_active = 1
-              AND email_notifications_active = 1
-              AND TRIM(email) <> ""';
+    $baseSql = 'SELECT id, name, email
+                FROM users
+                WHERE is_active = 1
+                  AND email_notifications_active = 1
+                  AND TRIM(email) <> ""';
     $params = [];
 
     if ($selectedUserIds) {
         $placeholders = implode(',', array_fill(0, count($selectedUserIds), '?'));
-        $sql .= ' AND id IN (' . $placeholders . ')';
+        $baseSql .= ' AND id IN (' . $placeholders . ')';
         $params = $selectedUserIds;
     }
 
-    $sql .= ' ORDER BY name COLLATE NOCASE ASC';
+    $sqlWithCollation = $baseSql . ' ORDER BY name COLLATE NOCASE ASC';
+    $sqlFallback = $baseSql . ' ORDER BY name ASC';
 
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
+    try {
+        $stmt = $pdo->prepare($sqlWithCollation);
+        $stmt->execute($params);
+    } catch (Throwable $exception) {
+        $stmt = $pdo->prepare($sqlFallback);
+        $stmt->execute($params);
+    }
 
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
@@ -498,6 +460,44 @@ require __DIR__ . '/partials/header.php';
         background: #fff;
         font-size: .9rem;
         line-height: 1;
+    }
+
+    .alert-form-field-wide {
+        grid-column: 1 / -1;
+    }
+
+    .results-users-modal-list {
+        display: grid;
+        gap: .5rem;
+        max-height: min(55vh, 520px);
+        overflow: auto;
+        background: #fff;
+    }
+
+    .results-user-option {
+        display: flex;
+        align-items: flex-start;
+        gap: .65rem;
+        transition: border-color .15s ease, background-color .15s ease;
+        cursor: pointer;
+    }
+
+    .results-user-option:hover {
+        border-color: rgba(37, 99, 235, 0.35) !important;
+        background: rgba(37, 99, 235, 0.04);
+    }
+
+    .results-user-option.is-selected {
+        border-color: rgba(37, 99, 235, 0.65) !important;
+        background: rgba(37, 99, 235, 0.08);
+    }
+
+    .results-user-checkbox {
+        margin-top: .2rem;
+    }
+
+    .results-user-meta {
+        min-width: 0;
     }
 
     .alert-weekday-chips,
