@@ -117,8 +117,8 @@ require __DIR__ . '/partials/header.php';
         </form>
     <?php endif; ?>
 </div>
-<?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
-<?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
+<?php if ($flashSuccess): ?><div id="send-status-alert" class="alert alert-success" role="alert"><strong>Estado do envio:</strong> <?= h($flashSuccess) ?></div><?php endif; ?>
+<?php if ($flashError): ?><div id="send-status-alert" class="alert alert-danger" role="alert"><strong>Estado do envio:</strong> <?= h($flashError) ?></div><?php endif; ?>
 
 <?php if (!$employee): ?>
 <div class="alert alert-warning">Colaborador não encontrado.</div>
@@ -217,6 +217,16 @@ require __DIR__ . '/partials/header.php';
         <p class="mb-0">Notas: <?= h((string) ($closure['final_notes'] ?? '')) ?></p>
     <?php endif; ?>
 </div>
+<?php endif; ?>
+
+<?php if ($flashSuccess || $flashError): ?>
+<script>
+    (function () {
+        var el = document.getElementById('send-status-alert');
+        if (!el) return;
+        try { el.scrollIntoView({behavior: 'smooth', block: 'center'}); } catch (e) {}
+    })();
+</script>
 <?php endif; ?>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>

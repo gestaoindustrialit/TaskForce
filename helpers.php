@@ -951,7 +951,36 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
 
 function taskforce_generate_pdf_from_html(string $html): ?string
 {
-    if (!function_exists('shell_exec') || trim($html) === '') {
+    if (trim($html) === '') {
+        return null;
+    }
+
+    if (class_exists('\Mpdf\Mpdf')) {
+        try {
+            $mpdfTempDir = rtrim(sys_get_temp_dir(), '/\\') . '/taskforce_mpdf';
+            if (!is_dir($mpdfTempDir)) {
+                @mkdir($mpdfTempDir, 0750, true);
+            }
+            $mpdf = new \Mpdf\Mpdf([
+                'mode' => 'utf-8',
+                'format' => 'A4',
+                'tempDir' => $mpdfTempDir,
+                'margin_left' => 10,
+                'margin_right' => 10,
+                'margin_top' => 10,
+                'margin_bottom' => 10,
+            ]);
+            $mpdf->WriteHTML($html);
+            $pdfBinary = (string) $mpdf->Output('', 'S');
+            if ($pdfBinary !== '' && strncmp($pdfBinary, '%PDF', 4) === 0) {
+                return $pdfBinary;
+            }
+        } catch (Throwable $exception) {
+            // Fall through to CLI engines.
+        }
+    }
+
+    if (!function_exists('shell_exec')) {
         return null;
     }
 
