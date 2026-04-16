@@ -64,7 +64,7 @@ if ($hasVacationEventsTable && $hasAbsenceRequestsTable) {
     $approvedLeavesStmt = $pdo->prepare(
         'SELECT DISTINCT
         u.id,
-        u.name,
+        u.name AS employee_name,
         u.user_number,
         d.name AS department_name,
         "Férias" AS leave_type,
@@ -81,7 +81,7 @@ if ($hasVacationEventsTable && $hasAbsenceRequestsTable) {
 
      SELECT DISTINCT
         u.id,
-        u.name,
+        u.name AS employee_name,
         u.user_number,
         d.name AS department_name,
         "Ausência" AS leave_type,
@@ -94,7 +94,7 @@ if ($hasVacationEventsTable && $hasAbsenceRequestsTable) {
        AND a.status LIKE "Aprovado%"
        AND date(?) BETWEEN date(a.start_date) AND date(a.end_date)
 
-     ORDER BY name COLLATE NOCASE ASC'
+     ORDER BY employee_name COLLATE NOCASE ASC'
     );
     $approvedLeavesStmt->execute([$todayDate, $todayDate]);
     $approvedLeavesToday = $approvedLeavesStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -378,7 +378,7 @@ require __DIR__ . '/partials/header.php';
                             <tr><td colspan="3" class="text-muted">Sem ausências/férias aprovadas para hoje.</td></tr>
                         <?php else: foreach ($approvedLeavesToday as $leave): ?>
                             <tr>
-                                <td><?= h(trim(((string) ($leave['user_number'] ?? '')) . ' · ' . ((string) ($leave['name'] ?? '')), ' ·')) ?></td>
+                                <td><?= h(trim(((string) ($leave['user_number'] ?? '')) . ' · ' . ((string) ($leave['employee_name'] ?? '')), ' ·')) ?></td>
                                 <td><?= h((string) ($leave['leave_type'] ?? '')) ?></td>
                                 <td><?= h((string) ($leave['start_date'] ?? '')) ?> → <?= h((string) ($leave['end_date'] ?? '')) ?></td>
                             </tr>
