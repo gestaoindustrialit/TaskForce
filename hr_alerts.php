@@ -127,20 +127,23 @@ function run_alert_now(PDO $pdo, array $alert, int $currentUserId): array
         if ((string) ($alert['alert_type'] ?? '') === 'attendance_monthly_map') {
             $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
             $attachments = [];
-            if (!empty($report['pdf_content'])) {
+            $storedPdf = is_array($report['stored_pdf'] ?? null) ? $report['stored_pdf'] : null;
+            if ($storedPdf !== null && !empty($storedPdf['content'])) {
                 $attachments[] = [
-                    'name' => (string) ($report['pdf_filename'] ?? 'mapa-mensal.pdf'),
+                    'name' => (string) ($report['pdf_filename'] ?? $storedPdf['name'] ?? 'mapa-mensal.pdf'),
                     'mime' => 'application/pdf',
-                    'content' => (string) $report['pdf_content'],
+                    'content' => (string) $storedPdf['content'],
                 ];
             }
-            $sent = deliver_report(
-                $recipientEmail,
-                (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens'),
-                (string) ($report['body'] ?? ''),
-                (string) ($report['html_body'] ?? ''),
-                $attachments
-            );
+            if ($attachments !== []) {
+                $sent = deliver_report(
+                    $recipientEmail,
+                    (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens'),
+                    (string) ($report['body'] ?? ''),
+                    (string) ($report['html_body'] ?? ''),
+                    $attachments
+                );
+            }
         } else {
             $subject = '[TaskForce RH] Envio manual - ' . (string) ($alert['name'] ?? 'Alerta');
             $body = "Este alerta foi executado manualmente em " . $now->format('d/m/Y H:i') . ".\nTipo: " . (string) ($alert['alert_type'] ?? 'desconhecido');
