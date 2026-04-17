@@ -915,11 +915,71 @@ if (is_string($perPageRaw) || is_numeric($perPageRaw)) {
     }
 }
 
+$searchTerm = trim((string) ($_GET['search'] ?? ''));
+$selectedDepartmentId = max(0, (int) ($_GET['department_id'] ?? 0));
+$selectedScheduleId = max(0, (int) ($_GET['schedule_id'] ?? 0));
+$selectedAccessProfile = trim((string) ($_GET['access_profile'] ?? ''));
+$selectedUserType = trim((string) ($_GET['user_type'] ?? ''));
+$selectedStatus = trim((string) ($_GET['status'] ?? ''));
+
+$filterSqlParts = [];
+$filterParams = [];
+
+if ($searchTerm !== '') {
+    $filterSqlParts[] = '(name LIKE :search OR username LIKE :search OR email LIKE :search OR user_number LIKE :search)';
+    $filterParams[':search'] = '%' . $searchTerm . '%';
+}
+
+if ($selectedDepartmentId > 0) {
+    $filterSqlParts[] = 'department_id = :department_id';
+    $filterParams[':department_id'] = $selectedDepartmentId;
+}
+
+if ($selectedScheduleId > 0) {
+    $filterSqlParts[] = 'schedule_id = :schedule_id';
+    $filterParams[':schedule_id'] = $selectedScheduleId;
+}
+
+if ($selectedAccessProfile !== '' && in_array($selectedAccessProfile, $accessProfileOptions, true)) {
+    $filterSqlParts[] = 'access_profile = :access_profile';
+    $filterParams[':access_profile'] = $selectedAccessProfile;
+} else {
+    $selectedAccessProfile = '';
+}
+
+if ($selectedUserType !== '' && in_array($selectedUserType, $userTypeOptions, true)) {
+    $filterSqlParts[] = 'user_type = :user_type';
+    $filterParams[':user_type'] = $selectedUserType;
+} else {
+    $selectedUserType = '';
+}
+
+if ($selectedStatus === 'active') {
+    $filterSqlParts[] = 'is_active = 1';
+} elseif ($selectedStatus === 'inactive') {
+    $filterSqlParts[] = 'is_active = 0';
+} else {
+    $selectedStatus = '';
+}
+
+$filtersWhereSql = $filterSqlParts !== [] ? (' WHERE ' . implode(' AND ', $filterSqlParts)) : '';
+$activeFiltersCount = ($searchTerm !== '' ? 1 : 0)
+    + ($selectedDepartmentId > 0 ? 1 : 0)
+    + ($selectedScheduleId > 0 ? 1 : 0)
+    + ($selectedAccessProfile !== '' ? 1 : 0)
+    + ($selectedUserType !== '' ? 1 : 0)
+    + ($selectedStatus !== '' ? 1 : 0);
+
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $isAllPerPage = $perPage === 'all';
 $perPageLimit = $isAllPerPage ? null : (int) $perPage;
 $offset = $isAllPerPage ? 0 : (($page - 1) * $perPageLimit);
-$totalUsers = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+$countStmt = $pdo->prepare('SELECT COUNT(*) FROM users' . $filtersWhereSql);
+foreach ($filterParams as $paramName => $paramValue) {
+    $countStmt->bindValue($paramName, $paramValue);
+}
+$countStmt->execute();
+$totalUsers = (int) $countStmt->fetchColumn();
 $totalPages = $isAllPerPage ? 1 : max(1, (int) ceil($totalUsers / $perPageLimit));
 if ($isAllPerPage) {
     $page = 1;
@@ -928,16 +988,35 @@ if ($isAllPerPage) {
     $offset = ($page - 1) * $perPageLimit;
 }
 
-$usersBaseSql = 'SELECT id, name, username, email, is_admin, access_profile, is_active, must_change_password, pin_only_login, created_at, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email FROM users ORDER BY created_at DESC';
+$usersBaseSql = 'SELECT id, name, username, email, is_admin, access_profile, is_active, must_change_password, pin_only_login, created_at, user_type, user_number, title, short_name, initials, email_notifications_active, sms_notifications_active, profession, category, manager_name, department, department_id, schedule_id, hire_date, termination_date, timezone, phone, mobile, notes, send_access_email FROM users'
+    . $filtersWhereSql
+    . ' ORDER BY created_at DESC';
 if ($isAllPerPage) {
-    $usersStmt = $pdo->query($usersBaseSql);
+    $usersStmt = $pdo->prepare($usersBaseSql);
+    foreach ($filterParams as $paramName => $paramValue) {
+        $usersStmt->bindValue($paramName, $paramValue);
+    }
+    $usersStmt->execute();
 } else {
     $usersStmt = $pdo->prepare($usersBaseSql . ' LIMIT ? OFFSET ?');
+    foreach ($filterParams as $paramName => $paramValue) {
+        $usersStmt->bindValue($paramName, $paramValue);
+    }
     $usersStmt->bindValue(1, $perPageLimit, PDO::PARAM_INT);
     $usersStmt->bindValue(2, $offset, PDO::PARAM_INT);
     $usersStmt->execute();
 }
 $users = $usersStmt ? $usersStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+
+$filterQueryParams = [
+    'search' => $searchTerm,
+    'department_id' => $selectedDepartmentId > 0 ? (string) $selectedDepartmentId : '',
+    'schedule_id' => $selectedScheduleId > 0 ? (string) $selectedScheduleId : '',
+    'access_profile' => $selectedAccessProfile,
+    'user_type' => $selectedUserType,
+    'status' => $selectedStatus,
+    'per_page' => $perPage,
+];
 
 $managerOptions = $pdo->query('SELECT name FROM users WHERE name IS NOT NULL AND TRIM(name) <> "" ORDER BY name ASC')->fetchAll(PDO::FETCH_COLUMN) ?: [];
 $departmentNameOptions = $pdo->query('SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND TRIM(department) <> "" ORDER BY department ASC')->fetchAll(PDO::FETCH_COLUMN) ?: [];
@@ -974,18 +1053,96 @@ require __DIR__ . '/partials/header.php';
             </div>
         <?php endif; ?>
 
+        <form method="get" class="border rounded-3 p-3 mb-3 bg-light-subtle">
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-4">
+                    <label for="searchUsers" class="form-label small text-muted mb-1">Pesquisar utilizadores</label>
+                    <input
+                        id="searchUsers"
+                        type="search"
+                        name="search"
+                        class="form-control form-control-sm"
+                        placeholder="Nome, utilizador, email, número"
+                        value="<?= h($searchTerm) ?>"
+                    >
+                </div>
+                <div class="col-6 col-md-2">
+                    <label for="departmentFilter" class="form-label small text-muted mb-1">Equipa</label>
+                    <select id="departmentFilter" name="department_id" class="form-select form-select-sm">
+                        <option value="">Todas</option>
+                        <?php foreach ($departmentOptions as $departmentOption): ?>
+                            <option value="<?= (int) $departmentOption['id'] ?>" <?= $selectedDepartmentId === (int) $departmentOption['id'] ? 'selected' : '' ?>>
+                                <?= h((string) $departmentOption['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label for="scheduleFilter" class="form-label small text-muted mb-1">Turno</label>
+                    <select id="scheduleFilter" name="schedule_id" class="form-select form-select-sm">
+                        <option value="">Todos</option>
+                        <?php foreach ($scheduleOptions as $scheduleOption): ?>
+                            <option value="<?= (int) $scheduleOption['id'] ?>" <?= $selectedScheduleId === (int) $scheduleOption['id'] ? 'selected' : '' ?>>
+                                <?= h((string) $scheduleOption['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label for="statusFilter" class="form-label small text-muted mb-1">Estado</label>
+                    <select id="statusFilter" name="status" class="form-select form-select-sm">
+                        <option value="">Todos</option>
+                        <option value="active" <?= $selectedStatus === 'active' ? 'selected' : '' ?>>Ativo</option>
+                        <option value="inactive" <?= $selectedStatus === 'inactive' ? 'selected' : '' ?>>Inativo</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label for="profileFilter" class="form-label small text-muted mb-1">Perfil</label>
+                    <select id="profileFilter" name="access_profile" class="form-select form-select-sm">
+                        <option value="">Todos</option>
+                        <?php foreach ($accessProfileOptions as $accessProfileOption): ?>
+                            <option value="<?= h($accessProfileOption) ?>" <?= $selectedAccessProfile === $accessProfileOption ? 'selected' : '' ?>>
+                                <?= h($accessProfileOption) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label for="userTypeFilter" class="form-label small text-muted mb-1">Tipo</label>
+                    <select id="userTypeFilter" name="user_type" class="form-select form-select-sm">
+                        <option value="">Todos</option>
+                        <?php foreach ($userTypeOptions as $userTypeOption): ?>
+                            <option value="<?= h($userTypeOption) ?>" <?= $selectedUserType === $userTypeOption ? 'selected' : '' ?>>
+                                <?= h($userTypeOption) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label for="perPage" class="form-label small text-muted mb-1">Mostrar</label>
+                    <select id="perPage" name="per_page" class="form-select form-select-sm">
+                        <option value="15" <?= $perPage === '15' ? 'selected' : '' ?>>15</option>
+                        <option value="25" <?= $perPage === '25' ? 'selected' : '' ?>>25</option>
+                        <option value="50" <?= $perPage === '50' ? 'selected' : '' ?>>50</option>
+                        <option value="100" <?= $perPage === '100' ? 'selected' : '' ?>>100</option>
+                        <option value="all" <?= $perPage === 'all' ? 'selected' : '' ?>>Todos</option>
+                    </select>
+                </div>
+                <div class="col-12 col-md-12 d-flex gap-2 justify-content-between align-items-center">
+                    <div class="small text-muted">
+                        <?= $totalUsers ?> resultado(s)
+                        <?= $activeFiltersCount > 0 ? 'com ' . $activeFiltersCount . ' filtro(s) ativo(s)' : '' ?>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <a href="users.php" class="btn btn-sm btn-outline-secondary">Limpar filtros</a>
+                        <button type="submit" class="btn btn-sm btn-primary">Aplicar filtros</button>
+                    </div>
+                </div>
+            </div>
+        </form>
+
         <div class="d-flex justify-content-end align-items-center mb-3">
-            <form method="get" class="d-flex align-items-center gap-2">
-                <label for="perPage" class="form-label mb-0 small text-muted">Mostrar</label>
-                <select id="perPage" name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
-                    <option value="15" <?= $perPage === '15' ? 'selected' : '' ?>>15</option>
-                    <option value="25" <?= $perPage === '25' ? 'selected' : '' ?>>25</option>
-                    <option value="50" <?= $perPage === '50' ? 'selected' : '' ?>>50</option>
-                    <option value="100" <?= $perPage === '100' ? 'selected' : '' ?>>100</option>
-                    <option value="all" <?= $perPage === 'all' ? 'selected' : '' ?>>Todos</option>
-                </select>
-                <span class="small text-muted">utilizadores por página</span>
-            </form>
+            <span class="small text-muted">utilizadores por página</span>
         </div>
 
         <div class="table-responsive">
@@ -1017,7 +1174,15 @@ require __DIR__ . '/partials/header.php';
             <nav>
                 <ul class="pagination pagination-sm mb-0">
                     <?php for ($i = 1; $i <= $totalPages; $i++): ?>
-                        <li class="page-item <?= $i === $page ? 'active' : '' ?>"><a class="page-link" href="users.php?page=<?= $i ?>&per_page=<?= urlencode($perPage) ?>"><?= $i ?></a></li>
+                        <?php
+                        $pageQueryParams = $filterQueryParams;
+                        $pageQueryParams['page'] = (string) $i;
+                        $pageQueryString = http_build_query(array_filter(
+                            $pageQueryParams,
+                            static fn ($value) => $value !== ''
+                        ));
+                        ?>
+                        <li class="page-item <?= $i === $page ? 'active' : '' ?>"><a class="page-link" href="users.php?<?= h($pageQueryString) ?>"><?= $i ?></a></li>
                     <?php endfor; ?>
                 </ul>
             </nav>

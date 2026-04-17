@@ -139,52 +139,58 @@ function run_hr_alerts_inline_if_due(PDO $pdo, int $triggerUserId = 0): void
         return;
     }
 
-    $isEnabled = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_enabled', '1')) !== '0';
-    if (!$isEnabled) {
-        return;
-    }
-
-    $now = new DateTimeImmutable('now');
-    $lastRunAt = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', ''));
-    $runsPerDay = (int) app_setting($pdo, 'hr_alerts_inline_cron_runs_per_day', '1440');
-    $runsPerDay = max(1, min(1440, $runsPerDay));
-    $intervalSeconds = max(60, (int) floor(86400 / $runsPerDay));
-    $shouldRun = true;
-
-    if ($lastRunAt !== '') {
-        try {
-            $lastRun = new DateTimeImmutable($lastRunAt);
-            $shouldRun = ($now->getTimestamp() - $lastRun->getTimestamp()) >= $intervalSeconds;
-        } catch (Throwable $exception) {
-            $shouldRun = true;
-        }
-    }
-
-    if (!$shouldRun) {
-        return;
-    }
-
-    set_app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', $now->format('Y-m-d H:i:s'));
-
     try {
-        ob_start();
-        require __DIR__ . '/cron_hr_alerts.php';
-        ob_end_clean();
-    } catch (Throwable $exception) {
-        if (ob_get_level() > 0) {
-            ob_end_clean();
+        $isEnabled = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_enabled', '1')) !== '0';
+        if (!$isEnabled) {
+            return;
         }
 
+        $now = new DateTimeImmutable('now');
+        $lastRunAt = trim((string) app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', ''));
+        $runsPerDay = (int) app_setting($pdo, 'hr_alerts_inline_cron_runs_per_day', '1440');
+        $runsPerDay = max(1, min(1440, $runsPerDay));
+        $intervalSeconds = max(60, (int) floor(86400 / $runsPerDay));
+        $shouldRun = true;
+
+        if ($lastRunAt !== '') {
+            try {
+                $lastRun = new DateTimeImmutable($lastRunAt);
+                $shouldRun = ($now->getTimestamp() - $lastRun->getTimestamp()) >= $intervalSeconds;
+            } catch (Throwable $exception) {
+                $shouldRun = true;
+            }
+        }
+
+        if (!$shouldRun) {
+            return;
+        }
+
+        set_app_setting($pdo, 'hr_alerts_inline_cron_last_run_at', $now->format('Y-m-d H:i:s'));
+
         try {
-            log_app_event(
-                $pdo,
-                $triggerUserId > 0 ? $triggerUserId : null,
-                'hr.alerts.inline_cron.failed',
-                'Execução inline do cron de alertas RH falhou.',
-                ['error' => $exception->getMessage()]
-            );
-        } catch (Throwable $innerException) {
-            // Ignorar falhas de logging para não bloquear fluxos da aplicação.
+            ob_start();
+            require __DIR__ . '/cron_hr_alerts.php';
+            ob_end_clean();
+        } catch (Throwable $exception) {
+            if (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+
+            try {
+                log_app_event(
+                    $pdo,
+                    $triggerUserId > 0 ? $triggerUserId : null,
+                    'hr.alerts.inline_cron.failed',
+                    'Execução inline do cron de alertas RH falhou.',
+                    ['error' => $exception->getMessage()]
+                );
+            } catch (Throwable $innerException) {
+                // Ignorar falhas de logging para não bloquear fluxos da aplicação.
+            }
+        }
+    } catch (Throwable $outerException) {
+        if (function_exists('error_log')) {
+            @error_log('[TaskForce] run_hr_alerts_inline_if_due fallback: ' . $outerException->getMessage());
         }
     }
 }
@@ -1018,6 +1024,109 @@ function taskforce_generate_monthly_layout_pdf(array $reportData): string
     return taskforce_pdf_from_jpeg($jpeg, $width, $height);
 }
 
+function taskforce_generate_monthly_attendance_fpdf_pdf(array $reportData): ?string
+{
+    if (!class_exists('FPDF')) {
+        return null;
+    }
+
+    $toPdfText = static function (string $value): string {
+        $clean = preg_replace('/\s+/u', ' ', trim($value));
+        $clean = is_string($clean) ? $clean : trim($value);
+        if ($clean === '') {
+            return '';
+        }
+        if (function_exists('iconv')) {
+            $converted = @iconv('UTF-8', 'windows-1252//TRANSLIT//IGNORE', $clean);
+            if ($converted !== false && $converted !== '') {
+                return $converted;
+            }
+        }
+        if (function_exists('utf8_decode')) {
+            return utf8_decode($clean);
+        }
+        return $clean;
+    };
+    $fitText = static function (string $value, int $limit = 36): string {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return '—';
+        }
+        if (function_exists('mb_strimwidth')) {
+            return mb_strimwidth($trimmed, 0, $limit, '…', 'UTF-8');
+        }
+        if (strlen($trimmed) <= $limit) {
+            return $trimmed;
+        }
+        return substr($trimmed, 0, max(0, $limit - 3)) . '...';
+    };
+
+    $pdf = new FPDF('P', 'mm', 'A4');
+    $pdf->SetAutoPageBreak(true, 10);
+    $pdf->AddPage();
+    $pdf->SetDrawColor(209, 213, 219);
+    $pdf->SetFillColor(243, 244, 246);
+    $pdf->SetTextColor(31, 41, 55);
+
+    $pdf->SetFont('Arial', 'B', 16);
+    $pdf->Cell(0, 9, $toPdfText('Mapa mensal de picagens'), 0, 1);
+    $pdf->SetFont('Arial', '', 10);
+    $pdf->Cell(0, 6, $toPdfText('Período: ' . (string) ($reportData['period'] ?? '—')), 0, 1);
+    $pdf->Cell(0, 6, $toPdfText('Colaborador: ' . (string) ($reportData['employee'] ?? '—')), 0, 1);
+    $pdf->Cell(0, 6, $toPdfText('Mês de referência: ' . (string) ($reportData['month'] ?? '—')), 0, 1);
+    $pdf->Ln(2);
+
+    $headers = [
+        ['Data', 23],
+        ['Dia', 12],
+        ['Tipo', 18],
+        ['Picagens', 78],
+        ['BH', 18],
+        ['Justificação', 41],
+    ];
+    $pdf->SetFont('Arial', 'B', 8.3);
+    foreach ($headers as [$label, $width]) {
+        $pdf->Cell($width, 7, $toPdfText($label), 1, 0, 'L', true);
+    }
+    $pdf->Ln();
+
+    $pdf->SetFont('Arial', '', 7.6);
+    $lineHeight = 6;
+    foreach ((array) ($reportData['rows'] ?? []) as $row) {
+        $slotsText = implode(' ', (array) ($row['slots'] ?? []));
+        $cells = [
+            $fitText((string) ($row['date'] ?? ''), 12),
+            $fitText((string) ($row['weekday'] ?? ''), 5),
+            $fitText((string) ($row['type'] ?? ''), 10),
+            $fitText($slotsText, 64),
+            $fitText((string) ($row['bh'] ?? ''), 8),
+            $fitText((string) ($row['justification'] ?? ''), 32),
+        ];
+
+        foreach ($headers as $idx => $header) {
+            $width = (int) $header[1];
+            $pdf->Cell($width, $lineHeight, $toPdfText($cells[$idx]), 1, 0, 'L');
+        }
+        $pdf->Ln();
+    }
+
+    if (!empty($reportData['summary']) && is_array($reportData['summary'])) {
+        $pdf->Ln(3);
+        $pdf->SetFont('Arial', 'B', 10.5);
+        $pdf->Cell(0, 6, $toPdfText('Resumo mensal'), 0, 1);
+        $pdf->SetFont('Arial', '', 9);
+        foreach ($reportData['summary'] as $summaryLine) {
+            $pdf->Cell(0, 5, $toPdfText((string) $summaryLine), 0, 1);
+        }
+    }
+
+    try {
+        return (string) $pdf->Output('S');
+    } catch (Throwable $exception) {
+        return null;
+    }
+}
+
 function taskforce_generate_pdf_from_html(string $html): ?string
 {
     if (trim($html) === '') {
@@ -1396,6 +1505,7 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         . 'table{width:100%;border-collapse:collapse;margin-top:16px;font-size:11px;}'
         . 'th,td{border:1px solid #d1d5db;padding:6px;vertical-align:top;}'
         . 'th{background:#f3f4f6;}'
+        . '.summary{margin-top:14px;font-size:12px;}'
         . '</style></head><body>'
         . '<table class="header" role="presentation"><tr>'
         . '<td><h1>Mapa mensal de picagens</h1>'
@@ -1408,14 +1518,13 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         . '</tr></table>'
         . '<table><thead><tr><th>Data</th><th>Dia</th><th>Tipo</th><th>Picagens</th><th>BH</th><th>Justificação</th></tr></thead><tbody>'
         . $rowsHtml
-        . '</tbody></table></div>'
+        . '</tbody></table>'
         . '<div class="summary"><b>Resumo mensal:</b><br>'
         . 'Dias com picagens: ' . $daysWithEntries . ' · '
         . 'Dias totalmente validados: ' . $daysValidated . ' · '
         . 'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes) . ' · '
         . 'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes) . ' · '
         . 'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias'
-        . '</div>'
         . '</div>'
         . '</body></html>';
 
@@ -1427,6 +1536,21 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         }
     }
     $pdfContent = taskforce_generate_pdf_from_html($htmlBody);
+    if ($pdfContent === null) {
+        $pdfContent = taskforce_generate_monthly_attendance_fpdf_pdf([
+            'period' => $periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y'),
+            'employee' => (string) ($user['name'] ?? ''),
+            'month' => $reportMonthLabel,
+            'rows' => $rows,
+            'summary' => [
+                'Dias com picagens: ' . $daysWithEntries,
+                'Dias totalmente validados: ' . $daysValidated,
+                'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes),
+                'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes),
+                'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
+            ],
+        ]);
+    }
     if ($pdfContent === null) {
         $pdfContent = taskforce_generate_monthly_layout_pdf([
         'period' => $periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y'),

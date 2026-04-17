@@ -52,17 +52,25 @@ if ($filters['date_to'] !== '') {
 }
 
 $whereSql = $where ? (' WHERE ' . implode(' AND ', $where)) : '';
+$durationExpression = 'CASE
+    WHEN b.ended_at IS NULL THEN CAST((julianday(CURRENT_TIMESTAMP) - julianday(b.started_at)) * 86400 AS INTEGER)
+    ELSE
+        CASE
+            WHEN CAST((julianday(b.ended_at) - julianday(b.started_at)) * 86400 AS INTEGER) > 0
+                THEN CAST((julianday(b.ended_at) - julianday(b.started_at)) * 86400 AS INTEGER)
+            ELSE COALESCE(r.planned_seconds, 0)
+        END
+END';
 
 $globalStmt = $pdo->prepare(
     'SELECT
         COUNT(*) AS total_entries,
         SUM(CASE WHEN b.break_type = "Pausa" THEN 1 ELSE 0 END) AS total_pauses,
         SUM(CASE WHEN b.break_type = "Paragem" THEN 1 ELSE 0 END) AS total_stops,
-        SUM(CASE WHEN b.ended_at IS NULL
-            THEN CAST((julianday(CURRENT_TIMESTAMP) - julianday(b.started_at)) * 86400 AS INTEGER)
-            ELSE CAST((julianday(b.ended_at) - julianday(b.started_at)) * 86400 AS INTEGER)
-        END) AS total_seconds
-     FROM shopfloor_break_entries b' . $whereSql
+        SUM(' . $durationExpression . ') AS total_seconds
+     FROM shopfloor_break_entries b
+     INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id'
+     . $whereSql
 );
 $globalStmt->execute($params);
 $globalStats = $globalStmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -73,10 +81,7 @@ $reasonStmt = $pdo->prepare(
         r.label,
         b.break_type,
         COUNT(*) AS total_entries,
-        SUM(CASE WHEN b.ended_at IS NULL
-            THEN CAST((julianday(CURRENT_TIMESTAMP) - julianday(b.started_at)) * 86400 AS INTEGER)
-            ELSE CAST((julianday(b.ended_at) - julianday(b.started_at)) * 86400 AS INTEGER)
-        END) AS total_seconds
+        SUM(' . $durationExpression . ') AS total_seconds
      FROM shopfloor_break_entries b
      INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id'
      . $whereSql .
@@ -93,12 +98,10 @@ $userSummaryStmt = $pdo->prepare(
         COUNT(*) AS total_entries,
         SUM(CASE WHEN b.break_type = "Pausa" THEN 1 ELSE 0 END) AS total_pauses,
         SUM(CASE WHEN b.break_type = "Paragem" THEN 1 ELSE 0 END) AS total_stops,
-        SUM(CASE WHEN b.ended_at IS NULL
-            THEN CAST((julianday(CURRENT_TIMESTAMP) - julianday(b.started_at)) * 86400 AS INTEGER)
-            ELSE CAST((julianday(b.ended_at) - julianday(b.started_at)) * 86400 AS INTEGER)
-        END) AS total_seconds
+        SUM(' . $durationExpression . ') AS total_seconds
      FROM shopfloor_break_entries b
-     INNER JOIN users u ON u.id = b.user_id'
+     INNER JOIN users u ON u.id = b.user_id
+     INNER JOIN shopfloor_break_reasons r ON r.id = b.break_reason_id'
      . $whereSql .
      ' GROUP BY u.id, u.name
        ORDER BY total_seconds DESC, total_entries DESC
