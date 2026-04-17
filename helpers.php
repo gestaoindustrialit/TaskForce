@@ -1232,6 +1232,56 @@ function taskforce_generate_pdf_from_html(string $html): ?string
     return $pdfBinary;
 }
 
+function taskforce_store_generated_pdf_on_server(string $pdfContent, string $fileName, string $scope = 'relatorios-rh'): ?array
+{
+    if ($pdfContent === '' || strncmp($pdfContent, '%PDF', 4) !== 0) {
+        return null;
+    }
+
+    $safeName = trim(basename($fileName));
+    if ($safeName === '' || $safeName === '.' || $safeName === '..') {
+        $safeName = 'documento.pdf';
+    }
+    if (!str_ends_with(strtolower($safeName), '.pdf')) {
+        $safeName .= '.pdf';
+    }
+
+    $safeName = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $safeName) ?: 'documento.pdf';
+    $safeName = trim($safeName, '-_.');
+    if ($safeName === '') {
+        $safeName = 'documento.pdf';
+    }
+
+    $rootStorage = __DIR__ . '/storage';
+    $folderDate = (new DateTimeImmutable('now'))->format('Y/m/d');
+    $targetDir = rtrim($rootStorage, '/\\') . '/generated-pdfs/' . trim($scope, '/\\') . '/' . $folderDate;
+    if (!is_dir($targetDir) && !@mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
+        return null;
+    }
+
+    $nameWithoutExt = pathinfo($safeName, PATHINFO_FILENAME);
+    $extension = pathinfo($safeName, PATHINFO_EXTENSION);
+    $suffix = bin2hex(random_bytes(3));
+    $storedName = $nameWithoutExt . '-' . $suffix . ($extension !== '' ? '.' . $extension : '.pdf');
+    $targetPath = rtrim($targetDir, '/\\') . '/' . $storedName;
+    $written = @file_put_contents($targetPath, $pdfContent, LOCK_EX);
+    if ($written === false || (int) $written !== strlen($pdfContent)) {
+        return null;
+    }
+
+    $storedContent = @file_get_contents($targetPath);
+    if (!is_string($storedContent) || $storedContent === '' || strncmp($storedContent, '%PDF', 4) !== 0) {
+        return null;
+    }
+
+    return [
+        'absolute_path' => $targetPath,
+        'relative_path' => 'storage/generated-pdfs/' . trim($scope, '/\\') . '/' . $folderDate . '/' . $storedName,
+        'name' => $storedName,
+        'content' => $storedContent,
+    ];
+}
+
 function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, DateTimeImmutable $referenceDate): array
 {
     $periodStart = $referenceDate->modify('first day of this month')->setTime(0, 0, 0);
@@ -1493,39 +1543,67 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         $departmentLabel = '—';
     }
 
+    $companyContacts = [];
+    if ($companyAddress !== '') {
+        $companyContacts[] = $companyAddress;
+    }
+    if ($companyPhone !== '') {
+        $companyContacts[] = 'Telefone: ' . $companyPhone;
+    }
+    if ($companyEmail !== '') {
+        $companyContacts[] = 'Email: ' . $companyEmail;
+    }
+
+    $summaryItems = [
+        ['Dias com picagens', (string) $daysWithEntries],
+        ['Dias totalmente validados', (string) $daysValidated],
+        ['Horas trabalhadas', taskforce_format_minutes_signed($totalWorkedMinutes)],
+        ['Saldo BH do mês', taskforce_format_minutes_signed($totalBhMinutes)],
+        ['Saldo férias estimado', number_format($vacationBalance, 1, ',', '') . ' dias'],
+    ];
+    $summaryHtml = '';
+    foreach ($summaryItems as [$label, $value]) {
+        $summaryHtml .= '<td><span class="label">' . h((string) $label) . '</span><span class="value">' . h((string) $value) . '</span></td>';
+    }
+
     $htmlBody = '<!doctype html><html><head><meta charset="utf-8"><style>'
         . $ralewayFontCss
         . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;font-size:12px;margin:24px;}'
-        . 'h1{font-size:20px;margin:0 0 8px;}'
-        . '.meta{margin:2px 0;}'
+        . '.pdf-header{width:100%;border-collapse:collapse;border-bottom:2px solid #e5e7eb;margin-bottom:14px;padding-bottom:8px;}'
+        . '.pdf-header td{vertical-align:top;padding-bottom:8px;}'
+        . '.brand-name{font-size:20px;font-weight:700;color:#0f172a;margin-bottom:4px;}'
+        . '.brand-contacts{color:#6b7280;font-size:11px;line-height:1.45;}'
         . '.header{width:100%;border-collapse:collapse;margin-bottom:4px;}'
         . '.header td{vertical-align:top;}'
         . '.header .logo{text-align:right;}'
-        . '.header .logo img{max-height:64px;}'
-        . 'table{width:100%;border-collapse:collapse;margin-top:16px;font-size:11px;}'
-        . 'th,td{border:1px solid #d1d5db;padding:6px;vertical-align:top;}'
-        . 'th{background:#f3f4f6;}'
-        . '.summary{margin-top:14px;font-size:12px;}'
+        . '.header .logo img{max-height:70px;}'
+        . 'h1{font-size:20px;margin:0 0 8px;}'
+        . '.meta{margin:2px 0;}'
+        . '.metric-grid{width:100%;border-collapse:separate;border-spacing:10px 0;margin:6px 0 14px;}'
+        . '.metric-grid td{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;width:20%;}'
+        . '.metric-grid .label{display:block;color:#64748b;font-size:10px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em;}'
+        . '.metric-grid .value{display:block;color:#0f172a;font-size:14px;font-weight:700;}'
+        . '.data-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px;}'
+        . '.data-table th,.data-table td{border:1px solid #d1d5db;padding:6px;vertical-align:top;}'
+        . '.data-table th{background:#f3f4f6;}'
         . '</style></head><body>'
+        . '<table class="pdf-header" role="presentation"><tr><td><div class="brand-name">' . h((string) $companyName) . '</div><div class="brand-contacts">' . h(implode(' · ', $companyContacts)) . '</div></td>'
+        . '<td class="logo" width="220">'
+        . ($logoUrl !== '' ? '<img src="' . h($logoUrl) . '" alt="Logótipo empresa">' : '')
+        . '</td></tr></table>'
         . '<table class="header" role="presentation"><tr>'
         . '<td><h1>Mapa mensal de picagens</h1>'
         . '<p class="meta"><strong>Período:</strong> ' . h($periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y')) . '</p>'
         . '<p class="meta"><strong>Colaborador:</strong> ' . h((string) ($user['name'] ?? '')) . '</p>'
+        . '<p class="meta"><strong>Número:</strong> ' . h($userNumberLabel) . '</p>'
+        . '<p class="meta"><strong>Departamento:</strong> ' . h($departmentLabel) . '</p>'
         . '<p class="meta"><strong>Mês de referência:</strong> ' . h($reportMonthLabel) . '</p></td>'
-        . '<td class="logo" width="200">'
-        . ($logoUrl !== '' ? '<img src="' . h($logoUrl) . '" alt="Logótipo empresa" style="max-height:64px">' : '')
-        . '</td>'
+        . '<td></td>'
         . '</tr></table>'
-        . '<table><thead><tr><th>Data</th><th>Dia</th><th>Tipo</th><th>Picagens</th><th>BH</th><th>Justificação</th></tr></thead><tbody>'
+        . '<table class="metric-grid" role="presentation"><tr>' . $summaryHtml . '</tr></table>'
+        . '<table class="data-table"><thead><tr><th>Data</th><th>Dia</th><th>Tipo</th><th>Picagens</th><th>BH</th><th>Justificação</th></tr></thead><tbody>'
         . $rowsHtml
         . '</tbody></table>'
-        . '<div class="summary"><b>Resumo mensal:</b><br>'
-        . 'Dias com picagens: ' . $daysWithEntries . ' · '
-        . 'Dias totalmente validados: ' . $daysValidated . ' · '
-        . 'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes) . ' · '
-        . 'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes) . ' · '
-        . 'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias'
-        . '</div>'
         . '</body></html>';
 
     $logoFilePath = '';
@@ -1569,12 +1647,19 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         ]);
     }
 
+    $pdfFileName = 'mapa-mensal-' . preg_replace('/[^a-z0-9\-]+/i', '-', strtolower((string) ($user['name'] ?? 'colaborador'))) . '-' . $periodStart->format('Y-m') . '.pdf';
+    $storedPdf = null;
+    if (is_string($pdfContent) && $pdfContent !== '' && strncmp($pdfContent, '%PDF', 4) === 0) {
+        $storedPdf = taskforce_store_generated_pdf_on_server($pdfContent, $pdfFileName, 'mapa-presencas');
+    }
+
     return [
         'subject' => '[TaskForce RH] Mapa mensal de picagens - ' . (string) ($user['name'] ?? '') . ' - ' . $periodStart->format('m/Y'),
         'body' => implode(PHP_EOL, $lines),
         'html_body' => $htmlBody,
-        'pdf_filename' => 'mapa-mensal-' . preg_replace('/[^a-z0-9\-]+/i', '-', strtolower((string) ($user['name'] ?? 'colaborador'))) . '-' . $periodStart->format('Y-m') . '.pdf',
+        'pdf_filename' => $pdfFileName,
         'pdf_content' => $pdfContent,
+        'stored_pdf' => $storedPdf,
         'period_start' => $periodStartDate,
         'period_end' => $periodEndDate,
         'report_month_label' => $reportMonthLabel,
