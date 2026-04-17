@@ -8,12 +8,13 @@ if (!can_access_hr_module($pdo, $userId)) {
     exit('Acesso reservado a administradores e equipa RH.');
 }
 
-function format_seconds_hhmm(int $seconds): string
+function format_seconds_hhmmss(int $seconds): string
 {
     $safe = max(0, $seconds);
     $hours = intdiv($safe, 3600);
     $minutes = intdiv($safe % 3600, 60);
-    return sprintf('%02d:%02d', $hours, $minutes);
+    $remainingSeconds = $safe % 60;
+    return sprintf('%02d:%02d:%02d', $hours, $minutes, $remainingSeconds);
 }
 
 function table_exists(PDO $pdo, string $tableName): bool
@@ -55,10 +56,9 @@ function parse_hhmm_to_minutes(string $value): ?int
     return ($hours * 60) + $minutes;
 }
 
-function format_minutes_hhmm(int $minutes): string
+function format_minutes_hhmmss(int $minutes): string
 {
-    $safe = max(0, $minutes);
-    return sprintf('%02d:%02d', intdiv($safe, 60), $safe % 60);
+    return format_seconds_hhmmss(max(0, $minutes) * 60);
 }
 
 function calculate_schedule_target_minutes(array $row): int
@@ -222,6 +222,7 @@ if ($hasVacationEventsTable && $hasAbsenceRequestsTable) {
         }
 
         $leaveRow['planned_minutes'] = $plannedMinutes;
+        $leaveRow['planned_seconds'] = max(0, $plannedMinutes * 60);
     }
     unset($leaveRow);
 }
@@ -302,8 +303,8 @@ foreach ($todayAttendanceRows as $row) {
         continue;
     }
 
-    $delayMinutes = (int) floor(($firstEntryTimestamp - $scheduleTimestamp) / 60);
-    $row['delay_minutes'] = $delayMinutes;
+    $delaySeconds = $firstEntryTimestamp - $scheduleTimestamp;
+    $row['delay_seconds'] = max(0, $delaySeconds);
     $lateToday[] = $row;
 }
 
@@ -412,9 +413,9 @@ $pageTitle = 'Módulo RH';
 $bodyClass = 'bg-light';
 require __DIR__ . '/partials/header.php';
 
-$approvedLeavesTotalMinutes = 0;
+$approvedLeavesTotalSeconds = 0;
 foreach ($approvedLeavesToday as $leave) {
-    $approvedLeavesTotalMinutes += max(0, (int) ($leave['planned_minutes'] ?? 0));
+    $approvedLeavesTotalSeconds += max(0, (int) ($leave['planned_seconds'] ?? 0));
 }
 ?>
 <a href="dashboard.php" class="btn btn-link px-0 mb-2">&larr; Voltar à dashboard</a>
@@ -453,7 +454,7 @@ foreach ($approvedLeavesToday as $leave) {
             <div class="soft-card p-3 p-lg-4 h-100">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <h2 class="h5 mb-0">Pessoas a faltar (<?= h($todayDate) ?>)</h2>
-                    <span class="badge text-bg-danger-subtle border border-danger-subtle"><?= count($missingToday) ?></span>
+                    <span class="badge hr-count-badge hr-count-badge-danger"><?= count($missingToday) ?></span>
                 </div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
@@ -478,7 +479,7 @@ foreach ($approvedLeavesToday as $leave) {
             <div class="soft-card p-3 p-lg-4 h-100">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <h2 class="h5 mb-0">Pessoas atrasadas (<?= h($todayDate) ?>)</h2>
-                    <span class="badge text-bg-warning-subtle border border-warning-subtle"><?= count($lateToday) ?></span>
+                    <span class="badge hr-count-badge hr-count-badge-warning"><?= count($lateToday) ?></span>
                 </div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
@@ -490,7 +491,7 @@ foreach ($approvedLeavesToday as $leave) {
                             <tr>
                                 <td><?= h(trim(((string) ($person['user_number'] ?? '')) . ' · ' . ((string) ($person['name'] ?? '')), ' ·')) ?></td>
                                 <td><?= h((string) ($person['first_entry_at'] ?? '')) ?> (<?= h((string) ($person['start_time'] ?? '-')) ?>)</td>
-                                <td><?= (int) ($person['delay_minutes'] ?? 0) ?> min</td>
+                                <td><span class="hr-time-pill"><?= h(format_seconds_hhmmss((int) ($person['delay_seconds'] ?? 0))) ?></span></td>
                             </tr>
                         <?php endforeach; endif; ?>
                         </tbody>
@@ -503,7 +504,7 @@ foreach ($approvedLeavesToday as $leave) {
             <div class="soft-card p-3 p-lg-4 h-100">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <h2 class="h5 mb-0">Ausências/Férias aprovadas hoje</h2>
-                    <span class="badge text-bg-info-subtle border border-info-subtle"><?= count($approvedLeavesToday) ?> · <?= h(format_minutes_hhmm($approvedLeavesTotalMinutes)) ?></span>
+                    <span class="badge hr-count-badge hr-count-badge-info"><?= count($approvedLeavesToday) ?> · <?= h(format_seconds_hhmmss($approvedLeavesTotalSeconds)) ?></span>
                 </div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
@@ -516,7 +517,7 @@ foreach ($approvedLeavesToday as $leave) {
                                 <td><?= h(trim(((string) ($leave['user_number'] ?? '')) . ' · ' . ((string) ($leave['employee_name'] ?? '')), ' ·')) ?></td>
                                 <td><?= h((string) ($leave['leave_type'] ?? '')) ?></td>
                                 <td><?= h((string) ($leave['start_date'] ?? '')) ?> → <?= h((string) ($leave['end_date'] ?? '')) ?></td>
-                                <td><?= h(format_minutes_hhmm((int) ($leave['planned_minutes'] ?? 0))) ?></td>
+                                <td><span class="hr-time-pill"><?= h(format_seconds_hhmmss((int) ($leave['planned_seconds'] ?? 0))) ?></span></td>
                             </tr>
                         <?php endforeach; endif; ?>
                         </tbody>
@@ -545,7 +546,7 @@ foreach ($approvedLeavesToday as $leave) {
         <div class="col-md-3"><div class="shopfloor-panel h-100"><div class="small text-secondary">Total de registos</div><div class="h3 mb-0"><?= (int) ($globalStats['total_entries'] ?? 0) ?></div></div></div>
         <div class="col-md-3"><div class="shopfloor-panel h-100"><div class="small text-secondary">Total pausas</div><div class="h3 mb-0"><?= (int) ($globalStats['total_pauses'] ?? 0) ?></div></div></div>
         <div class="col-md-3"><div class="shopfloor-panel h-100"><div class="small text-secondary">Total paragens</div><div class="h3 mb-0"><?= (int) ($globalStats['total_stops'] ?? 0) ?></div></div></div>
-        <div class="col-md-3"><div class="shopfloor-panel h-100"><div class="small text-secondary">Duração acumulada (hh:mm)</div><div class="h3 mb-0"><?= h(format_seconds_hhmm((int) ($globalStats['total_seconds'] ?? 0))) ?></div></div></div>
+        <div class="col-md-3"><div class="shopfloor-panel h-100"><div class="small text-secondary">Duração acumulada (hh:mm:ss)</div><div class="h3 mb-0"><?= h(format_seconds_hhmmss((int) ($globalStats['total_seconds'] ?? 0))) ?></div></div></div>
     </div>
 
     <div class="row g-3">
@@ -562,7 +563,7 @@ foreach ($approvedLeavesToday as $leave) {
                                 <td><?= h((string) $reason['code']) ?> | <?= h((string) $reason['label']) ?></td>
                                 <td><?= h((string) $reason['break_type']) ?></td>
                                 <td><?= (int) ($reason['total_entries'] ?? 0) ?></td>
-                                <td><?= h(format_seconds_hhmm((int) ($reason['total_seconds'] ?? 0))) ?></td>
+                                <td><?= h(format_seconds_hhmmss((int) ($reason['total_seconds'] ?? 0))) ?></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>
@@ -585,7 +586,7 @@ foreach ($approvedLeavesToday as $leave) {
                                 <td><?= (int) ($summary['total_pauses'] ?? 0) ?></td>
                                 <td><?= (int) ($summary['total_stops'] ?? 0) ?></td>
                                 <td><?= (int) ($summary['total_entries'] ?? 0) ?></td>
-                                <td><?= h(format_seconds_hhmm((int) ($summary['total_seconds'] ?? 0))) ?></td>
+                                <td><?= h(format_seconds_hhmmss((int) ($summary['total_seconds'] ?? 0))) ?></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>
