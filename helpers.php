@@ -1062,46 +1062,77 @@ function taskforce_generate_monthly_attendance_fpdf_pdf(array $reportData): ?str
     };
 
     $pdf = new FPDF('P', 'mm', 'A4');
-    $pdf->SetAutoPageBreak(true, 10);
+    $pdf->SetAutoPageBreak(true, 12);
     $pdf->AddPage();
-    $pdf->SetDrawColor(209, 213, 219);
-    $pdf->SetFillColor(243, 244, 246);
+    $pdf->SetDrawColor(220, 226, 234);
+    $pdf->SetFillColor(245, 247, 250);
     $pdf->SetTextColor(31, 41, 55);
 
+    $companyName = (string) ($reportData['company_name'] ?? 'TaskForce');
+    $companyContacts = (array) ($reportData['company_contacts'] ?? []);
+    $companyLine = trim(implode(' · ', array_filter(array_map('strval', $companyContacts))));
+    $employee = (string) ($reportData['employee'] ?? '—');
+    $userNumber = (string) ($reportData['user_number'] ?? '—');
+    $department = (string) ($reportData['department'] ?? '—');
+    $period = (string) ($reportData['period'] ?? '—');
+    $month = (string) ($reportData['month'] ?? '—');
+
     $pdf->SetFont('Arial', 'B', 16);
-    $pdf->Cell(0, 9, $toPdfText('Mapa mensal de picagens'), 0, 1);
-    $pdf->SetFont('Arial', '', 10);
-    $pdf->Cell(0, 6, $toPdfText('Período: ' . (string) ($reportData['period'] ?? '—')), 0, 1);
-    $pdf->Cell(0, 6, $toPdfText('Colaborador: ' . (string) ($reportData['employee'] ?? '—')), 0, 1);
-    $pdf->Cell(0, 6, $toPdfText('Mês de referência: ' . (string) ($reportData['month'] ?? '—')), 0, 1);
-    $pdf->Ln(2);
+    $pdf->Cell(0, 8, $toPdfText($companyName), 0, 1);
+    if ($companyLine !== '') {
+        $pdf->SetFont('Arial', '', 9);
+        $pdf->SetTextColor(100, 116, 139);
+        $pdf->MultiCell(0, 5, $toPdfText($companyLine), 0, 'L');
+        $pdf->SetTextColor(31, 41, 55);
+    }
+
+    $pdf->Ln(1);
+    $pdf->SetFont('Arial', 'B', 15);
+    $pdf->Cell(0, 8, $toPdfText('Mapa mensal de picagens'), 0, 1);
+    $pdf->SetFont('Arial', '', 9.5);
+    $pdf->Cell(0, 5.6, $toPdfText('Período: ' . $period), 0, 1);
+    $pdf->Cell(0, 5.6, $toPdfText('Colaborador: ' . $employee), 0, 1);
+    $pdf->Cell(0, 5.6, $toPdfText('Número: ' . ($userNumber !== '' ? $userNumber : '—')), 0, 1);
+    $pdf->Cell(0, 5.6, $toPdfText('Departamento: ' . ($department !== '' ? $department : '—')), 0, 1);
+    $pdf->Cell(0, 5.6, $toPdfText('Mês de referência: ' . $month), 0, 1);
+    $pdf->Ln(1.5);
 
     $headers = [
-        ['Data', 23],
-        ['Dia', 12],
-        ['Tipo', 18],
-        ['Picagens', 78],
-        ['BH', 18],
-        ['Justificação', 41],
+        ['Data', 21],
+        ['Dia', 10],
+        ['Tipo', 16],
+        ['Picagens', 70],
+        ['BH', 14],
+        ['Justificação', 59],
     ];
-    $pdf->SetFont('Arial', 'B', 8.3);
+    $pdf->SetFont('Arial', 'B', 8.2);
     foreach ($headers as [$label, $width]) {
         $pdf->Cell($width, 7, $toPdfText($label), 1, 0, 'L', true);
     }
     $pdf->Ln();
 
-    $pdf->SetFont('Arial', '', 7.6);
-    $lineHeight = 6;
+    $pdf->SetFont('Arial', '', 7.4);
+    $lineHeight = 5.4;
     foreach ((array) ($reportData['rows'] ?? []) as $row) {
         $slotsText = implode(' ', (array) ($row['slots'] ?? []));
         $cells = [
             $fitText((string) ($row['date'] ?? ''), 12),
             $fitText((string) ($row['weekday'] ?? ''), 5),
-            $fitText((string) ($row['type'] ?? ''), 10),
-            $fitText($slotsText, 64),
+            $fitText((string) ($row['type'] ?? ''), 9),
+            $fitText($slotsText, 58),
             $fitText((string) ($row['bh'] ?? ''), 8),
-            $fitText((string) ($row['justification'] ?? ''), 32),
+            $fitText((string) ($row['justification'] ?? ''), 52),
         ];
+
+        if ($pdf->GetY() > 268) {
+            $pdf->AddPage();
+            $pdf->SetFont('Arial', 'B', 8.2);
+            foreach ($headers as [$label, $width]) {
+                $pdf->Cell($width, 7, $toPdfText($label), 1, 0, 'L', true);
+            }
+            $pdf->Ln();
+            $pdf->SetFont('Arial', '', 7.4);
+        }
 
         foreach ($headers as $idx => $header) {
             $width = (int) $header[1];
@@ -1112,11 +1143,11 @@ function taskforce_generate_monthly_attendance_fpdf_pdf(array $reportData): ?str
 
     if (!empty($reportData['summary']) && is_array($reportData['summary'])) {
         $pdf->Ln(3);
-        $pdf->SetFont('Arial', 'B', 10.5);
+        $pdf->SetFont('Arial', 'B', 10);
         $pdf->Cell(0, 6, $toPdfText('Resumo mensal'), 0, 1);
-        $pdf->SetFont('Arial', '', 9);
+        $pdf->SetFont('Arial', '', 8.8);
         foreach ($reportData['summary'] as $summaryLine) {
-            $pdf->Cell(0, 5, $toPdfText((string) $summaryLine), 0, 1);
+            $pdf->Cell(0, 4.8, $toPdfText((string) $summaryLine), 0, 1);
         }
     }
 
@@ -1615,7 +1646,7 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     }
     $pdfContent = taskforce_generate_pdf_from_html($htmlBody);
     if ($pdfContent === null) {
-        $pdfContent = taskforce_generate_monthly_attendance_fpdf_pdf([
+        $pdfContent = taskforce_generate_monthly_layout_pdf([
             'period' => $periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y'),
             'employee' => (string) ($user['name'] ?? ''),
             'month' => $reportMonthLabel,
@@ -1627,23 +1658,27 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
                 'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes),
                 'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
             ],
+            'logo_path' => $logoFilePath,
+            'lines' => $lines,
         ]);
     }
     if ($pdfContent === null) {
-        $pdfContent = taskforce_generate_monthly_layout_pdf([
-        'period' => $periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y'),
-        'employee' => (string) ($user['name'] ?? ''),
-        'month' => $reportMonthLabel,
-        'rows' => $rows,
-        'summary' => [
-            'Dias com picagens: ' . $daysWithEntries,
-            'Dias totalmente validados: ' . $daysValidated,
-            'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes),
-            'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes),
-            'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
-        ],
-        'logo_path' => $logoFilePath,
-        'lines' => $lines,
+        $pdfContent = taskforce_generate_monthly_attendance_fpdf_pdf([
+            'company_name' => (string) $companyName,
+            'company_contacts' => $companyContacts,
+            'period' => $periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y'),
+            'employee' => (string) ($user['name'] ?? ''),
+            'user_number' => $userNumberLabel,
+            'department' => $departmentLabel,
+            'month' => $reportMonthLabel,
+            'rows' => $rows,
+            'summary' => [
+                'Dias com picagens: ' . $daysWithEntries,
+                'Dias totalmente validados: ' . $daysValidated,
+                'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes),
+                'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes),
+                'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
+            ],
         ]);
     }
 
