@@ -759,6 +759,48 @@ body {
     border-color: rgba(245, 158, 11, 0.35);
 }
 
+.hr-count-badge {
+    min-width: 2.25rem;
+    border-radius: 999px;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-align: center;
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.hr-count-badge-danger {
+    background: rgba(220, 38, 38, 0.08);
+    color: #b91c1c;
+    border: 1px solid rgba(220, 38, 38, 0.28);
+}
+
+.hr-count-badge-warning {
+    background: rgba(245, 158, 11, 0.12);
+    color: #92400e;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.hr-count-badge-info {
+    background: rgba(14, 165, 233, 0.12);
+    color: #075985;
+    border: 1px solid rgba(14, 165, 233, 0.3);
+}
+
+.hr-time-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 0.15rem 0.5rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #0f172a;
+}
+
 .hr-check-item {
     border: 1px solid rgba(25, 135, 84, 0.35);
     background: rgba(25, 135, 84, 0.08);
