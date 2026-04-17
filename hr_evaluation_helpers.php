@@ -339,54 +339,56 @@ function taskforce_build_evaluation_mail_html(string $employeeName, string $lead
         . '</div></div></body></html>';
 }
 
-function taskforce_store_generated_pdf_on_server(string $pdfContent, string $fileName, string $scope = 'hr-evaluations'): ?array
-{
-    if ($pdfContent === '' || strncmp($pdfContent, '%PDF', 4) !== 0) {
-        return null;
-    }
+if (!function_exists('taskforce_store_generated_pdf_on_server')) {
+    function taskforce_store_generated_pdf_on_server(string $pdfContent, string $fileName, string $scope = 'hr-evaluations'): ?array
+    {
+        if ($pdfContent === '' || strncmp($pdfContent, '%PDF', 4) !== 0) {
+            return null;
+        }
 
-    $safeName = preg_replace('/[^A-Za-z0-9_.-]+/', '-', basename($fileName));
-    if (!is_string($safeName) || $safeName === '' || $safeName === '.' || $safeName === '..') {
-        $safeName = 'documento.pdf';
-    }
-    if (!str_ends_with(strtolower($safeName), '.pdf')) {
-        $safeName .= '.pdf';
-    }
+        $safeName = preg_replace('/[^A-Za-z0-9_.-]+/', '-', basename($fileName));
+        if (!is_string($safeName) || $safeName === '' || $safeName === '.' || $safeName === '..') {
+            $safeName = 'documento.pdf';
+        }
+        if (!str_ends_with(strtolower($safeName), '.pdf')) {
+            $safeName .= '.pdf';
+        }
 
-    $rootStorage = function_exists('app_config')
-        ? (string) app_config('paths.storage', __DIR__ . '/storage')
-        : __DIR__ . '/storage';
-    $folderDate = date('Y/m');
-    $targetDir = rtrim($rootStorage, '/\\') . '/generated-pdfs/' . trim($scope, '/\\') . '/' . $folderDate;
-    if (!is_dir($targetDir) && !@mkdir($targetDir, 0750, true) && !is_dir($targetDir)) {
-        return null;
-    }
+        $rootStorage = function_exists('app_config')
+            ? (string) app_config('paths.storage', __DIR__ . '/storage')
+            : __DIR__ . '/storage';
+        $folderDate = date('Y/m');
+        $targetDir = rtrim($rootStorage, '/\\') . '/generated-pdfs/' . trim($scope, '/\\') . '/' . $folderDate;
+        if (!is_dir($targetDir) && !@mkdir($targetDir, 0750, true) && !is_dir($targetDir)) {
+            return null;
+        }
 
-    try {
-        $suffix = bin2hex(random_bytes(4));
-    } catch (Throwable $exception) {
-        $suffix = substr(sha1(uniqid((string) mt_rand(), true)), 0, 8);
-    }
+        try {
+            $suffix = bin2hex(random_bytes(4));
+        } catch (Throwable $exception) {
+            $suffix = substr(sha1(uniqid((string) mt_rand(), true)), 0, 8);
+        }
 
-    $storedName = date('Ymd-His') . '-' . $suffix . '-' . $safeName;
-    $targetPath = $targetDir . '/' . $storedName;
-    $written = @file_put_contents($targetPath, $pdfContent, LOCK_EX);
-    if ($written === false || (int) $written !== strlen($pdfContent)) {
-        @unlink($targetPath);
-        return null;
-    }
+        $storedName = date('Ymd-His') . '-' . $suffix . '-' . $safeName;
+        $targetPath = $targetDir . '/' . $storedName;
+        $written = @file_put_contents($targetPath, $pdfContent, LOCK_EX);
+        if ($written === false || (int) $written !== strlen($pdfContent)) {
+            @unlink($targetPath);
+            return null;
+        }
 
-    $diskContent = @file_get_contents($targetPath);
-    if (!is_string($diskContent) || $diskContent === '' || strncmp($diskContent, '%PDF', 4) !== 0) {
-        @unlink($targetPath);
-        return null;
-    }
+        $diskContent = @file_get_contents($targetPath);
+        if (!is_string($diskContent) || $diskContent === '' || strncmp($diskContent, '%PDF', 4) !== 0) {
+            @unlink($targetPath);
+            return null;
+        }
 
-    return [
-        'absolute_path' => $targetPath,
-        'relative_path' => 'storage/generated-pdfs/' . trim($scope, '/\\') . '/' . $folderDate . '/' . $storedName,
-        'content' => $diskContent,
-    ];
+        return [
+            'absolute_path' => $targetPath,
+            'relative_path' => 'storage/generated-pdfs/' . trim($scope, '/\\') . '/' . $folderDate . '/' . $storedName,
+            'content' => $diskContent,
+        ];
+    }
 }
 
 function taskforce_pdf_generation_diagnostics(): string
