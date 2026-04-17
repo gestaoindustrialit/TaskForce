@@ -40,10 +40,98 @@ function column_exists(PDO $pdo, string $tableName, string $columnName): bool
     return false;
 }
 
+function parse_hhmm_to_minutes(string $value): ?int
+{
+    if (!preg_match('/^(\d{1,2}):(\d{2})$/', trim($value), $matches)) {
+        return null;
+    }
+
+    $hours = (int) $matches[1];
+    $minutes = (int) $matches[2];
+    if ($minutes > 59) {
+        return null;
+    }
+
+    return ($hours * 60) + $minutes;
+}
+
+function format_minutes_hhmm(int $minutes): string
+{
+    $safe = max(0, $minutes);
+    return sprintf('%02d:%02d', intdiv($safe, 60), $safe % 60);
+}
+
+function calculate_schedule_target_minutes(array $row): int
+{
+    $startMinutes = parse_hhmm_to_minutes((string) ($row['schedule_start_time'] ?? ''));
+    $endMinutes = parse_hhmm_to_minutes((string) ($row['schedule_end_time'] ?? ''));
+    $secondStartMinutes = parse_hhmm_to_minutes((string) ($row['schedule_second_start_time'] ?? ''));
+    $secondEndMinutes = parse_hhmm_to_minutes((string) ($row['schedule_second_end_time'] ?? ''));
+    $breakMinutes = max(0, (int) ($row['schedule_break_minutes'] ?? 0));
+
+    $total = 0;
+    if ($startMinutes !== null && $endMinutes !== null && $endMinutes > $startMinutes) {
+        $total += ($endMinutes - $startMinutes);
+    }
+    if ($secondStartMinutes !== null && $secondEndMinutes !== null && $secondEndMinutes > $secondStartMinutes) {
+        $total += ($secondEndMinutes - $secondStartMinutes);
+    }
+    if ($total <= 0) {
+        return 0;
+    }
+
+    return max(0, $total - $breakMinutes);
+}
+
+function extract_schedule_gap(string $scheduleName): string
+{
+    if (preg_match('/\bGAP\s*([1-3])\b/i', $scheduleName, $matches) !== 1) {
+        return '';
+    }
+
+    return 'gap' . (string) ($matches[1] ?? '');
+}
+
+$todayDate = date('Y-m-d');
+$todayWeekday = (int) date('N');
+
+$todayCalendarBlocks = [];
+$hasCalendarTable = table_exists($pdo, 'hr_calendar_events');
+if ($hasCalendarTable) {
+    $calendarStmt = $pdo->prepare('SELECT event_type, title FROM hr_calendar_events WHERE date(?) BETWEEN date(start_date) AND date(end_date)');
+    $calendarStmt->execute([$todayDate]);
+    $todayCalendarBlocks = $calendarStmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+$is_company_day_blocked = static function (string $scheduleName) use ($todayCalendarBlocks): bool {
+    if ($todayCalendarBlocks === []) {
+        return false;
+    }
+
+    $scheduleGap = extract_schedule_gap($scheduleName);
+    foreach ($todayCalendarBlocks as $calendarEvent) {
+        $eventType = trim((string) ($calendarEvent['event_type'] ?? ''));
+        $eventTitle = mb_strtolower(trim((string) ($calendarEvent['title'] ?? '')));
+        if (in_array($eventType, ['Feriado', 'Ponte'], true)) {
+            return true;
+        }
+
+        if ($eventType === 'Férias') {
+            if ($scheduleGap === '' || strpos($eventTitle, $scheduleGap) !== false || strpos($eventTitle, 'gerais') !== false) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+};
+
 $hasUserActiveColumn = column_exists($pdo, 'users', 'is_active');
 $activeUsersSql = $hasUserActiveColumn
     ? 'SELECT COUNT(*) FROM users WHERE is_active = 1'
     : 'SELECT COUNT(*) FROM users';
+$activeUsersConditionSql = $hasUserActiveColumn ? 'u.is_active = 1' : '1 = 1';
+$pinOnlyConditionSql = column_exists($pdo, 'users', 'pin_only_login') ? 'u.pin_only_login = 0' : '1 = 1';
 
 $stats = [
     'users' => (int) $pdo->query($activeUsersSql)->fetchColumn(),
@@ -53,12 +141,16 @@ $stats = [
     'alerts' => (int) $pdo->query('SELECT COUNT(*) FROM hr_alerts WHERE is_active = 1')->fetchColumn(),
 ];
 
-$todayDate = date('Y-m-d');
-$todayWeekday = (int) date('N');
-
 $approvedLeavesToday = [];
 $hasVacationEventsTable = table_exists($pdo, 'hr_vacation_events');
 $hasAbsenceRequestsTable = table_exists($pdo, 'shopfloor_absence_requests');
+$scheduleStartExpr = column_exists($pdo, 'hr_schedules', 'start_time') ? 's.start_time' : 'NULL';
+$scheduleEndExpr = column_exists($pdo, 'hr_schedules', 'end_time') ? 's.end_time' : 'NULL';
+$scheduleSecondStartExpr = column_exists($pdo, 'hr_schedules', 'second_start_time') ? 's.second_start_time' : 'NULL';
+$scheduleSecondEndExpr = column_exists($pdo, 'hr_schedules', 'second_end_time') ? 's.second_end_time' : 'NULL';
+$scheduleBreakExpr = column_exists($pdo, 'hr_schedules', 'break_minutes') ? 's.break_minutes' : '0';
+$absenceDurationTypeExpr = column_exists($pdo, 'shopfloor_absence_requests', 'duration_type') ? 'a.duration_type' : 'NULL';
+$absenceDurationHoursExpr = column_exists($pdo, 'shopfloor_absence_requests', 'duration_hours') ? 'a.duration_hours' : 'NULL';
 
 if ($hasVacationEventsTable && $hasAbsenceRequestsTable) {
     $approvedLeavesStmt = $pdo->prepare(
@@ -69,11 +161,19 @@ if ($hasVacationEventsTable && $hasAbsenceRequestsTable) {
         d.name AS department_name,
         "Férias" AS leave_type,
         v.start_date,
-        v.end_date
+        v.end_date,
+        NULL AS duration_type,
+        NULL AS duration_hours,
+        ' . $scheduleStartExpr . ' AS schedule_start_time,
+        ' . $scheduleEndExpr . ' AS schedule_end_time,
+        ' . $scheduleSecondStartExpr . ' AS schedule_second_start_time,
+        ' . $scheduleSecondEndExpr . ' AS schedule_second_end_time,
+        ' . $scheduleBreakExpr . ' AS schedule_break_minutes
      FROM hr_vacation_events v
      INNER JOIN users u ON u.id = v.user_id
      LEFT JOIN hr_departments d ON d.id = u.department_id
-     WHERE u.is_active = 1
+     LEFT JOIN hr_schedules s ON s.id = u.schedule_id
+     WHERE ' . $activeUsersConditionSql . '
        AND v.status = "Aprovado"
        AND date(?) BETWEEN date(v.start_date) AND date(v.end_date)
 
@@ -86,11 +186,19 @@ if ($hasVacationEventsTable && $hasAbsenceRequestsTable) {
         d.name AS department_name,
         "Ausência" AS leave_type,
         a.start_date,
-        a.end_date
+        a.end_date,
+        ' . $absenceDurationTypeExpr . ' AS duration_type,
+        ' . $absenceDurationHoursExpr . ' AS duration_hours,
+        ' . $scheduleStartExpr . ' AS schedule_start_time,
+        ' . $scheduleEndExpr . ' AS schedule_end_time,
+        ' . $scheduleSecondStartExpr . ' AS schedule_second_start_time,
+        ' . $scheduleSecondEndExpr . ' AS schedule_second_end_time,
+        ' . $scheduleBreakExpr . ' AS schedule_break_minutes
      FROM shopfloor_absence_requests a
      INNER JOIN users u ON u.id = a.user_id
      LEFT JOIN hr_departments d ON d.id = u.department_id
-     WHERE u.is_active = 1
+     LEFT JOIN hr_schedules s ON s.id = u.schedule_id
+     WHERE ' . $activeUsersConditionSql . '
        AND a.status LIKE "Aprovado%"
        AND date(?) BETWEEN date(a.start_date) AND date(a.end_date)
 
@@ -98,6 +206,24 @@ if ($hasVacationEventsTable && $hasAbsenceRequestsTable) {
     );
     $approvedLeavesStmt->execute([$todayDate, $todayDate]);
     $approvedLeavesToday = $approvedLeavesStmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($approvedLeavesToday as &$leaveRow) {
+        $plannedMinutes = calculate_schedule_target_minutes($leaveRow);
+        $durationType = trim((string) ($leaveRow['duration_type'] ?? ''));
+        $durationHours = trim((string) ($leaveRow['duration_hours'] ?? ''));
+        if ((string) ($leaveRow['leave_type'] ?? '') === 'Ausência') {
+            if ($durationType === 'Horas') {
+                $parsedHours = parse_hhmm_to_minutes($durationHours);
+                if ($parsedHours !== null) {
+                    $plannedMinutes = $parsedHours;
+                }
+            } elseif ($durationType === 'Parcial') {
+                $plannedMinutes = (int) floor($plannedMinutes / 2);
+            }
+        }
+
+        $leaveRow['planned_minutes'] = $plannedMinutes;
+    }
+    unset($leaveRow);
 }
 
 $todayAttendanceRows = [];
@@ -127,8 +253,8 @@ if ($canComputeAttendance) {
           AND date(occurred_at, "localtime") = date(?)
         GROUP BY user_id
      ) AS first_entry ON first_entry.user_id = u.id
-     WHERE u.is_active = 1
-       AND u.pin_only_login = 0
+     WHERE ' . $activeUsersConditionSql . '
+       AND ' . $pinOnlyConditionSql . '
        AND instr("," || replace(COALESCE(s.weekdays_mask, ""), " ", "") || ",", "," || ? || ",") > 0
        AND NOT EXISTS (
             SELECT 1
@@ -154,6 +280,10 @@ $missingToday = [];
 $lateToday = [];
 
 foreach ($todayAttendanceRows as $row) {
+    if ($is_company_day_blocked((string) ($row['schedule_name'] ?? ''))) {
+        continue;
+    }
+
     $firstEntry = (string) ($row['first_entry_at'] ?? '');
     $scheduleStart = trim((string) ($row['start_time'] ?? ''));
 
@@ -281,6 +411,11 @@ if ($hasBreakDashboardTables) {
 $pageTitle = 'Módulo RH';
 $bodyClass = 'bg-light';
 require __DIR__ . '/partials/header.php';
+
+$approvedLeavesTotalMinutes = 0;
+foreach ($approvedLeavesToday as $leave) {
+    $approvedLeavesTotalMinutes += max(0, (int) ($leave['planned_minutes'] ?? 0));
+}
 ?>
 <a href="dashboard.php" class="btn btn-link px-0 mb-2">&larr; Voltar à dashboard</a>
 
@@ -368,19 +503,20 @@ require __DIR__ . '/partials/header.php';
             <div class="soft-card p-3 p-lg-4 h-100">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <h2 class="h5 mb-0">Ausências/Férias aprovadas hoje</h2>
-                    <span class="badge text-bg-info-subtle border border-info-subtle"><?= count($approvedLeavesToday) ?></span>
+                    <span class="badge text-bg-info-subtle border border-info-subtle"><?= count($approvedLeavesToday) ?> · <?= h(format_minutes_hhmm($approvedLeavesTotalMinutes)) ?></span>
                 </div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
-                        <thead><tr><th>Colaborador</th><th>Tipo</th><th>Período</th></tr></thead>
+                        <thead><tr><th>Colaborador</th><th>Tipo</th><th>Período</th><th>Tempo previsto</th></tr></thead>
                         <tbody>
                         <?php if (!$approvedLeavesToday): ?>
-                            <tr><td colspan="3" class="text-muted">Sem ausências/férias aprovadas para hoje.</td></tr>
+                            <tr><td colspan="4" class="text-muted">Sem ausências/férias aprovadas para hoje.</td></tr>
                         <?php else: foreach ($approvedLeavesToday as $leave): ?>
                             <tr>
                                 <td><?= h(trim(((string) ($leave['user_number'] ?? '')) . ' · ' . ((string) ($leave['employee_name'] ?? '')), ' ·')) ?></td>
                                 <td><?= h((string) ($leave['leave_type'] ?? '')) ?></td>
                                 <td><?= h((string) ($leave['start_date'] ?? '')) ?> → <?= h((string) ($leave['end_date'] ?? '')) ?></td>
+                                <td><?= h(format_minutes_hhmm((int) ($leave['planned_minutes'] ?? 0))) ?></td>
                             </tr>
                         <?php endforeach; endif; ?>
                         </tbody>
