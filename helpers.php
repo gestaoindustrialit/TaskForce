@@ -1644,8 +1644,10 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
             $logoFilePath = $candidatePath;
         }
     }
+    $pdfEngine = 'html';
     $pdfContent = taskforce_generate_pdf_from_html($htmlBody);
     if ($pdfContent === null) {
+        $pdfEngine = 'layout';
         $pdfContent = taskforce_generate_monthly_layout_pdf([
             'period' => $periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y'),
             'employee' => (string) ($user['name'] ?? ''),
@@ -1663,6 +1665,7 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         ]);
     }
     if ($pdfContent === null) {
+        $pdfEngine = 'fpdf';
         $pdfContent = taskforce_generate_monthly_attendance_fpdf_pdf([
             'company_name' => (string) $companyName,
             'company_contacts' => $companyContacts,
@@ -1684,8 +1687,13 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
 
     $pdfFileName = 'mapa-mensal-' . preg_replace('/[^a-z0-9\-]+/i', '-', strtolower((string) ($user['name'] ?? 'colaborador'))) . '-' . $periodStart->format('Y-m') . '.pdf';
     $storedPdf = null;
+    $storeStatus = 'not_attempted';
     if (is_string($pdfContent) && $pdfContent !== '' && strncmp($pdfContent, '%PDF', 4) === 0) {
         $storedPdf = taskforce_store_generated_pdf_on_server($pdfContent, $pdfFileName, 'mapa-presencas');
+        $storeStatus = is_array($storedPdf) ? 'stored' : 'store_failed';
+    } else {
+        $pdfEngine = 'failed';
+        $storeStatus = 'invalid_pdf';
     }
 
     return [
@@ -1695,6 +1703,12 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         'pdf_filename' => $pdfFileName,
         'pdf_content' => $pdfContent,
         'stored_pdf' => $storedPdf,
+        'pdf_debug' => [
+            'engine' => $pdfEngine,
+            'store_status' => $storeStatus,
+            'has_pdf_content' => is_string($pdfContent) && $pdfContent !== '',
+            'stored_relative_path' => is_array($storedPdf) ? (string) ($storedPdf['relative_path'] ?? '') : '',
+        ],
         'period_start' => $periodStartDate,
         'period_end' => $periodEndDate,
         'report_month_label' => $reportMonthLabel,

@@ -293,7 +293,8 @@ function send_attendance_monthly_map_alert(array $users, PDO $pdo, DateTimeImmut
                 'content' => (string) $storedPdf['content'],
             ];
         } else {
-            cron_log_line('ALERTA #' . $alertId . ' não enviou user #' . $userId . ' porque o PDF não foi guardado no servidor.');
+            $debug = json_encode((array) ($report['pdf_debug'] ?? []), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            cron_log_line('ALERTA #' . $alertId . ' não enviou user #' . $userId . ' porque o PDF não foi guardado no servidor. debug=' . ($debug !== false ? $debug : '{}'));
             continue;
         }
 
