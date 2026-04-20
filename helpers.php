@@ -1071,6 +1071,7 @@ function taskforce_generate_monthly_attendance_fpdf_pdf(array $reportData): ?str
     $companyName = (string) ($reportData['company_name'] ?? 'TaskForce');
     $companyContacts = (array) ($reportData['company_contacts'] ?? []);
     $companyLine = trim(implode(' · ', array_filter(array_map('strval', $companyContacts))));
+    $logoPath = trim((string) ($reportData['logo_path'] ?? ''));
     $employee = (string) ($reportData['employee'] ?? '—');
     $userNumber = (string) ($reportData['user_number'] ?? '—');
     $department = (string) ($reportData['department'] ?? '—');
@@ -1079,6 +1080,13 @@ function taskforce_generate_monthly_attendance_fpdf_pdf(array $reportData): ?str
 
     $pdf->SetFont('Arial', 'B', 16);
     $pdf->Cell(0, 8, $toPdfText($companyName), 0, 1);
+    if ($logoPath !== '' && is_file($logoPath)) {
+        try {
+            $pdf->Image($logoPath, 150, 10, 46);
+        } catch (Throwable $exception) {
+            // Ignorar logo inválido e continuar com o PDF.
+        }
+    }
     if ($companyLine !== '') {
         $pdf->SetFont('Arial', '', 9);
         $pdf->SetTextColor(100, 116, 139);
@@ -1647,6 +1655,29 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     $pdfEngine = 'html';
     $pdfContent = taskforce_generate_pdf_from_html($htmlBody);
     if ($pdfContent === null) {
+        $pdfEngine = 'fpdf';
+        $pdfContent = taskforce_generate_monthly_attendance_fpdf_pdf([
+            'company_name' => (string) $companyName,
+            'company_contacts' => $companyContacts,
+            'logo_path' => $logoFilePath,
+            'period' => $periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y'),
+            'employee' => (string) ($user['name'] ?? ''),
+            'user_number' => $userNumberLabel,
+            'department' => $departmentLabel,
+            'month' => $reportMonthLabel,
+            'rows' => $rows,
+            'summary' => [
+                'Dias com picagens: ' . $daysWithEntries,
+                'Dias totalmente validados: ' . $daysValidated,
+                'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes),
+                'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes),
+                'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
+            ],
+            'logo_path' => $logoFilePath,
+            'lines' => $lines,
+        ]);
+    }
+    if ($pdfContent === null) {
         $pdfEngine = 'layout';
         $pdfContent = taskforce_generate_monthly_layout_pdf([
             'period' => $periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y'),
@@ -1662,26 +1693,6 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
             ],
             'logo_path' => $logoFilePath,
             'lines' => $lines,
-        ]);
-    }
-    if ($pdfContent === null) {
-        $pdfEngine = 'fpdf';
-        $pdfContent = taskforce_generate_monthly_attendance_fpdf_pdf([
-            'company_name' => (string) $companyName,
-            'company_contacts' => $companyContacts,
-            'period' => $periodStart->format('d/m/Y') . ' - ' . $periodEnd->format('d/m/Y'),
-            'employee' => (string) ($user['name'] ?? ''),
-            'user_number' => $userNumberLabel,
-            'department' => $departmentLabel,
-            'month' => $reportMonthLabel,
-            'rows' => $rows,
-            'summary' => [
-                'Dias com picagens: ' . $daysWithEntries,
-                'Dias totalmente validados: ' . $daysValidated,
-                'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes),
-                'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes),
-                'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
-            ],
         ]);
     }
 
