@@ -147,8 +147,6 @@ function build_attendance_alert_preview(PDO $pdo, array $alert): array
         return ['ok' => false, 'message' => 'Não foi possível gerar a pré-visualização do PDF. Verifique o log em storage/logs/hr-alerts-manual.log.'];
     }
 
-    $publicPath = '/' . ltrim((string) $storedPdf['relative_path'], '/');
-
     return [
         'ok' => true,
         'message' => 'Pré-visualização gerada para ' . (string) ($sampleUser['name'] ?? 'colaborador') . '.',
@@ -159,7 +157,7 @@ function build_attendance_alert_preview(PDO $pdo, array $alert): array
             'sample_user_email' => (string) ($sampleUser['email'] ?? ''),
             'pdf_filename' => (string) ($report['pdf_filename'] ?? 'mapa-mensal.pdf'),
             'pdf_relative_path' => (string) $storedPdf['relative_path'],
-            'pdf_public_path' => $publicPath,
+            'pdf_public_path' => '',
             'pdf_debug' => $debug,
         ],
     ];
@@ -417,7 +415,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $previewResult = build_attendance_alert_preview($pdo, $alertRow);
             if (!empty($previewResult['ok']) && !empty($previewResult['preview']) && is_array($previewResult['preview'])) {
-                $_SESSION['hr_alert_preview'] = $previewResult['preview'];
+                $previewData = $previewResult['preview'];
+                $previewData['token'] = bin2hex(random_bytes(12));
+                $previewData['pdf_public_path'] = 'hr_alert_preview_pdf.php?alert_id=' . (int) ($previewData['alert_id'] ?? 0)
+                    . '&token=' . urlencode((string) $previewData['token']);
+                $_SESSION['hr_alert_preview'] = $previewData;
                 $flashSuccess = (string) ($previewResult['message'] ?? 'Pré-visualização gerada com sucesso.');
             } else {
                 $flashError = (string) ($previewResult['message'] ?? 'Falha ao gerar pré-visualização do PDF.');
