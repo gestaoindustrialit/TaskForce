@@ -1673,6 +1673,8 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
                 'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes),
                 'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
             ],
+            'logo_path' => $logoFilePath,
+            'lines' => $lines,
         ]);
     }
     if ($pdfContent === null) {
