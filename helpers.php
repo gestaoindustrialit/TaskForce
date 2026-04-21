@@ -7,6 +7,16 @@ if (is_file($taskforceComposerAutoload)) {
     require_once $taskforceComposerAutoload;
 }
 
+function taskforce_random_hex(int $bytes = 8): string
+{
+    $bytes = max(1, min(64, $bytes));
+    try {
+        return bin2hex(random_bytes($bytes));
+    } catch (Throwable $exception) {
+        return substr(sha1(uniqid((string) mt_rand(), true)), 0, $bytes * 2);
+    }
+}
+
 function is_logged_in(): bool
 {
     return isset($_SESSION['user_id']);
@@ -670,8 +680,8 @@ function taskforce_build_mail_payload(string $subject, string $textBody, ?string
     }
 
     try {
-        $mixedBoundary = 'tf_mixed_' . bin2hex(random_bytes(8));
-        $alternativeBoundary = 'tf_alt_' . bin2hex(random_bytes(8));
+        $mixedBoundary = 'tf_mixed_' . taskforce_random_hex(8);
+        $alternativeBoundary = 'tf_alt_' . taskforce_random_hex(8);
     } catch (Throwable $exception) {
         $seed = str_replace('.', '', (string) microtime(true));
         $mixedBoundary = 'tf_mixed_' . $seed;
@@ -1305,7 +1315,7 @@ function taskforce_store_generated_pdf_on_server(string $pdfContent, string $fil
 
     $nameWithoutExt = pathinfo($safeName, PATHINFO_FILENAME);
     $extension = pathinfo($safeName, PATHINFO_EXTENSION);
-    $suffix = bin2hex(random_bytes(3));
+    $suffix = taskforce_random_hex(3);
     $storedName = $nameWithoutExt . '-' . $suffix . ($extension !== '' ? '.' . $extension : '.pdf');
     $targetPath = rtrim($targetDir, '/\\') . '/' . $storedName;
     $written = @file_put_contents($targetPath, $pdfContent, LOCK_EX);
@@ -2037,7 +2047,7 @@ function format_minutes(?int $minutes): string
 function generate_ticket_code(PDO $pdo): string
 {
     do {
-        $code = 'TCK-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
+        $code = 'TCK-' . date('Ymd') . '-' . strtoupper(substr(taskforce_random_hex(4), 0, 8));
         $stmt = $pdo->prepare('SELECT 1 FROM team_tickets WHERE ticket_code = ?');
         $stmt->execute([$code]);
     } while ($stmt->fetchColumn());

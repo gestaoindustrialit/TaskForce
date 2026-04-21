@@ -416,7 +416,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $previewResult = build_attendance_alert_preview($pdo, $alertRow);
             if (!empty($previewResult['ok']) && !empty($previewResult['preview']) && is_array($previewResult['preview'])) {
                 $previewData = $previewResult['preview'];
-                $previewData['token'] = bin2hex(random_bytes(12));
+                $previewData['token'] = taskforce_random_hex(12);
                 $previewData['pdf_public_path'] = 'hr_alert_preview_pdf.php?alert_id=' . (int) ($previewData['alert_id'] ?? 0)
                     . '&token=' . urlencode((string) $previewData['token']);
                 $_SESSION['hr_alert_preview'] = $previewData;
