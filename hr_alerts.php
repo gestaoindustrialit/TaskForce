@@ -106,6 +106,63 @@ function fetch_alert_target_users(PDO $pdo, array $selectedUserIds): array
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+function log_manual_alert_debug(string $message, array $context = []): void
+{
+    $storageDir = __DIR__ . '/storage/logs';
+    if (!is_dir($storageDir)) {
+        @mkdir($storageDir, 0775, true);
+    }
+
+    $line = '[' . (new DateTimeImmutable('now'))->format('Y-m-d H:i:s') . '] ' . $message;
+    if ($context !== []) {
+        $encoded = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (is_string($encoded) && $encoded !== '') {
+            $line .= ' | ' . $encoded;
+        }
+    }
+
+    @file_put_contents($storageDir . '/hr-alerts-manual.log', $line . PHP_EOL, FILE_APPEND | LOCK_EX);
+}
+
+function build_attendance_alert_preview(PDO $pdo, array $alert): array
+{
+    $selectedUserIds = parse_alert_selected_users((string) ($alert['selected_user_ids'] ?? ''));
+    $users = fetch_alert_target_users($pdo, $selectedUserIds);
+    if (!$users) {
+        return ['ok' => false, 'message' => 'Sem destinatários elegíveis para pré-visualização.'];
+    }
+
+    $sampleUser = $users[0];
+    $now = new DateTimeImmutable('now');
+    $report = taskforce_generate_monthly_attendance_report($pdo, $sampleUser, $now);
+    $storedPdf = is_array($report['stored_pdf'] ?? null) ? $report['stored_pdf'] : null;
+    $debug = (array) ($report['pdf_debug'] ?? []);
+
+    if ($storedPdf === null || empty($storedPdf['relative_path'])) {
+        log_manual_alert_debug('Falha ao gerar pré-visualização do alerta mensal.', [
+            'alert_id' => (int) ($alert['id'] ?? 0),
+            'sample_user_id' => (int) ($sampleUser['id'] ?? 0),
+            'pdf_debug' => $debug,
+        ]);
+        return ['ok' => false, 'message' => 'Não foi possível gerar a pré-visualização do PDF. Verifique o log em storage/logs/hr-alerts-manual.log.'];
+    }
+
+    return [
+        'ok' => true,
+        'message' => 'Pré-visualização gerada para ' . (string) ($sampleUser['name'] ?? 'colaborador') . '.',
+        'preview' => [
+            'alert_id' => (int) ($alert['id'] ?? 0),
+            'created_at' => $now->format(DateTimeInterface::ATOM),
+            'sample_user_name' => (string) ($sampleUser['name'] ?? ''),
+            'sample_user_email' => (string) ($sampleUser['email'] ?? ''),
+            'pdf_filename' => (string) ($report['pdf_filename'] ?? 'mapa-mensal.pdf'),
+            'pdf_relative_path' => (string) $storedPdf['relative_path'],
+            'pdf_public_path' => '',
+            'pdf_debug' => $debug,
+        ],
+    ];
+}
+
 function run_alert_now(PDO $pdo, array $alert, int $currentUserId): array
 {
     $selectedUserIds = parse_alert_selected_users((string) ($alert['selected_user_ids'] ?? ''));
@@ -127,20 +184,30 @@ function run_alert_now(PDO $pdo, array $alert, int $currentUserId): array
         if ((string) ($alert['alert_type'] ?? '') === 'attendance_monthly_map') {
             $report = taskforce_generate_monthly_attendance_report($pdo, $user, $now);
             $attachments = [];
-            if (!empty($report['pdf_content'])) {
+            $storedPdf = is_array($report['stored_pdf'] ?? null) ? $report['stored_pdf'] : null;
+            if ($storedPdf !== null && !empty($storedPdf['content'])) {
                 $attachments[] = [
-                    'name' => (string) ($report['pdf_filename'] ?? 'mapa-mensal.pdf'),
+                    'name' => (string) ($report['pdf_filename'] ?? $storedPdf['name'] ?? 'mapa-mensal.pdf'),
                     'mime' => 'application/pdf',
-                    'content' => (string) $report['pdf_content'],
+                    'content' => (string) $storedPdf['content'],
                 ];
+            } else {
+                log_manual_alert_debug('Envio manual ignorado por ausência de PDF guardado.', [
+                    'alert_id' => (int) ($alert['id'] ?? 0),
+                    'user_id' => (int) ($user['id'] ?? 0),
+                    'email' => $recipientEmail,
+                    'pdf_debug' => (array) ($report['pdf_debug'] ?? []),
+                ]);
             }
-            $sent = deliver_report(
-                $recipientEmail,
-                (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens'),
-                (string) ($report['body'] ?? ''),
-                (string) ($report['html_body'] ?? ''),
-                $attachments
-            );
+            if ($attachments !== []) {
+                $sent = deliver_report(
+                    $recipientEmail,
+                    (string) ($report['subject'] ?? '[TaskForce RH] Mapa mensal de picagens'),
+                    (string) ($report['body'] ?? ''),
+                    (string) ($report['html_body'] ?? ''),
+                    $attachments
+                );
+            }
         } else {
             $subject = '[TaskForce RH] Envio manual - ' . (string) ($alert['name'] ?? 'Alerta');
             $body = "Este alerta foi executado manualmente em " . $now->format('d/m/Y H:i') . ".\nTipo: " . (string) ($alert['alert_type'] ?? 'desconhecido');
@@ -336,13 +403,49 @@ unset($listedUser);
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
 
-    if ($action === 'run_alert_now') {
+    if ($action === 'preview_alert_now') {
+        $alertId = (int) ($_POST['alert_id'] ?? 0);
+        $stmt = $pdo->prepare('SELECT id, name, alert_type, selected_user_ids FROM hr_alerts WHERE id = ? LIMIT 1');
+        $stmt->execute([$alertId]);
+        $alertRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$alertRow) {
+            $flashError = 'Alerta não encontrado para pré-visualização.';
+        } elseif ((string) ($alertRow['alert_type'] ?? '') !== 'attendance_monthly_map') {
+            $flashError = 'A pré-visualização está disponível apenas para o alerta de mapa mensal de presenças.';
+        } else {
+            $previewResult = build_attendance_alert_preview($pdo, $alertRow);
+            if (!empty($previewResult['ok']) && !empty($previewResult['preview']) && is_array($previewResult['preview'])) {
+                $previewData = $previewResult['preview'];
+                $previewData['token'] = taskforce_random_hex(12);
+                $previewData['pdf_public_path'] = 'hr_alert_preview_pdf.php?alert_id=' . (int) ($previewData['alert_id'] ?? 0)
+                    . '&token=' . urlencode((string) $previewData['token']);
+                $_SESSION['hr_alert_preview'] = $previewData;
+                $flashSuccess = (string) ($previewResult['message'] ?? 'Pré-visualização gerada com sucesso.');
+            } else {
+                $flashError = (string) ($previewResult['message'] ?? 'Falha ao gerar pré-visualização do PDF.');
+            }
+        }
+    } elseif ($action === 'run_alert_now') {
         $alertId = (int) ($_POST['alert_id'] ?? 0);
         $stmt = $pdo->prepare('SELECT id, name, alert_type, selected_user_ids FROM hr_alerts WHERE id = ? LIMIT 1');
         $stmt->execute([$alertId]);
         $alertRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if (!$alertRow) {
             $flashError = 'Alerta não encontrado para envio imediato.';
+        } elseif ((string) ($alertRow['alert_type'] ?? '') === 'attendance_monthly_map') {
+            $previewSession = $_SESSION['hr_alert_preview'] ?? null;
+            $previewAlertId = (int) (($previewSession['alert_id'] ?? 0));
+            if (!is_array($previewSession) || $previewAlertId !== $alertId) {
+                $flashError = 'Gere primeiro a pré-visualização no botão "Pré-visualizar PDF" antes de enviar.';
+            } else {
+                $manualRun = run_alert_now($pdo, $alertRow, $userId);
+                if (!empty($manualRun['ok'])) {
+                    $flashSuccess = (string) ($manualRun['message'] ?? 'Alerta enviado.');
+                    unset($_SESSION['hr_alert_preview']);
+                } else {
+                    $flashError = (string) ($manualRun['message'] ?? 'Falha no envio imediato do alerta.');
+                }
+            }
         } else {
             $manualRun = run_alert_now($pdo, $alertRow, $userId);
             if (!empty($manualRun['ok'])) {
@@ -539,6 +642,16 @@ require __DIR__ . '/partials/header.php';
 
 <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
 <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
+<?php $previewSession = isset($_SESSION['hr_alert_preview']) && is_array($_SESSION['hr_alert_preview']) ? $_SESSION['hr_alert_preview'] : null; ?>
+<?php if ($previewSession): ?>
+    <div class="alert alert-warning">
+        <strong>Pré-visualização pronta:</strong>
+        PDF para <strong><?= h((string) ($previewSession['sample_user_name'] ?? 'colaborador')) ?></strong>
+        (<?= h((string) ($previewSession['sample_user_email'] ?? 'sem email')) ?>).
+        <a class="alert-link ms-2" target="_blank" rel="noopener noreferrer" href="<?= h((string) ($previewSession['pdf_public_path'] ?? '#')) ?>">Abrir PDF</a>
+        <span class="d-block small mt-1 text-muted">Se estiver tudo ok, clique em "Enviar agora" no alerta correspondente.</span>
+    </div>
+<?php endif; ?>
 
 <div class="card shadow-sm mb-4 alert-page-card">
     <div class="card-header bg-white"><h2 class="h6 mb-0">Novo alerta</h2></div>
@@ -595,11 +708,24 @@ require __DIR__ . '/partials/header.php';
                             <td><?= h(format_alert_selected_users_summary($selectedAlertUsers, $userLabelMap)) ?></td>
                             <td><?= (int) $alert['is_active'] === 1 ? '<span class="badge text-bg-success">Ativo</span>' : '<span class="badge text-bg-secondary">Inativo</span>' ?></td>
                             <td>
-                                <form method="post" class="mb-2">
-                                    <input type="hidden" name="action" value="run_alert_now">
-                                    <input type="hidden" name="alert_id" value="<?= (int) $alert['id'] ?>">
-                                    <button class="btn btn-sm btn-outline-primary">Correr agora</button>
-                                </form>
+                                <?php if (($alert['alert_type'] ?? '') === 'attendance_monthly_map'): ?>
+                                    <form method="post" class="mb-2">
+                                        <input type="hidden" name="action" value="preview_alert_now">
+                                        <input type="hidden" name="alert_id" value="<?= (int) $alert['id'] ?>">
+                                        <button class="btn btn-sm btn-outline-primary">Pré-visualizar PDF</button>
+                                    </form>
+                                    <form method="post" class="mb-2">
+                                        <input type="hidden" name="action" value="run_alert_now">
+                                        <input type="hidden" name="alert_id" value="<?= (int) $alert['id'] ?>">
+                                        <button class="btn btn-sm btn-primary">Enviar agora</button>
+                                    </form>
+                                <?php else: ?>
+                                    <form method="post" class="mb-2">
+                                        <input type="hidden" name="action" value="run_alert_now">
+                                        <input type="hidden" name="alert_id" value="<?= (int) $alert['id'] ?>">
+                                        <button class="btn btn-sm btn-primary">Correr agora</button>
+                                    </form>
+                                <?php endif; ?>
                                 <form method="post" class="row g-2">
                                     <input type="hidden" name="action" value="update_alert">
                                     <input type="hidden" name="alert_id" value="<?= (int) $alert['id'] ?>">
