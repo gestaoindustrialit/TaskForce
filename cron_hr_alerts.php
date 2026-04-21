@@ -285,12 +285,17 @@ function send_attendance_monthly_map_alert(array $users, PDO $pdo, DateTimeImmut
         $body = (string) ($report['body'] ?? '');
         $htmlBody = (string) ($report['html_body'] ?? '');
         $attachments = [];
-        if (!empty($report['pdf_content'])) {
+        $storedPdf = is_array($report['stored_pdf'] ?? null) ? $report['stored_pdf'] : null;
+        if ($storedPdf !== null && !empty($storedPdf['content'])) {
             $attachments[] = [
-                'name' => (string) ($report['pdf_filename'] ?? 'mapa-mensal.pdf'),
+                'name' => (string) ($report['pdf_filename'] ?? $storedPdf['name'] ?? 'mapa-mensal.pdf'),
                 'mime' => 'application/pdf',
-                'content' => (string) $report['pdf_content'],
+                'content' => (string) $storedPdf['content'],
             ];
+        } else {
+            $debug = json_encode((array) ($report['pdf_debug'] ?? []), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            cron_log_line('ALERTA #' . $alertId . ' não enviou user #' . $userId . ' porque o PDF não foi guardado no servidor. debug=' . ($debug !== false ? $debug : '{}'));
+            continue;
         }
 
         if (deliver_report($recipientEmail, $subject, $body, $htmlBody !== '' ? $htmlBody : null, $attachments)) {
