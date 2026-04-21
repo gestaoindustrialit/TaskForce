@@ -1087,7 +1087,7 @@ function taskforce_generate_monthly_attendance_fpdf_pdf(array $reportData): ?str
     $pdf->Cell(0, 8, $toPdfText($companyName), 0, 1);
     if ($logoPath !== '' && is_file($logoPath)) {
         try {
-            $pdf->Image($logoPath, 150, 10, 46);
+            $pdf->Image($logoPath, 172, 10, 24);
         } catch (Throwable $exception) {
             // Ignorar logo inválido e continuar com o PDF.
         }
@@ -1557,10 +1557,10 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     if ($logoPath !== '') {
         $logoUrl = app_base_url() . '/' . ltrim($logoPath, '/');
     }
-    $ralewayFontCss = '@import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700&display=swap");';
+    $ralewayFontCss = '@import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700&display=swap");';
     $ralewayFontFile = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
     if (is_file($ralewayFontFile)) {
-        $ralewayFontCss = '@font-face{font-family:"Raleway";font-style:normal;font-weight:400;src:url("file://'
+        $ralewayFontCss .= '@font-face{font-family:"Raleway";font-style:normal;font-weight:400;src:url("file://'
             . str_replace('\\', '/', $ralewayFontFile)
             . '") format("truetype");}';
     }
