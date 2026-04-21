@@ -1570,10 +1570,10 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     $lines[] = str_repeat('-', 72);
     $lines[] = 'Resumo mensal';
     $lines[] = '- Dias com picagens: ' . $daysWithEntries;
-    $lines[] = '- Dias totalmente validados: ' . $daysValidated;
+    $lines[] = '- Dias Validados: ' . $daysValidated;
     $lines[] = '- Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes);
-    $lines[] = '- Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes);
-    $lines[] = '- Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias';
+    $lines[] = '- Saldo BH: ' . taskforce_format_minutes_signed($totalBhMinutes);
+    $lines[] = '- Saldos Férias: ' . number_format($vacationBalance, 1, ',', '') . ' dias';
     $lines[] = '';
     $lines[] = 'Notas:';
     $lines[] = '- Este relatório é informativo e reflete os registos validados/guardados no TaskForce.';
@@ -1608,7 +1608,7 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         if ($sourceImage !== false) {
             $sourceW = max(1, (int) imagesx($sourceImage));
             $sourceH = max(1, (int) imagesy($sourceImage));
-            $ratio = min(110 / $sourceW, 18 / $sourceH, 1);
+            $ratio = min(220 / $sourceW, 36 / $sourceH, 1);
             $targetW = max(1, (int) round($sourceW * $ratio));
             $targetH = max(1, (int) round($sourceH * $ratio));
             $thumb = imagecreatetruecolor($targetW, $targetH);
@@ -1679,10 +1679,10 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
 
     $summaryItems = [
         ['Dias com picagens', (string) $daysWithEntries],
-        ['Dias totalmente validados', (string) $daysValidated],
+        ['Dias Validados', (string) $daysValidated],
         ['Horas trabalhadas', taskforce_format_minutes_signed($totalWorkedMinutes)],
-        ['Saldo BH do mês', taskforce_format_minutes_signed($totalBhMinutes)],
-        ['Saldo férias estimado', number_format($vacationBalance, 1, ',', '') . ' dias'],
+        ['Saldo BH', taskforce_format_minutes_signed($totalBhMinutes)],
+        ['Saldos Férias', number_format($vacationBalance, 1, ',', '') . ' dias'],
     ];
     $summaryHtml = '';
     foreach ($summaryItems as [$label, $value]) {
@@ -1710,7 +1710,7 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         . '.header{width:100%;border-collapse:collapse;margin-bottom:4px;}'
         . '.header td{vertical-align:top;}'
         . '.logo{text-align:right;}'
-        . '.pdf-header .logo img,.header .logo img{max-height:18px;max-width:110px;width:auto;height:auto;display:block;margin-left:auto;}'
+        . '.pdf-header .logo img,.header .logo img{max-height:36px;max-width:220px;width:auto;height:auto;display:block;margin-left:auto;}'
         . 'h1{font-size:16px;margin:0 0 6px;font-weight:700;}'
         . '.meta{margin:2px 0;}'
         . '.metric-grid{width:100%;border-collapse:separate;border-spacing:10px 0;margin:6px 0 14px;}'
@@ -1725,7 +1725,7 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         . '</style></head><body>'
         . '<table class="pdf-header" role="presentation"><tr><td><div class="brand-name">' . h((string) $companyName) . '</div><div class="brand-contacts">' . h(implode(' · ', $companyContacts)) . '</div></td>'
         . '<td class="logo" width="130">'
-        . ($logoRenderSrc !== '' ? '<img src="' . h($logoRenderSrc) . '" alt="Logótipo empresa" height="18" style="height:18px;max-height:18px;max-width:110px;width:auto;">' : '')
+        . ($logoRenderSrc !== '' ? '<img src="' . h($logoRenderSrc) . '" alt="Logótipo empresa" height="36" style="height:36px;max-height:36px;max-width:220px;width:auto;">' : '')
         . '</td></tr></table>'
         . '<table class="header" role="presentation"><tr>'
         . '<td><h1>Mapa mensal de picagens</h1>'
@@ -1759,10 +1759,10 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
             'rows' => $rows,
             'summary' => [
                 'Dias com picagens: ' . $daysWithEntries,
-                'Dias totalmente validados: ' . $daysValidated,
+                'Dias Validados: ' . $daysValidated,
                 'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes),
-                'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes),
-                'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
+                'Saldo BH: ' . taskforce_format_minutes_signed($totalBhMinutes),
+                'Saldos Férias: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
             ],
             'logo_path' => $logoFilePath,
             'lines' => $lines,
@@ -1777,10 +1777,10 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
             'rows' => $rows,
             'summary' => [
                 'Dias com picagens: ' . $daysWithEntries,
-                'Dias totalmente validados: ' . $daysValidated,
+                'Dias Validados: ' . $daysValidated,
                 'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes),
-                'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes),
-                'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
+                'Saldo BH: ' . taskforce_format_minutes_signed($totalBhMinutes),
+                'Saldos Férias: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
             ],
             'logo_path' => $logoFilePath,
             'lines' => $lines,
