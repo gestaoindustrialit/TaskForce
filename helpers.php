@@ -1620,26 +1620,39 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         $summaryHtml .= '<td><strong class="label">' . h((string) $label) . '</strong><br><span class="value">' . h((string) $value) . '</span></td>';
     }
 
+    $footerDetails = [];
+    if ($companyAddress !== '') {
+        $footerDetails[] = $companyAddress;
+    }
+    if ($companyPhone !== '') {
+        $footerDetails[] = 'Telefone: ' . $companyPhone;
+    }
+    if ($companyEmail !== '') {
+        $footerDetails[] = 'Email: ' . $companyEmail;
+    }
+
     $htmlBody = '<!doctype html><html><head><meta charset="utf-8"><style>'
         . $ralewayFontCss
-        . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;font-size:10.5px;margin:24px;}'
-        . '.pdf-header{width:100%;border-collapse:collapse;border-bottom:2px solid #e5e7eb;margin-bottom:14px;padding-bottom:8px;}'
-        . '.pdf-header td{vertical-align:top;padding-bottom:8px;}'
-        . '.brand-name{font-size:17px;font-weight:700;color:#0f172a;margin-bottom:4px;}'
-        . '.brand-contacts{color:#6b7280;font-size:10px;line-height:1.4;}'
+        . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;font-size:10.5px;margin:22px 24px 18px;}'
+        . '.pdf-header{width:100%;border-collapse:collapse;border-bottom:1px solid #dbe2ea;margin-bottom:12px;padding-bottom:6px;}'
+        . '.pdf-header td{vertical-align:top;padding-bottom:6px;}'
+        . '.brand-name{font-size:15px;font-weight:700;color:#0f172a;margin-bottom:3px;}'
+        . '.brand-contacts{color:#6b7280;font-size:9.2px;line-height:1.35;}'
         . '.header{width:100%;border-collapse:collapse;margin-bottom:4px;}'
         . '.header td{vertical-align:top;}'
         . '.header .logo{text-align:right;}'
-        . '.header .logo img{max-height:34px;}'
-        . 'h1{font-size:17px;margin:0 0 8px;}'
+        . '.header .logo img{max-height:18px;max-width:110px;}'
+        . 'h1{font-size:16px;margin:0 0 6px;font-weight:700;}'
         . '.meta{margin:2px 0;}'
         . '.metric-grid{width:100%;border-collapse:separate;border-spacing:10px 0;margin:6px 0 14px;}'
         . '.metric-grid td{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:9px 10px;width:20%;}'
         . '.metric-grid .label{display:block;color:#0f172a;font-size:9px;font-weight:700;line-height:1.2;}'
-        . '.metric-grid .value{display:block;color:#0f172a;font-size:13px;font-weight:700;margin-top:6px;}'
+        . '.metric-grid .value{display:block;color:#0f172a;font-size:12px;font-weight:700;margin-top:5px;}'
         . '.data-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:10px;}'
         . '.data-table th,.data-table td{border:1px solid #d1d5db;padding:5px;vertical-align:top;}'
         . '.data-table th{background:#f3f4f6;}'
+        . '.pdf-footer{margin-top:10px;padding-top:7px;border-top:1px solid #dbe2ea;color:#6b7280;font-size:8.8px;line-height:1.35;}'
+        . '.pdf-footer .footer-title{display:block;color:#334155;font-weight:700;margin-bottom:2px;font-size:9px;}'
         . '</style></head><body>'
         . '<table class="pdf-header" role="presentation"><tr><td><div class="brand-name">' . h((string) $companyName) . '</div><div class="brand-contacts">' . h(implode(' · ', $companyContacts)) . '</div></td>'
         . '<td class="logo" width="130">'
@@ -1658,6 +1671,7 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         . '<table class="data-table"><thead><tr><th>Data</th><th>Dia</th><th>Tipo</th><th>Picagens</th><th>BH</th><th>Justificação</th></tr></thead><tbody>'
         . $rowsHtml
         . '</tbody></table>'
+        . '<div class="pdf-footer"><span class="footer-title">' . h((string) $companyName) . '</span>' . h(implode(' · ', $footerDetails)) . '</div>'
         . '</body></html>';
 
     $logoFilePath = '';
