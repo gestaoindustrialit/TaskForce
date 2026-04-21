@@ -1584,6 +1584,51 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     if ($logoPath !== '') {
         $logoUrl = app_base_url() . '/' . ltrim($logoPath, '/');
     }
+    $logoFilePath = '';
+    if ($logoPath !== '') {
+        $candidatePath = __DIR__ . '/' . ltrim($logoPath, '/');
+        if (is_file($candidatePath)) {
+            $logoFilePath = $candidatePath;
+        }
+    }
+    $logoRenderSrc = $logoUrl;
+    if (
+        $logoFilePath !== ''
+        && function_exists('imagecreatetruecolor')
+        && function_exists('imagecopyresampled')
+        && function_exists('imagepng')
+    ) {
+        $logoExt = strtolower((string) pathinfo($logoFilePath, PATHINFO_EXTENSION));
+        $sourceImage = match ($logoExt) {
+            'jpg', 'jpeg' => function_exists('imagecreatefromjpeg') ? @imagecreatefromjpeg($logoFilePath) : false,
+            'png' => function_exists('imagecreatefrompng') ? @imagecreatefrompng($logoFilePath) : false,
+            'webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($logoFilePath) : false,
+            default => false,
+        };
+        if ($sourceImage !== false) {
+            $sourceW = max(1, (int) imagesx($sourceImage));
+            $sourceH = max(1, (int) imagesy($sourceImage));
+            $ratio = min(110 / $sourceW, 18 / $sourceH, 1);
+            $targetW = max(1, (int) round($sourceW * $ratio));
+            $targetH = max(1, (int) round($sourceH * $ratio));
+            $thumb = imagecreatetruecolor($targetW, $targetH);
+            if ($thumb !== false) {
+                imagealphablending($thumb, false);
+                imagesavealpha($thumb, true);
+                $transparent = imagecolorallocatealpha($thumb, 255, 255, 255, 127);
+                imagefilledrectangle($thumb, 0, 0, $targetW, $targetH, $transparent);
+                imagecopyresampled($thumb, $sourceImage, 0, 0, 0, 0, $targetW, $targetH, $sourceW, $sourceH);
+                ob_start();
+                imagepng($thumb);
+                $thumbBinary = (string) ob_get_clean();
+                if ($thumbBinary !== '') {
+                    $logoRenderSrc = 'data:image/png;base64,' . base64_encode($thumbBinary);
+                }
+                imagedestroy($thumb);
+            }
+            imagedestroy($sourceImage);
+        }
+    }
     $ralewayRegularFontFile = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
     $ralewayBoldFontFile = __DIR__ . '/assets/fonts/Raleway-Bold.ttf';
     $ralewayFontCss = '';
@@ -1680,7 +1725,7 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         . '</style></head><body>'
         . '<table class="pdf-header" role="presentation"><tr><td><div class="brand-name">' . h((string) $companyName) . '</div><div class="brand-contacts">' . h(implode(' · ', $companyContacts)) . '</div></td>'
         . '<td class="logo" width="130">'
-        . ($logoUrl !== '' ? '<img src="' . h($logoUrl) . '" alt="Logótipo empresa">' : '')
+        . ($logoRenderSrc !== '' ? '<img src="' . h($logoRenderSrc) . '" alt="Logótipo empresa" height="18" style="height:18px;max-height:18px;max-width:110px;width:auto;">' : '')
         . '</td></tr></table>'
         . '<table class="header" role="presentation"><tr>'
         . '<td><h1>Mapa mensal de picagens</h1>'
@@ -1698,13 +1743,6 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         . '<div class="pdf-footer"><span class="footer-title">' . h((string) $companyName) . '</span>' . h(implode(' · ', $footerDetails)) . '</div>'
         . '</body></html>';
 
-    $logoFilePath = '';
-    if ($logoPath !== '') {
-        $candidatePath = __DIR__ . '/' . ltrim($logoPath, '/');
-        if (is_file($candidatePath)) {
-            $logoFilePath = $candidatePath;
-        }
-    }
     $pdfEngine = 'html';
     $pdfContent = taskforce_generate_pdf_from_html($htmlBody);
     if ($pdfContent === null) {
