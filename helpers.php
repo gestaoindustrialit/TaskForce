@@ -1193,6 +1193,20 @@ function taskforce_generate_pdf_from_html(string $html): ?string
             if (!is_dir($mpdfTempDir)) {
                 @mkdir($mpdfTempDir, 0750, true);
             }
+            $fontDirs = [];
+            $fontData = [];
+            if (class_exists('\Mpdf\Config\ConfigVariables') && class_exists('\Mpdf\Config\FontVariables')) {
+                $defaultConfig = (new \Mpdf\Config\ConfigVariables())->getDefaults();
+                $defaultFontConfig = (new \Mpdf\Config\FontVariables())->getDefaults();
+                $fontDirs = $defaultConfig['fontDir'] ?? [];
+                $fontData = $defaultFontConfig['fontdata'] ?? [];
+            }
+            $fontDirs[] = __DIR__ . '/assets/fonts';
+            $fontData['raleway'] = [
+                'R' => 'Raleway-Regular.ttf',
+                'B' => 'Raleway-Bold.ttf',
+            ];
+
             $mpdf = new \Mpdf\Mpdf([
                 'mode' => 'utf-8',
                 'format' => 'A4',
@@ -1201,6 +1215,9 @@ function taskforce_generate_pdf_from_html(string $html): ?string
                 'margin_right' => 10,
                 'margin_top' => 10,
                 'margin_bottom' => 10,
+                'fontDir' => array_values(array_unique($fontDirs)),
+                'fontdata' => $fontData,
+                'default_font' => 'raleway',
             ]);
             $mpdf->WriteHTML($html);
             $pdfBinary = (string) $mpdf->Output('', 'S');
@@ -1553,10 +1570,10 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     $lines[] = str_repeat('-', 72);
     $lines[] = 'Resumo mensal';
     $lines[] = '- Dias com picagens: ' . $daysWithEntries;
-    $lines[] = '- Dias totalmente validados: ' . $daysValidated;
+    $lines[] = '- Dias Validados: ' . $daysValidated;
     $lines[] = '- Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes);
-    $lines[] = '- Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes);
-    $lines[] = '- Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias';
+    $lines[] = '- Saldo BH: ' . taskforce_format_minutes_signed($totalBhMinutes);
+    $lines[] = '- Saldos Férias: ' . number_format($vacationBalance, 1, ',', '') . ' dias';
     $lines[] = '';
     $lines[] = 'Notas:';
     $lines[] = '- Este relatório é informativo e reflete os registos validados/guardados no TaskForce.';
@@ -1567,13 +1584,65 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     if ($logoPath !== '') {
         $logoUrl = app_base_url() . '/' . ltrim($logoPath, '/');
     }
-    $ralewayFontCss = '@import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700&display=swap");';
-    $ralewayFontFile = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
-    if (is_file($ralewayFontFile)) {
+    $logoFilePath = '';
+    if ($logoPath !== '') {
+        $candidatePath = __DIR__ . '/' . ltrim($logoPath, '/');
+        if (is_file($candidatePath)) {
+            $logoFilePath = $candidatePath;
+        }
+    }
+    $logoRenderSrc = $logoUrl;
+    if (
+        $logoFilePath !== ''
+        && function_exists('imagecreatetruecolor')
+        && function_exists('imagecopyresampled')
+        && function_exists('imagepng')
+    ) {
+        $logoExt = strtolower((string) pathinfo($logoFilePath, PATHINFO_EXTENSION));
+        $sourceImage = match ($logoExt) {
+            'jpg', 'jpeg' => function_exists('imagecreatefromjpeg') ? @imagecreatefromjpeg($logoFilePath) : false,
+            'png' => function_exists('imagecreatefrompng') ? @imagecreatefrompng($logoFilePath) : false,
+            'webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($logoFilePath) : false,
+            default => false,
+        };
+        if ($sourceImage !== false) {
+            $sourceW = max(1, (int) imagesx($sourceImage));
+            $sourceH = max(1, (int) imagesy($sourceImage));
+            $ratio = min(220 / $sourceW, 36 / $sourceH, 1);
+            $targetW = max(1, (int) round($sourceW * $ratio));
+            $targetH = max(1, (int) round($sourceH * $ratio));
+            $thumb = imagecreatetruecolor($targetW, $targetH);
+            if ($thumb !== false) {
+                imagealphablending($thumb, false);
+                imagesavealpha($thumb, true);
+                $transparent = imagecolorallocatealpha($thumb, 255, 255, 255, 127);
+                imagefilledrectangle($thumb, 0, 0, $targetW, $targetH, $transparent);
+                imagecopyresampled($thumb, $sourceImage, 0, 0, 0, 0, $targetW, $targetH, $sourceW, $sourceH);
+                ob_start();
+                imagepng($thumb);
+                $thumbBinary = (string) ob_get_clean();
+                if ($thumbBinary !== '') {
+                    $logoRenderSrc = 'data:image/png;base64,' . base64_encode($thumbBinary);
+                }
+                imagedestroy($thumb);
+            }
+            imagedestroy($sourceImage);
+        }
+    }
+    $ralewayRegularFontFile = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
+    $ralewayBoldFontFile = __DIR__ . '/assets/fonts/Raleway-Bold.ttf';
+    $ralewayFontCss = '';
+    if (is_file($ralewayRegularFontFile)) {
         $ralewayFontCss .= '@font-face{font-family:"Raleway";font-style:normal;font-weight:400;src:url("file://'
-            . str_replace('\\', '/', $ralewayFontFile)
+            . str_replace('\\', '/', $ralewayRegularFontFile)
             . '") format("truetype");}';
     }
+    if (is_file($ralewayBoldFontFile)) {
+        $ralewayFontCss .= '@font-face{font-family:"Raleway";font-style:normal;font-weight:700;src:url("file://'
+            . str_replace('\\', '/', $ralewayBoldFontFile)
+            . '") format("truetype");}';
+    }
+    $ralewayFontCss .= 'body,table,td,th,p,div,span,h1,h2,h3,strong,b{font-family:"Raleway",Arial,sans-serif;}strong,b{font-weight:700;}';
 
     $rowsHtml = '';
     foreach ($rows as $row) {
@@ -1610,40 +1679,53 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
 
     $summaryItems = [
         ['Dias com picagens', (string) $daysWithEntries],
-        ['Dias totalmente validados', (string) $daysValidated],
+        ['Dias Validados', (string) $daysValidated],
         ['Horas trabalhadas', taskforce_format_minutes_signed($totalWorkedMinutes)],
-        ['Saldo BH do mês', taskforce_format_minutes_signed($totalBhMinutes)],
-        ['Saldo férias estimado', number_format($vacationBalance, 1, ',', '') . ' dias'],
+        ['Saldo BH', taskforce_format_minutes_signed($totalBhMinutes)],
+        ['Saldos Férias', number_format($vacationBalance, 1, ',', '') . ' dias'],
     ];
     $summaryHtml = '';
     foreach ($summaryItems as [$label, $value]) {
         $summaryHtml .= '<td><strong class="label">' . h((string) $label) . '</strong><br><span class="value">' . h((string) $value) . '</span></td>';
     }
 
+    $footerDetails = [];
+    if ($companyAddress !== '') {
+        $footerDetails[] = $companyAddress;
+    }
+    if ($companyPhone !== '') {
+        $footerDetails[] = 'Telefone: ' . $companyPhone;
+    }
+    if ($companyEmail !== '') {
+        $footerDetails[] = 'Email: ' . $companyEmail;
+    }
+
     $htmlBody = '<!doctype html><html><head><meta charset="utf-8"><style>'
         . $ralewayFontCss
-        . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;font-size:10.5px;margin:24px;}'
-        . '.pdf-header{width:100%;border-collapse:collapse;border-bottom:2px solid #e5e7eb;margin-bottom:14px;padding-bottom:8px;}'
-        . '.pdf-header td{vertical-align:top;padding-bottom:8px;}'
-        . '.brand-name{font-size:17px;font-weight:700;color:#0f172a;margin-bottom:4px;}'
-        . '.brand-contacts{color:#6b7280;font-size:10px;line-height:1.4;}'
+        . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;font-size:10.5px;margin:22px 24px 18px;}'
+        . '.pdf-header{width:100%;border-collapse:collapse;border-bottom:1px solid #dbe2ea;margin-bottom:12px;padding-bottom:6px;}'
+        . '.pdf-header td{vertical-align:top;padding-bottom:6px;}'
+        . '.brand-name{font-size:15px;font-weight:700;color:#0f172a;margin-bottom:3px;}'
+        . '.brand-contacts{color:#6b7280;font-size:9.2px;line-height:1.35;}'
         . '.header{width:100%;border-collapse:collapse;margin-bottom:4px;}'
         . '.header td{vertical-align:top;}'
-        . '.header .logo{text-align:right;}'
-        . '.header .logo img{max-height:34px;}'
-        . 'h1{font-size:17px;margin:0 0 8px;}'
+        . '.logo{text-align:right;}'
+        . '.pdf-header .logo img,.header .logo img{max-height:36px;max-width:220px;width:auto;height:auto;display:block;margin-left:auto;}'
+        . 'h1{font-size:16px;margin:0 0 6px;font-weight:700;}'
         . '.meta{margin:2px 0;}'
         . '.metric-grid{width:100%;border-collapse:separate;border-spacing:10px 0;margin:6px 0 14px;}'
         . '.metric-grid td{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:9px 10px;width:20%;}'
         . '.metric-grid .label{display:block;color:#0f172a;font-size:9px;font-weight:700;line-height:1.2;}'
-        . '.metric-grid .value{display:block;color:#0f172a;font-size:13px;font-weight:700;margin-top:6px;}'
+        . '.metric-grid .value{display:block;color:#0f172a;font-size:12px;font-weight:700;margin-top:5px;}'
         . '.data-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:10px;}'
         . '.data-table th,.data-table td{border:1px solid #d1d5db;padding:5px;vertical-align:top;}'
         . '.data-table th{background:#f3f4f6;}'
+        . '.pdf-footer{margin-top:10px;padding-top:7px;border-top:1px solid #dbe2ea;color:#6b7280;font-size:8.8px;line-height:1.35;}'
+        . '.pdf-footer .footer-title{display:block;color:#334155;font-weight:700;margin-bottom:2px;font-size:9px;}'
         . '</style></head><body>'
         . '<table class="pdf-header" role="presentation"><tr><td><div class="brand-name">' . h((string) $companyName) . '</div><div class="brand-contacts">' . h(implode(' · ', $companyContacts)) . '</div></td>'
         . '<td class="logo" width="130">'
-        . ($logoUrl !== '' ? '<img src="' . h($logoUrl) . '" alt="Logótipo empresa">' : '')
+        . ($logoRenderSrc !== '' ? '<img src="' . h($logoRenderSrc) . '" alt="Logótipo empresa" height="36" style="height:36px;max-height:36px;max-width:220px;width:auto;">' : '')
         . '</td></tr></table>'
         . '<table class="header" role="presentation"><tr>'
         . '<td><h1>Mapa mensal de picagens</h1>'
@@ -1658,15 +1740,9 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         . '<table class="data-table"><thead><tr><th>Data</th><th>Dia</th><th>Tipo</th><th>Picagens</th><th>BH</th><th>Justificação</th></tr></thead><tbody>'
         . $rowsHtml
         . '</tbody></table>'
+        . '<div class="pdf-footer"><span class="footer-title">' . h((string) $companyName) . '</span>' . h(implode(' · ', $footerDetails)) . '</div>'
         . '</body></html>';
 
-    $logoFilePath = '';
-    if ($logoPath !== '') {
-        $candidatePath = __DIR__ . '/' . ltrim($logoPath, '/');
-        if (is_file($candidatePath)) {
-            $logoFilePath = $candidatePath;
-        }
-    }
     $pdfEngine = 'html';
     $pdfContent = taskforce_generate_pdf_from_html($htmlBody);
     if ($pdfContent === null) {
@@ -1683,10 +1759,10 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
             'rows' => $rows,
             'summary' => [
                 'Dias com picagens: ' . $daysWithEntries,
-                'Dias totalmente validados: ' . $daysValidated,
+                'Dias Validados: ' . $daysValidated,
                 'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes),
-                'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes),
-                'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
+                'Saldo BH: ' . taskforce_format_minutes_signed($totalBhMinutes),
+                'Saldos Férias: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
             ],
             'logo_path' => $logoFilePath,
             'lines' => $lines,
@@ -1701,10 +1777,10 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
             'rows' => $rows,
             'summary' => [
                 'Dias com picagens: ' . $daysWithEntries,
-                'Dias totalmente validados: ' . $daysValidated,
+                'Dias Validados: ' . $daysValidated,
                 'Horas trabalhadas: ' . taskforce_format_minutes_signed($totalWorkedMinutes),
-                'Saldo BH do mês: ' . taskforce_format_minutes_signed($totalBhMinutes),
-                'Saldo de férias estimado: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
+                'Saldo BH: ' . taskforce_format_minutes_signed($totalBhMinutes),
+                'Saldos Férias: ' . number_format($vacationBalance, 1, ',', '') . ' dias',
             ],
             'logo_path' => $logoFilePath,
             'lines' => $lines,
@@ -1734,6 +1810,10 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
             'store_status' => $storeStatus,
             'has_pdf_content' => is_string($pdfContent) && $pdfContent !== '',
             'stored_relative_path' => is_array($storedPdf) ? (string) ($storedPdf['relative_path'] ?? '') : '',
+            'mpdf_available' => class_exists('\Mpdf\Mpdf'),
+            'raleway_regular_found' => is_file($ralewayRegularFontFile),
+            'raleway_bold_found' => is_file($ralewayBoldFontFile),
+            'logo_file_exists' => $logoFilePath !== '' && is_file($logoFilePath),
         ],
         'period_start' => $periodStartDate,
         'period_end' => $periodEndDate,
