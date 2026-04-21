@@ -2,6 +2,11 @@
 require_once __DIR__ . '/bootstrap/app.php';
 require_once __DIR__ . '/config.php';
 
+$taskforceComposerAutoload = __DIR__ . '/vendor/autoload.php';
+if (is_file($taskforceComposerAutoload)) {
+    require_once $taskforceComposerAutoload;
+}
+
 function is_logged_in(): bool
 {
     return isset($_SESSION['user_id']);
