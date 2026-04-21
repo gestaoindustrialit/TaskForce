@@ -1193,6 +1193,20 @@ function taskforce_generate_pdf_from_html(string $html): ?string
             if (!is_dir($mpdfTempDir)) {
                 @mkdir($mpdfTempDir, 0750, true);
             }
+            $fontDirs = [];
+            $fontData = [];
+            if (class_exists('\Mpdf\Config\ConfigVariables') && class_exists('\Mpdf\Config\FontVariables')) {
+                $defaultConfig = (new \Mpdf\Config\ConfigVariables())->getDefaults();
+                $defaultFontConfig = (new \Mpdf\Config\FontVariables())->getDefaults();
+                $fontDirs = $defaultConfig['fontDir'] ?? [];
+                $fontData = $defaultFontConfig['fontdata'] ?? [];
+            }
+            $fontDirs[] = __DIR__ . '/assets/fonts';
+            $fontData['raleway'] = [
+                'R' => 'Raleway-Regular.ttf',
+                'B' => 'Raleway-Bold.ttf',
+            ];
+
             $mpdf = new \Mpdf\Mpdf([
                 'mode' => 'utf-8',
                 'format' => 'A4',
@@ -1201,6 +1215,9 @@ function taskforce_generate_pdf_from_html(string $html): ?string
                 'margin_right' => 10,
                 'margin_top' => 10,
                 'margin_bottom' => 10,
+                'fontDir' => array_values(array_unique($fontDirs)),
+                'fontdata' => $fontData,
+                'default_font' => 'raleway',
             ]);
             $mpdf->WriteHTML($html);
             $pdfBinary = (string) $mpdf->Output('', 'S');
@@ -1567,13 +1584,20 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     if ($logoPath !== '') {
         $logoUrl = app_base_url() . '/' . ltrim($logoPath, '/');
     }
-    $ralewayFontCss = '@import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700&display=swap");';
-    $ralewayFontFile = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
-    if (is_file($ralewayFontFile)) {
+    $ralewayRegularFontFile = __DIR__ . '/assets/fonts/Raleway-Regular.ttf';
+    $ralewayBoldFontFile = __DIR__ . '/assets/fonts/Raleway-Bold.ttf';
+    $ralewayFontCss = '';
+    if (is_file($ralewayRegularFontFile)) {
         $ralewayFontCss .= '@font-face{font-family:"Raleway";font-style:normal;font-weight:400;src:url("file://'
-            . str_replace('\\', '/', $ralewayFontFile)
+            . str_replace('\\', '/', $ralewayRegularFontFile)
             . '") format("truetype");}';
     }
+    if (is_file($ralewayBoldFontFile)) {
+        $ralewayFontCss .= '@font-face{font-family:"Raleway";font-style:normal;font-weight:700;src:url("file://'
+            . str_replace('\\', '/', $ralewayBoldFontFile)
+            . '") format("truetype");}';
+    }
+    $ralewayFontCss .= 'body,table,td,th,p,div,span,h1,h2,h3,strong,b{font-family:"Raleway",Arial,sans-serif;}strong,b{font-weight:700;}';
 
     $rowsHtml = '';
     foreach ($rows as $row) {
@@ -1640,8 +1664,8 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
         . '.brand-contacts{color:#6b7280;font-size:9.2px;line-height:1.35;}'
         . '.header{width:100%;border-collapse:collapse;margin-bottom:4px;}'
         . '.header td{vertical-align:top;}'
-        . '.header .logo{text-align:right;}'
-        . '.header .logo img{max-height:18px;max-width:110px;}'
+        . '.logo{text-align:right;}'
+        . '.pdf-header .logo img,.header .logo img{max-height:18px;max-width:110px;width:auto;height:auto;display:block;margin-left:auto;}'
         . 'h1{font-size:16px;margin:0 0 6px;font-weight:700;}'
         . '.meta{margin:2px 0;}'
         . '.metric-grid{width:100%;border-collapse:separate;border-spacing:10px 0;margin:6px 0 14px;}'
@@ -1748,6 +1772,10 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
             'store_status' => $storeStatus,
             'has_pdf_content' => is_string($pdfContent) && $pdfContent !== '',
             'stored_relative_path' => is_array($storedPdf) ? (string) ($storedPdf['relative_path'] ?? '') : '',
+            'mpdf_available' => class_exists('\Mpdf\Mpdf'),
+            'raleway_regular_found' => is_file($ralewayRegularFontFile),
+            'raleway_bold_found' => is_file($ralewayBoldFontFile),
+            'logo_file_exists' => $logoFilePath !== '' && is_file($logoFilePath),
         ],
         'period_start' => $periodStartDate,
         'period_end' => $periodEndDate,
