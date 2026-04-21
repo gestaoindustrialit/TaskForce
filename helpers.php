@@ -1607,32 +1607,32 @@ function taskforce_generate_monthly_attendance_report(PDO $pdo, array $user, Dat
     ];
     $summaryHtml = '';
     foreach ($summaryItems as [$label, $value]) {
-        $summaryHtml .= '<td><span class="label">' . h((string) $label) . '</span><span class="value">' . h((string) $value) . '</span></td>';
+        $summaryHtml .= '<td><strong class="label">' . h((string) $label) . '</strong><br><span class="value">' . h((string) $value) . '</span></td>';
     }
 
     $htmlBody = '<!doctype html><html><head><meta charset="utf-8"><style>'
         . $ralewayFontCss
-        . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;font-size:12px;margin:24px;}'
+        . 'body{font-family:"Raleway",Arial,sans-serif;color:#1f2937;font-size:10.5px;margin:24px;}'
         . '.pdf-header{width:100%;border-collapse:collapse;border-bottom:2px solid #e5e7eb;margin-bottom:14px;padding-bottom:8px;}'
         . '.pdf-header td{vertical-align:top;padding-bottom:8px;}'
-        . '.brand-name{font-size:20px;font-weight:700;color:#0f172a;margin-bottom:4px;}'
-        . '.brand-contacts{color:#6b7280;font-size:11px;line-height:1.45;}'
+        . '.brand-name{font-size:17px;font-weight:700;color:#0f172a;margin-bottom:4px;}'
+        . '.brand-contacts{color:#6b7280;font-size:10px;line-height:1.4;}'
         . '.header{width:100%;border-collapse:collapse;margin-bottom:4px;}'
         . '.header td{vertical-align:top;}'
         . '.header .logo{text-align:right;}'
-        . '.header .logo img{max-height:70px;}'
-        . 'h1{font-size:20px;margin:0 0 8px;}'
+        . '.header .logo img{max-height:34px;}'
+        . 'h1{font-size:17px;margin:0 0 8px;}'
         . '.meta{margin:2px 0;}'
         . '.metric-grid{width:100%;border-collapse:separate;border-spacing:10px 0;margin:6px 0 14px;}'
-        . '.metric-grid td{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;width:20%;}'
-        . '.metric-grid .label{display:block;color:#64748b;font-size:10px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em;}'
-        . '.metric-grid .value{display:block;color:#0f172a;font-size:14px;font-weight:700;}'
-        . '.data-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px;}'
-        . '.data-table th,.data-table td{border:1px solid #d1d5db;padding:6px;vertical-align:top;}'
+        . '.metric-grid td{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:9px 10px;width:20%;}'
+        . '.metric-grid .label{display:block;color:#0f172a;font-size:9px;font-weight:700;line-height:1.2;}'
+        . '.metric-grid .value{display:block;color:#0f172a;font-size:13px;font-weight:700;margin-top:6px;}'
+        . '.data-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:10px;}'
+        . '.data-table th,.data-table td{border:1px solid #d1d5db;padding:5px;vertical-align:top;}'
         . '.data-table th{background:#f3f4f6;}'
         . '</style></head><body>'
         . '<table class="pdf-header" role="presentation"><tr><td><div class="brand-name">' . h((string) $companyName) . '</div><div class="brand-contacts">' . h(implode(' · ', $companyContacts)) . '</div></td>'
-        . '<td class="logo" width="220">'
+        . '<td class="logo" width="130">'
         . ($logoUrl !== '' ? '<img src="' . h($logoUrl) . '" alt="Logótipo empresa">' : '')
         . '</td></tr></table>'
         . '<table class="header" role="presentation"><tr>'
