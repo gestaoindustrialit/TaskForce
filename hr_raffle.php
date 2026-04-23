@@ -372,6 +372,18 @@ require __DIR__ . '/partials/header.php';
         border: 1px solid #e5e7eb;
         padding: 6px;
     }
+    .raffle-roll-winner {
+        display: none;
+        margin-top: 14px;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid #ffe69c;
+        background: linear-gradient(135deg, #fff8db 0%, #fff1b5 100%);
+        color: #5c4400;
+        font-weight: 700;
+        animation: raffle-pulse 1.2s ease-in-out infinite;
+    }
+    .raffle-roll-winner.is-visible { display: block; }
     .raffle-fallback-confetti {
         position: fixed;
         width: 10px;
@@ -385,6 +397,11 @@ require __DIR__ . '/partials/header.php';
     @keyframes raffle-confetti-drop {
         0% { transform: translateY(0) rotate(0deg); opacity: 1; }
         100% { transform: translateY(95vh) rotate(540deg); opacity: 0; }
+    }
+    @keyframes raffle-pulse {
+        0% { transform: scale(1); box-shadow: 0 0 0 rgba(255, 193, 7, 0); }
+        50% { transform: scale(1.02); box-shadow: 0 6px 18px rgba(255, 193, 7, 0.35); }
+        100% { transform: scale(1); box-shadow: 0 0 0 rgba(255, 193, 7, 0); }
     }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
@@ -572,9 +589,10 @@ require __DIR__ . '/partials/header.php';
 
 <div id="raffleRollOverlay" class="raffle-roll-overlay" aria-hidden="true">
     <div class="raffle-roll-card">
-        <h3 class="h5 mb-2">A sortear prémio...</h3>
+        <h3 id="raffleRollHeading" class="h5 mb-2">A sortear prémio...</h3>
         <p id="raffleRollText" class="text-muted small mb-3">A percorrer prémios...</p>
         <img id="raffleRollImage" class="raffle-roll-image" alt="Pré-visualização do sorteio">
+        <div id="raffleWinnerText" class="raffle-roll-winner" aria-live="polite"></div>
     </div>
 </div>
 
@@ -643,6 +661,8 @@ const runDrawForm = document.getElementById('runDrawForm');
 const rollOverlay = document.getElementById('raffleRollOverlay');
 const rollImage = document.getElementById('raffleRollImage');
 const rollText = document.getElementById('raffleRollText');
+const rollHeading = document.getElementById('raffleRollHeading');
+const winnerText = document.getElementById('raffleWinnerText');
 
 function fireCelebration() {
     if (typeof confetti === 'function') {
@@ -687,6 +707,13 @@ if (runDrawForm && rollOverlay && rollImage) {
         runDrawForm.dataset.skipAnimation = '0';
         rollOverlay.classList.add('is-open');
         rollOverlay.setAttribute('aria-hidden', 'false');
+        if (rollHeading) {
+            rollHeading.textContent = 'A sortear prémio...';
+        }
+        if (winnerText) {
+            winnerText.textContent = '';
+            winnerText.classList.remove('is-visible');
+        }
 
         let step = 0;
         const totalSteps = Math.max(8, allImages.length * 2);
@@ -703,7 +730,6 @@ if (runDrawForm && rollOverlay && rollImage) {
             if (rollText) {
                 rollText.textContent = 'A validar resultado...';
             }
-            fireCelebration();
             window.setTimeout(function () {
                 runDrawForm.dataset.skipAnimation = '1';
                 runDrawForm.submit();
@@ -717,6 +743,7 @@ if (runDrawForm && rollOverlay && rollImage) {
 if (animatedResult) {
     const finalImage = animatedResult.dataset.finalImage || '';
     const finalTitle = animatedResult.dataset.finalTitle || '';
+    const userLabel = animatedResult.dataset.userLabel || '';
     const finalWinningGroup = animatedResult.dataset.winningGroup || '';
     const rollingImage = document.getElementById('raffleRollingImage');
     const resultBadge = document.getElementById('raffleResultBadge');
@@ -727,7 +754,31 @@ if (animatedResult) {
     if (resultBadge) {
         resultBadge.textContent = finalTitle + ' (Grupo ' + finalWinningGroup + ')';
     }
+
+    if (rollOverlay && rollImage) {
+        rollOverlay.classList.add('is-open');
+        rollOverlay.setAttribute('aria-hidden', 'false');
+        rollImage.src = finalImage;
+        if (rollHeading) {
+            rollHeading.textContent = '🎉 Resultado do sorteio';
+        }
+        if (rollText) {
+            rollText.textContent = 'Sorteio concluído com sucesso.';
+        }
+        if (winnerText) {
+            winnerText.textContent = 'Parabéns ' + userLabel + ', ganhou ' + finalTitle + '.';
+            winnerText.classList.add('is-visible');
+        }
+    }
+
     fireCelebration();
+    window.setTimeout(function () {
+        if (!rollOverlay) {
+            return;
+        }
+        rollOverlay.classList.remove('is-open');
+        rollOverlay.setAttribute('aria-hidden', 'true');
+    }, 4200);
 }
 </script>
 
