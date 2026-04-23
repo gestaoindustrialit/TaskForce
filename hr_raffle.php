@@ -218,36 +218,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if ($action === 'delete_prize_record') {
-        $prizeId = (int) ($_POST['prize_id'] ?? 0);
-        if ($prizeId <= 0) {
-            $flashError = 'Registo de prémio inválido.';
-        } else {
-            $prizeStmt = $pdo->prepare('SELECT id, title, image_path FROM hr_raffle_prizes WHERE id = ? LIMIT 1');
-            $prizeStmt->execute([$prizeId]);
-            $prize = $prizeStmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$prize) {
-                $flashError = 'Registo de prémio não encontrado.';
-            } else {
-                $pdo->prepare('DELETE FROM hr_raffle_prizes WHERE id = ?')->execute([$prizeId]);
-                $storedPath = trim((string) ($prize['image_path'] ?? ''));
-                if ($storedPath !== '' && strpos($storedPath, 'uploads/hr_raffle/') === 0) {
-                    $absolutePath = __DIR__ . '/' . $storedPath;
-                    if (is_file($absolutePath)) {
-                        @unlink($absolutePath);
-                    }
-                }
-
-                log_app_event($pdo, $userId, 'hr.raffle.prize.delete', 'Registo de prémio apagado permanentemente.', [
-                    'prize_id' => $prizeId,
-                    'title' => (string) ($prize['title'] ?? ''),
-                ]);
-                $flashSuccess = 'Registo de prémio apagado permanentemente.';
-            }
-        }
-    }
-
     if ($action === 'run_draw') {
         $targetUserId = (int) ($_POST['target_user_id'] ?? 0);
         $selectedGroup = (int) ($_POST['selected_group'] ?? 0);
@@ -308,6 +278,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ];
                     $flashSuccess = 'Sorteio concluído e histórico do colaborador atualizado.';
                 }
+            }
+        }
+    }
+
+    if ($action === 'delete_draw_record') {
+        $drawId = (int) ($_POST['draw_id'] ?? 0);
+        if ($drawId <= 0) {
+            $flashError = 'Registo de sorteio inválido.';
+        } else {
+            $drawStmt = $pdo->prepare('SELECT id, user_id, prize_id FROM hr_raffle_draws WHERE id = ? LIMIT 1');
+            $drawStmt->execute([$drawId]);
+            $draw = $drawStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$draw) {
+                $flashError = 'Registo de sorteio não encontrado.';
+            } else {
+                $pdo->prepare('DELETE FROM hr_raffle_draws WHERE id = ?')->execute([$drawId]);
+                log_app_event($pdo, $userId, 'hr.raffle.draw.delete', 'Registo de sorteio apagado manualmente.', [
+                    'draw_id' => $drawId,
+                    'target_user_id' => (int) ($draw['user_id'] ?? 0),
+                    'prize_id' => (int) ($draw['prize_id'] ?? 0),
+                ]);
+                $flashSuccess = 'Registo de sorteio apagado com sucesso.';
             }
         }
     }
@@ -427,7 +420,7 @@ require __DIR__ . '/partials/header.php';
                             </select>
                         </div>
                         <div class="col-12 d-grid mt-2">
-                            <button type="submit" class="btn btn-warning fw-semibold">Je tente ma chance!</button>
+                            <button type="submit" class="btn btn-warning fw-semibold">Sinto-me com sorte!</button>
                         </div>
                     </form>
 
@@ -507,12 +500,6 @@ require __DIR__ . '/partials/header.php';
                                                         <input type="hidden" name="prize_id" value="<?= (int) ($prize['id'] ?? 0) ?>">
                                                         <button type="submit" class="btn btn-outline-danger btn-sm">Remover</button>
                                                     </form>
-                                                    <form method="post" class="d-grid mt-1" onsubmit="return confirm('Apagar permanentemente este registo de prémio?');">
-                                                        <?= csrf_input() ?>
-                                                        <input type="hidden" name="action" value="delete_prize_record">
-                                                        <input type="hidden" name="prize_id" value="<?= (int) ($prize['id'] ?? 0) ?>">
-                                                        <button type="submit" class="btn btn-outline-dark btn-sm">Apagar registo</button>
-                                                    </form>
                                                 </div>
                                             <?php endforeach; ?>
                                         </div>
@@ -537,11 +524,12 @@ require __DIR__ . '/partials/header.php';
                         <th>Grupo selecionado</th>
                         <th>Grupo vencedor</th>
                         <th>Prémio</th>
+                        <th class="text-end">Ações</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (!$recentDraws): ?>
-                        <tr><td colspan="5" class="text-muted">Sem sorteios registados.</td></tr>
+                        <tr><td colspan="6" class="text-muted">Sem sorteios registados.</td></tr>
                     <?php else: ?>
                         <?php foreach ($recentDraws as $draw): ?>
                             <?php $drawUserLabel = trim(((string) ($draw['target_user_number'] ?? '')) . ' · ' . ((string) ($draw['target_user_name'] ?? '')), ' ·'); ?>
@@ -551,6 +539,14 @@ require __DIR__ . '/partials/header.php';
                                 <td><?= (int) ($draw['selected_group'] ?? 0) ?></td>
                                 <td><?= (int) ($draw['winning_group'] ?? 0) ?></td>
                                 <td><?= h((string) ($draw['prize_title'] ?? '—')) ?></td>
+                                <td class="text-end">
+                                    <form method="post" onsubmit="return confirm('Apagar este registo de sorteio?');" class="d-inline">
+                                        <?= csrf_input() ?>
+                                        <input type="hidden" name="action" value="delete_draw_record">
+                                        <input type="hidden" name="draw_id" value="<?= (int) ($draw['id'] ?? 0) ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-dark">Apagar registo</button>
+                                    </form>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                     <?php endif; ?>
@@ -689,40 +685,15 @@ if (animatedResult) {
     const rollingImage = document.getElementById('raffleRollingImage');
     const resultBadge = document.getElementById('raffleResultBadge');
 
-    if (rollingImage && Array.isArray(allImages) && allImages.length > 1) {
-        let spinStep = 0;
-        const totalSteps = Math.min(28, allImages.length * 4);
-        const pickImage = function () {
-            const index = Math.floor(Math.random() * allImages.length);
-            return allImages[index] || finalImage;
-        };
-
-        const spin = function () {
-            spinStep += 1;
-            rollingImage.src = pickImage();
-            if (spinStep < totalSteps) {
-                const delay = Math.min(250, 60 + (spinStep * 8));
-                window.setTimeout(spin, delay);
-                return;
-            }
-
-            rollingImage.src = finalImage;
-            if (resultBadge) {
-                resultBadge.textContent = finalTitle + ' (Grupo ' + finalWinningGroup + ')';
-            }
-
-            if (typeof confetti === 'function') {
-                const colors = ['#ff4d6d', '#ffd166', '#06d6a0', '#118ab2', '#8338ec'];
-                confetti({ particleCount: 170, spread: 75, colors: colors, origin: { y: 0.62 } });
-                window.setTimeout(function () {
-                    confetti({ particleCount: 80, spread: 100, colors: colors, origin: { y: 0.55 } });
-                }, 260);
-            }
-        };
-
-        spin();
-    } else if (typeof confetti === 'function') {
-        confetti({ particleCount: 140, spread: 75, origin: { y: 0.62 } });
+    if (rollingImage) {
+        rollingImage.src = finalImage;
+    }
+    if (resultBadge) {
+        resultBadge.textContent = finalTitle + ' (Grupo ' + finalWinningGroup + ')';
+    }
+    if (typeof confetti === 'function') {
+        const colors = ['#ff4d6d', '#ffd166', '#06d6a0', '#118ab2', '#8338ec'];
+        confetti({ particleCount: 150, spread: 78, colors: colors, origin: { y: 0.62 } });
     }
 }
 </script>
