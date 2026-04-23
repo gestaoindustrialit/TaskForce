@@ -306,6 +306,15 @@ require __DIR__ . '/partials/header.php';
 ?>
 <a href="hr.php" class="btn btn-link px-0 mb-2">&larr; Voltar ao painel RH</a>
 
+<style>
+    .raffle-prize-item.is-hidden { display: none; }
+    .raffle-prize-image {
+        max-height: 170px;
+        object-fit: cover;
+        width: 100%;
+    }
+</style>
+
 <section class="d-flex flex-column gap-3">
     <div class="soft-card p-3 p-lg-4">
         <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 mb-3">
@@ -395,16 +404,24 @@ require __DIR__ . '/partials/header.php';
 
                     <div class="row g-2">
                         <?php foreach ([1, 2, 3] as $group): ?>
+                            <?php $groupCount = count($prizesByGroup[$group]); ?>
                             <div class="col-md-4">
-                                <div class="border rounded-3 p-2 h-100">
-                                    <h3 class="h6">Grupo <?= $group ?></h3>
+                                <div class="border rounded-3 p-2 h-100 raffle-group-carousel" data-group="<?= $group ?>">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <h3 class="h6 mb-0">Grupo <?= $group ?></h3>
+                                        <div class="d-flex align-items-center gap-1">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 raffle-prev" <?= $groupCount <= 1 ? 'disabled' : '' ?>>&larr;</button>
+                                            <span class="small text-muted raffle-counter">0 / 0</span>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 raffle-next" <?= $groupCount <= 1 ? 'disabled' : '' ?>>&rarr;</button>
+                                        </div>
+                                    </div>
                                     <?php if (!$prizesByGroup[$group]): ?>
                                         <p class="text-muted small mb-0">Sem prémios ativos.</p>
                                     <?php else: ?>
-                                        <div class="d-flex flex-column gap-2">
-                                            <?php foreach ($prizesByGroup[$group] as $prize): ?>
-                                                <div class="border rounded-2 p-2">
-                                                    <img src="<?= h((string) ($prize['image_path'] ?? '')) ?>" alt="<?= h((string) ($prize['title'] ?? '')) ?>" class="img-fluid rounded mb-2" style="max-height: 120px; object-fit: cover; width: 100%;">
+                                        <div class="d-flex flex-column gap-2 raffle-items">
+                                            <?php foreach ($prizesByGroup[$group] as $index => $prize): ?>
+                                                <div class="border rounded-2 p-2 raffle-prize-item<?= $index === 0 ? '' : ' is-hidden' ?>" data-index="<?= $index ?>">
+                                                    <img src="<?= h((string) ($prize['image_path'] ?? '')) ?>" alt="<?= h((string) ($prize['title'] ?? '')) ?>" class="img-fluid rounded mb-2 raffle-prize-image">
                                                     <div class="small fw-semibold mb-2"><?= h((string) ($prize['title'] ?? '')) ?></div>
                                                     <form method="post" class="d-grid">
                                                         <?= csrf_input() ?>
@@ -458,5 +475,47 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 </section>
+
+<script>
+document.querySelectorAll('.raffle-group-carousel').forEach(function (carousel) {
+    const items = Array.from(carousel.querySelectorAll('.raffle-prize-item'));
+    const prevButton = carousel.querySelector('.raffle-prev');
+    const nextButton = carousel.querySelector('.raffle-next');
+    const counter = carousel.querySelector('.raffle-counter');
+
+    if (!items.length || !counter) {
+        if (counter) {
+            counter.textContent = '0 / 0';
+        }
+        return;
+    }
+
+    let currentIndex = 0;
+
+    function render() {
+        items.forEach(function (item, index) {
+            item.classList.toggle('is-hidden', index !== currentIndex);
+        });
+
+        counter.textContent = (currentIndex + 1) + ' / ' + items.length;
+    }
+
+    if (prevButton) {
+        prevButton.addEventListener('click', function () {
+            currentIndex = (currentIndex - 1 + items.length) % items.length;
+            render();
+        });
+    }
+
+    if (nextButton) {
+        nextButton.addEventListener('click', function () {
+            currentIndex = (currentIndex + 1) % items.length;
+            render();
+        });
+    }
+
+    render();
+});
+</script>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>
