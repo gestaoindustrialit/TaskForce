@@ -272,7 +272,7 @@ require __DIR__ . '/partials/header.php';
                             </select>
                         </div>
                         <div class="col-12 d-grid mt-2">
-                            <button type="submit" class="btn btn-warning fw-semibold">Je tente ma chance!</button>
+                            <button type="submit" class="btn btn-warning fw-semibold">Sinto-me com sorte!</button>
                         </div>
                     </form>
 
