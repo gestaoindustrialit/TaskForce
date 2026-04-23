@@ -373,7 +373,7 @@ require __DIR__ . '/partials/header.php';
         padding: 6px;
     }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
 <section class="d-flex flex-column gap-3">
     <div class="soft-card p-3 p-lg-4">
@@ -559,7 +559,7 @@ require __DIR__ . '/partials/header.php';
 <div id="raffleRollOverlay" class="raffle-roll-overlay" aria-hidden="true">
     <div class="raffle-roll-card">
         <h3 class="h5 mb-2">A sortear prémio...</h3>
-        <p id="raffleRollText" class="text-muted small mb-3">A percorrer todos os prémios.</p>
+        <p id="raffleRollText" class="text-muted small mb-3">A percorrer prémios...</p>
         <img id="raffleRollImage" class="raffle-roll-image" alt="Pré-visualização do sorteio">
     </div>
 </div>
@@ -649,9 +649,6 @@ if (runDrawForm && rollOverlay && rollImage) {
         const spin = function () {
             const imageIndex = step % allImages.length;
             rollImage.src = allImages[imageIndex];
-            if (rollText) {
-                rollText.textContent = 'A percorrer prémios... ' + (step + 1) + ' / ' + totalSteps;
-            }
 
             step += 1;
             if (step < totalSteps) {
@@ -659,19 +656,11 @@ if (runDrawForm && rollOverlay && rollImage) {
                 window.setTimeout(spin, delay);
                 return;
             }
-
-            if (typeof confetti === 'function') {
-                const colors = ['#ff4d6d', '#ffd166', '#06d6a0', '#118ab2', '#8338ec'];
-                confetti({ particleCount: 220, spread: 90, colors: colors, origin: { y: 0.58 } });
-                window.setTimeout(function () {
-                    confetti({ particleCount: 120, spread: 115, colors: colors, origin: { y: 0.52 } });
-                }, 350);
+            if (rollText) {
+                rollText.textContent = 'A validar resultado...';
             }
-
-            window.setTimeout(function () {
-                runDrawForm.dataset.skipAnimation = '1';
-                runDrawForm.submit();
-            }, 850);
+            runDrawForm.dataset.skipAnimation = '1';
+            runDrawForm.submit();
         };
 
         spin();
@@ -692,8 +681,19 @@ if (animatedResult) {
         resultBadge.textContent = finalTitle + ' (Grupo ' + finalWinningGroup + ')';
     }
     if (typeof confetti === 'function') {
-        const colors = ['#ff4d6d', '#ffd166', '#06d6a0', '#118ab2', '#8338ec'];
-        confetti({ particleCount: 150, spread: 78, colors: colors, origin: { y: 0.62 } });
+        confetti({
+            particleCount: 160,
+            spread: 75,
+            origin: { y: 0.60 }
+        });
+
+        setTimeout(function () {
+            confetti({
+                particleCount: 80,
+                spread: 100,
+                origin: { y: 0.50 }
+            });
+        }, 250);
     }
 }
 </script>
