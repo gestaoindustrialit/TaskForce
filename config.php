@@ -1189,6 +1189,35 @@ $pdo->exec(
 );
 
 $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hr_raffle_prizes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_number INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        image_path TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        removed_at DATETIME,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hr_raffle_draws (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        selected_group INTEGER NOT NULL,
+        winning_group INTEGER NOT NULL,
+        prize_id INTEGER,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY(prize_id) REFERENCES hr_raffle_prizes(id) ON DELETE SET NULL,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    )'
+);
+
+$pdo->exec(
     'CREATE TABLE IF NOT EXISTS task_attachments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         task_id INTEGER NOT NULL,
