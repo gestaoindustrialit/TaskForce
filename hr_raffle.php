@@ -55,16 +55,33 @@ function raffle_pick_group(array $weights): int
     return 1;
 }
 
-function raffle_upload_image(array $file): ?string
+function raffle_upload_image(array $file): array
 {
     $errorCode = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
     if ($errorCode !== UPLOAD_ERR_OK) {
-        return null;
+        $uploadErrors = [
+            UPLOAD_ERR_INI_SIZE => 'A imagem excede o limite do servidor (upload_max_filesize).',
+            UPLOAD_ERR_FORM_SIZE => 'A imagem excede o limite permitido pelo formulário.',
+            UPLOAD_ERR_PARTIAL => 'O upload foi parcial. Tente novamente.',
+            UPLOAD_ERR_NO_FILE => 'Selecione uma imagem antes de adicionar o prémio.',
+            UPLOAD_ERR_NO_TMP_DIR => 'O servidor não tem diretório temporário para upload.',
+            UPLOAD_ERR_CANT_WRITE => 'O servidor não conseguiu gravar o ficheiro no disco.',
+            UPLOAD_ERR_EXTENSION => 'Uma extensão do PHP bloqueou o upload da imagem.',
+        ];
+        return [
+            'ok' => false,
+            'path' => null,
+            'error' => $uploadErrors[$errorCode] ?? ('Falha no upload da imagem (código ' . $errorCode . ').'),
+        ];
     }
 
     $tmpName = (string) ($file['tmp_name'] ?? '');
-    if ($tmpName === '' || !is_uploaded_file($tmpName)) {
-        return null;
+    if ($tmpName === '') {
+        return [
+            'ok' => false,
+            'path' => null,
+            'error' => 'Não foi possível ler o ficheiro enviado.',
+        ];
     }
 
     $mimeType = '';
@@ -105,27 +122,49 @@ function raffle_upload_image(array $file): ?string
     $normalized = $normalizedFromMime !== '' ? $normalizedFromMime : $normalizedExtension;
 
     if ($normalized === '') {
-        return null;
+        return [
+            'ok' => false,
+            'path' => null,
+            'error' => 'Formato inválido. Use JPG, JPEG, PNG ou WEBP.',
+        ];
     }
 
     $imageInfo = @getimagesize($tmpName);
     if (!is_array($imageInfo) || empty($imageInfo['mime']) || !array_key_exists((string) $imageInfo['mime'], $allowedMimes)) {
-        return null;
+        return [
+            'ok' => false,
+            'path' => null,
+            'error' => 'O ficheiro enviado não é uma imagem válida.',
+        ];
     }
 
     $uploadDir = __DIR__ . '/uploads/hr_raffle';
     if (!is_dir($uploadDir)) {
-        mkdir($uploadDir, 0775, true);
+        if (!@mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
+            return [
+                'ok' => false,
+                'path' => null,
+                'error' => 'Não foi possível criar a pasta de uploads do sorteio.',
+            ];
+        }
     }
 
     $safeName = 'raffle_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.' . $normalized;
     $targetPath = $uploadDir . '/' . $safeName;
 
     if (!move_uploaded_file($tmpName, $targetPath)) {
-        return null;
+        return [
+            'ok' => false,
+            'path' => null,
+            'error' => 'Falha ao gravar a imagem no servidor.',
+        ];
     }
 
-    return 'uploads/hr_raffle/' . $safeName;
+    return [
+        'ok' => true,
+        'path' => 'uploads/hr_raffle/' . $safeName,
+        'error' => null,
+    ];
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -135,15 +174,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'add_prize') {
         $groupNumber = (int) ($_POST['group_number'] ?? 0);
         $title = trim((string) ($_POST['title'] ?? ''));
-        $imagePath = raffle_upload_image($_FILES['prize_image'] ?? []);
+        $uploadResult = raffle_upload_image($_FILES['prize_image'] ?? []);
 
         if (!in_array($groupNumber, [1, 2, 3], true)) {
             $flashError = 'Grupo inválido para o prémio.';
         } elseif ($title === '') {
             $flashError = 'Indique o nome do prémio.';
-        } elseif ($imagePath === null) {
-            $flashError = 'Imagem inválida. Use JPG, PNG ou WEBP.';
+        } elseif (!(bool) ($uploadResult['ok'] ?? false)) {
+            $flashError = (string) ($uploadResult['error'] ?? 'Falha ao enviar a imagem.');
         } else {
+            $imagePath = (string) ($uploadResult['path'] ?? '');
             $insertPrizeStmt = $pdo->prepare('INSERT INTO hr_raffle_prizes(group_number, title, image_path, created_by) VALUES (?, ?, ?, ?)');
             $insertPrizeStmt->execute([$groupNumber, $title, $imagePath, $userId]);
             $newPrizeId = (int) $pdo->lastInsertId();
