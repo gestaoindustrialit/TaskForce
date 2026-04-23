@@ -299,6 +299,14 @@ foreach ($activePrizes as $prize) {
         $prizesByGroup[$group][] = $prize;
     }
 }
+$allPrizeImages = [];
+foreach ($activePrizes as $prize) {
+    $path = trim((string) ($prize['image_path'] ?? ''));
+    if ($path !== '') {
+        $allPrizeImages[] = $path;
+    }
+}
+$allPrizeImages = array_values(array_unique($allPrizeImages));
 
 $pageTitle = 'RH · Sorteio de Prémios';
 $bodyClass = 'bg-light';
@@ -314,6 +322,7 @@ require __DIR__ . '/partials/header.php';
         width: 100%;
     }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
 
 <section class="d-flex flex-column gap-3">
     <div class="soft-card p-3 p-lg-4">
@@ -338,8 +347,12 @@ require __DIR__ . '/partials/header.php';
                         <?= csrf_input() ?>
                         <input type="hidden" name="action" value="run_draw">
                         <div class="col-12">
+                            <label class="form-label">Pesquisar colaborador</label>
+                            <input type="search" id="employeeSearchInput" class="form-control" placeholder="Escreve nome ou número...">
+                        </div>
+                        <div class="col-12">
                             <label class="form-label">Colaborador</label>
-                            <select name="target_user_id" class="form-select" required>
+                            <select id="targetUserSelect" name="target_user_id" class="form-select" required>
                                 <option value="">Selecionar...</option>
                                 <?php foreach ($users as $employee): ?>
                                     <?php $employeeLabel = trim(((string) ($employee['user_number'] ?? '')) . ' · ' . ((string) ($employee['name'] ?? '')), ' ·'); ?>
@@ -362,10 +375,17 @@ require __DIR__ . '/partials/header.php';
 
                     <div class="mt-3 border rounded-3 p-3 bg-light-subtle" id="raffleResult">
                         <?php if ($resultPayload): ?>
-                            <div class="fw-semibold mb-2">Resultado para <?= h((string) ($resultPayload['user_label'] ?? '')) ?></div>
-                            <div class="small text-muted mb-2">Grupo escolhido: <?= (int) ($resultPayload['selected_group'] ?? 0) ?> · Grupo vencedor: <?= (int) ($resultPayload['winning_group'] ?? 0) ?></div>
-                            <div class="badge text-bg-dark mb-2"><?= h((string) ($resultPayload['prize_title'] ?? '')) ?></div>
-                            <div><img src="<?= h((string) ($resultPayload['image_path'] ?? '')) ?>" alt="Prémio sorteado" class="img-fluid rounded" style="max-height: 240px;"></div>
+                            <div id="raffleAnimatedResult"
+                                data-final-image="<?= h((string) ($resultPayload['image_path'] ?? '')) ?>"
+                                data-final-title="<?= h((string) ($resultPayload['prize_title'] ?? '')) ?>"
+                                data-user-label="<?= h((string) ($resultPayload['user_label'] ?? '')) ?>"
+                                data-selected-group="<?= (int) ($resultPayload['selected_group'] ?? 0) ?>"
+                                data-winning-group="<?= (int) ($resultPayload['winning_group'] ?? 0) ?>">
+                                <div class="fw-semibold mb-2">Resultado para <?= h((string) ($resultPayload['user_label'] ?? '')) ?></div>
+                                <div class="small text-muted mb-2">Grupo escolhido: <?= (int) ($resultPayload['selected_group'] ?? 0) ?> · Grupo vencedor: <?= (int) ($resultPayload['winning_group'] ?? 0) ?></div>
+                                <div id="raffleResultBadge" class="badge text-bg-dark mb-2"><?= h((string) ($resultPayload['prize_title'] ?? '')) ?></div>
+                                <div><img id="raffleRollingImage" src="<?= h((string) ($resultPayload['image_path'] ?? '')) ?>" alt="Prémio sorteado" class="img-fluid rounded" style="max-height: 240px;"></div>
+                            </div>
                         <?php else: ?>
                             <div class="text-muted">Sem sorteio executado nesta sessão.</div>
                         <?php endif; ?>
@@ -516,6 +536,68 @@ document.querySelectorAll('.raffle-group-carousel').forEach(function (carousel) 
 
     render();
 });
+
+const employeeSearchInput = document.getElementById('employeeSearchInput');
+const targetUserSelect = document.getElementById('targetUserSelect');
+if (employeeSearchInput && targetUserSelect) {
+    employeeSearchInput.addEventListener('input', function () {
+        const query = employeeSearchInput.value.trim().toLowerCase();
+        Array.from(targetUserSelect.options).forEach(function (option, index) {
+            if (index === 0) {
+                option.hidden = false;
+                return;
+            }
+
+            const matches = query === '' || option.text.toLowerCase().includes(query);
+            option.hidden = !matches;
+        });
+    });
+}
+
+const animatedResult = document.getElementById('raffleAnimatedResult');
+if (animatedResult) {
+    const finalImage = animatedResult.dataset.finalImage || '';
+    const finalTitle = animatedResult.dataset.finalTitle || '';
+    const finalWinningGroup = animatedResult.dataset.winningGroup || '';
+    const rollingImage = document.getElementById('raffleRollingImage');
+    const resultBadge = document.getElementById('raffleResultBadge');
+    const allImages = <?= json_encode($allPrizeImages, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+
+    if (rollingImage && Array.isArray(allImages) && allImages.length > 1) {
+        let spinStep = 0;
+        const totalSteps = Math.min(28, allImages.length * 4);
+        const pickImage = function () {
+            const index = Math.floor(Math.random() * allImages.length);
+            return allImages[index] || finalImage;
+        };
+
+        const spin = function () {
+            spinStep += 1;
+            rollingImage.src = pickImage();
+            if (spinStep < totalSteps) {
+                const delay = Math.min(250, 60 + (spinStep * 8));
+                window.setTimeout(spin, delay);
+                return;
+            }
+
+            rollingImage.src = finalImage;
+            if (resultBadge) {
+                resultBadge.textContent = finalTitle + ' (Grupo ' + finalWinningGroup + ')';
+            }
+
+            if (typeof confetti === 'function') {
+                confetti({ particleCount: 170, spread: 75, origin: { y: 0.62 } });
+                window.setTimeout(function () {
+                    confetti({ particleCount: 80, spread: 100, origin: { y: 0.55 } });
+                }, 260);
+            }
+        };
+
+        spin();
+    } else if (typeof confetti === 'function') {
+        confetti({ particleCount: 140, spread: 75, origin: { y: 0.62 } });
+    }
+}
 </script>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>
