@@ -372,6 +372,20 @@ require __DIR__ . '/partials/header.php';
         border: 1px solid #e5e7eb;
         padding: 6px;
     }
+    .raffle-fallback-confetti {
+        position: fixed;
+        width: 10px;
+        height: 14px;
+        top: -20px;
+        opacity: 0.95;
+        z-index: 3500;
+        pointer-events: none;
+        animation: raffle-confetti-drop 1300ms linear forwards;
+    }
+    @keyframes raffle-confetti-drop {
+        0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+        100% { transform: translateY(95vh) rotate(540deg); opacity: 0; }
+    }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
@@ -630,6 +644,36 @@ const rollOverlay = document.getElementById('raffleRollOverlay');
 const rollImage = document.getElementById('raffleRollImage');
 const rollText = document.getElementById('raffleRollText');
 
+function fireCelebration() {
+    if (typeof confetti === 'function') {
+        confetti({
+            particleCount: 160,
+            spread: 75,
+            origin: { y: 0.60 }
+        });
+
+        setTimeout(function () {
+            confetti({
+                particleCount: 80,
+                spread: 100,
+                origin: { y: 0.50 }
+            });
+        }, 250);
+        return;
+    }
+
+    const colors = ['#ff4d6d', '#ffd166', '#06d6a0', '#118ab2', '#8338ec'];
+    for (let i = 0; i < 70; i += 1) {
+        const piece = document.createElement('span');
+        piece.className = 'raffle-fallback-confetti';
+        piece.style.left = Math.random() * 100 + 'vw';
+        piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+        piece.style.animationDelay = (Math.random() * 220) + 'ms';
+        document.body.appendChild(piece);
+        window.setTimeout(function () { piece.remove(); }, 1600);
+    }
+}
+
 if (runDrawForm && rollOverlay && rollImage) {
     runDrawForm.addEventListener('submit', function (event) {
         if (runDrawForm.dataset.skipAnimation === '1') {
@@ -645,22 +689,25 @@ if (runDrawForm && rollOverlay && rollImage) {
         rollOverlay.setAttribute('aria-hidden', 'false');
 
         let step = 0;
-        const totalSteps = Math.max(12, allImages.length * 3);
+        const totalSteps = Math.max(8, allImages.length * 2);
         const spin = function () {
             const imageIndex = step % allImages.length;
             rollImage.src = allImages[imageIndex];
 
             step += 1;
             if (step < totalSteps) {
-                const delay = Math.min(520, 260 + (step * 12));
+                const delay = Math.min(180, 90 + (step * 8));
                 window.setTimeout(spin, delay);
                 return;
             }
             if (rollText) {
                 rollText.textContent = 'A validar resultado...';
             }
-            runDrawForm.dataset.skipAnimation = '1';
-            runDrawForm.submit();
+            fireCelebration();
+            window.setTimeout(function () {
+                runDrawForm.dataset.skipAnimation = '1';
+                runDrawForm.submit();
+            }, 320);
         };
 
         spin();
@@ -680,21 +727,7 @@ if (animatedResult) {
     if (resultBadge) {
         resultBadge.textContent = finalTitle + ' (Grupo ' + finalWinningGroup + ')';
     }
-    if (typeof confetti === 'function') {
-        confetti({
-            particleCount: 160,
-            spread: 75,
-            origin: { y: 0.60 }
-        });
-
-        setTimeout(function () {
-            confetti({
-                particleCount: 80,
-                spread: 100,
-                origin: { y: 0.50 }
-            });
-        }, 250);
-    }
+    fireCelebration();
 }
 </script>
 
