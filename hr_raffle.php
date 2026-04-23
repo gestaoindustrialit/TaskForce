@@ -218,6 +218,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($action === 'delete_prize_record') {
+        $prizeId = (int) ($_POST['prize_id'] ?? 0);
+        if ($prizeId <= 0) {
+            $flashError = 'Registo de prémio inválido.';
+        } else {
+            $prizeStmt = $pdo->prepare('SELECT id, title, image_path FROM hr_raffle_prizes WHERE id = ? LIMIT 1');
+            $prizeStmt->execute([$prizeId]);
+            $prize = $prizeStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$prize) {
+                $flashError = 'Registo de prémio não encontrado.';
+            } else {
+                $pdo->prepare('DELETE FROM hr_raffle_prizes WHERE id = ?')->execute([$prizeId]);
+                $storedPath = trim((string) ($prize['image_path'] ?? ''));
+                if ($storedPath !== '' && strpos($storedPath, 'uploads/hr_raffle/') === 0) {
+                    $absolutePath = __DIR__ . '/' . $storedPath;
+                    if (is_file($absolutePath)) {
+                        @unlink($absolutePath);
+                    }
+                }
+
+                log_app_event($pdo, $userId, 'hr.raffle.prize.delete', 'Registo de prémio apagado permanentemente.', [
+                    'prize_id' => $prizeId,
+                    'title' => (string) ($prize['title'] ?? ''),
+                ]);
+                $flashSuccess = 'Registo de prémio apagado permanentemente.';
+            }
+        }
+    }
+
     if ($action === 'run_draw') {
         $targetUserId = (int) ($_POST['target_user_id'] ?? 0);
         $selectedGroup = (int) ($_POST['selected_group'] ?? 0);
@@ -321,6 +351,34 @@ require __DIR__ . '/partials/header.php';
         object-fit: cover;
         width: 100%;
     }
+    .raffle-roll-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.65);
+        z-index: 3000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
+    }
+    .raffle-roll-overlay.is-open { display: flex; }
+    .raffle-roll-card {
+        width: min(560px, 100%);
+        background: #fff;
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+        text-align: center;
+    }
+    .raffle-roll-image {
+        width: 100%;
+        max-height: 320px;
+        object-fit: contain;
+        border-radius: 12px;
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
+        padding: 6px;
+    }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
 
@@ -343,7 +401,7 @@ require __DIR__ . '/partials/header.php';
             <div class="col-xl-5">
                 <article class="border rounded-3 p-3 h-100 bg-white">
                     <h2 class="h5">Correr sorteio</h2>
-                    <form method="post" class="row g-2">
+                    <form id="runDrawForm" method="post" class="row g-2">
                         <?= csrf_input() ?>
                         <input type="hidden" name="action" value="run_draw">
                         <div class="col-12">
@@ -449,6 +507,12 @@ require __DIR__ . '/partials/header.php';
                                                         <input type="hidden" name="prize_id" value="<?= (int) ($prize['id'] ?? 0) ?>">
                                                         <button type="submit" class="btn btn-outline-danger btn-sm">Remover</button>
                                                     </form>
+                                                    <form method="post" class="d-grid mt-1" onsubmit="return confirm('Apagar permanentemente este registo de prémio?');">
+                                                        <?= csrf_input() ?>
+                                                        <input type="hidden" name="action" value="delete_prize_record">
+                                                        <input type="hidden" name="prize_id" value="<?= (int) ($prize['id'] ?? 0) ?>">
+                                                        <button type="submit" class="btn btn-outline-dark btn-sm">Apagar registo</button>
+                                                    </form>
                                                 </div>
                                             <?php endforeach; ?>
                                         </div>
@@ -495,6 +559,14 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 </section>
+
+<div id="raffleRollOverlay" class="raffle-roll-overlay" aria-hidden="true">
+    <div class="raffle-roll-card">
+        <h3 class="h5 mb-2">A sortear prémio...</h3>
+        <p id="raffleRollText" class="text-muted small mb-3">A percorrer todos os prémios.</p>
+        <img id="raffleRollImage" class="raffle-roll-image" alt="Pré-visualização do sorteio">
+    </div>
+</div>
 
 <script>
 document.querySelectorAll('.raffle-group-carousel').forEach(function (carousel) {
@@ -555,13 +627,67 @@ if (employeeSearchInput && targetUserSelect) {
 }
 
 const animatedResult = document.getElementById('raffleAnimatedResult');
+const allImages = <?= json_encode($allPrizeImages, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+
+const runDrawForm = document.getElementById('runDrawForm');
+const rollOverlay = document.getElementById('raffleRollOverlay');
+const rollImage = document.getElementById('raffleRollImage');
+const rollText = document.getElementById('raffleRollText');
+
+if (runDrawForm && rollOverlay && rollImage) {
+    runDrawForm.addEventListener('submit', function (event) {
+        if (runDrawForm.dataset.skipAnimation === '1') {
+            return;
+        }
+        if (!Array.isArray(allImages) || allImages.length === 0) {
+            return;
+        }
+
+        event.preventDefault();
+        runDrawForm.dataset.skipAnimation = '0';
+        rollOverlay.classList.add('is-open');
+        rollOverlay.setAttribute('aria-hidden', 'false');
+
+        let step = 0;
+        const totalSteps = Math.max(12, allImages.length * 3);
+        const spin = function () {
+            const imageIndex = step % allImages.length;
+            rollImage.src = allImages[imageIndex];
+            if (rollText) {
+                rollText.textContent = 'A percorrer prémios... ' + (step + 1) + ' / ' + totalSteps;
+            }
+
+            step += 1;
+            if (step < totalSteps) {
+                const delay = Math.min(520, 260 + (step * 12));
+                window.setTimeout(spin, delay);
+                return;
+            }
+
+            if (typeof confetti === 'function') {
+                const colors = ['#ff4d6d', '#ffd166', '#06d6a0', '#118ab2', '#8338ec'];
+                confetti({ particleCount: 220, spread: 90, colors: colors, origin: { y: 0.58 } });
+                window.setTimeout(function () {
+                    confetti({ particleCount: 120, spread: 115, colors: colors, origin: { y: 0.52 } });
+                }, 350);
+            }
+
+            window.setTimeout(function () {
+                runDrawForm.dataset.skipAnimation = '1';
+                runDrawForm.submit();
+            }, 850);
+        };
+
+        spin();
+    });
+}
+
 if (animatedResult) {
     const finalImage = animatedResult.dataset.finalImage || '';
     const finalTitle = animatedResult.dataset.finalTitle || '';
     const finalWinningGroup = animatedResult.dataset.winningGroup || '';
     const rollingImage = document.getElementById('raffleRollingImage');
     const resultBadge = document.getElementById('raffleResultBadge');
-    const allImages = <?= json_encode($allPrizeImages, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
 
     if (rollingImage && Array.isArray(allImages) && allImages.length > 1) {
         let spinStep = 0;
@@ -586,9 +712,10 @@ if (animatedResult) {
             }
 
             if (typeof confetti === 'function') {
-                confetti({ particleCount: 170, spread: 75, origin: { y: 0.62 } });
+                const colors = ['#ff4d6d', '#ffd166', '#06d6a0', '#118ab2', '#8338ec'];
+                confetti({ particleCount: 170, spread: 75, colors: colors, origin: { y: 0.62 } });
                 window.setTimeout(function () {
-                    confetti({ particleCount: 80, spread: 100, origin: { y: 0.55 } });
+                    confetti({ particleCount: 80, spread: 100, colors: colors, origin: { y: 0.55 } });
                 }, 260);
             }
         };
