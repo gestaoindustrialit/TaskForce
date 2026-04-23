@@ -67,14 +67,49 @@ function raffle_upload_image(array $file): ?string
         return null;
     }
 
-    $mimeType = (string) (@mime_content_type($tmpName) ?: '');
+    $mimeType = '';
+    if (function_exists('finfo_open')) {
+        $finfo = @finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo !== false) {
+            $detected = @finfo_file($finfo, $tmpName);
+            if (is_string($detected)) {
+                $mimeType = trim($detected);
+            }
+            @finfo_close($finfo);
+        }
+    }
+    if ($mimeType === '' && function_exists('mime_content_type')) {
+        $detected = @mime_content_type($tmpName);
+        if (is_string($detected)) {
+            $mimeType = trim($detected);
+        }
+    }
+
+    $extension = strtolower((string) pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
     $allowedMimes = [
         'image/jpeg' => 'jpg',
+        'image/jpg' => 'jpg',
+        'image/pjpeg' => 'jpg',
         'image/png' => 'png',
         'image/webp' => 'webp',
     ];
+    $allowedExtensions = [
+        'jpg' => 'jpg',
+        'jpeg' => 'jpg',
+        'png' => 'png',
+        'webp' => 'webp',
+    ];
 
-    if (!array_key_exists($mimeType, $allowedMimes)) {
+    $normalizedExtension = $allowedExtensions[$extension] ?? '';
+    $normalizedFromMime = $allowedMimes[$mimeType] ?? '';
+    $normalized = $normalizedFromMime !== '' ? $normalizedFromMime : $normalizedExtension;
+
+    if ($normalized === '') {
+        return null;
+    }
+
+    $imageInfo = @getimagesize($tmpName);
+    if (!is_array($imageInfo) || empty($imageInfo['mime']) || !array_key_exists((string) $imageInfo['mime'], $allowedMimes)) {
         return null;
     }
 
@@ -83,7 +118,7 @@ function raffle_upload_image(array $file): ?string
         mkdir($uploadDir, 0775, true);
     }
 
-    $safeName = 'raffle_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.' . $allowedMimes[$mimeType];
+    $safeName = 'raffle_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.' . $normalized;
     $targetPath = $uploadDir . '/' . $safeName;
 
     if (!move_uploaded_file($tmpName, $targetPath)) {
@@ -272,7 +307,7 @@ require __DIR__ . '/partials/header.php';
                             </select>
                         </div>
                         <div class="col-12 d-grid mt-2">
-                            <button type="submit" class="btn btn-warning fw-semibold">Sinto-me com sorte!</button>
+                            <button type="submit" class="btn btn-warning fw-semibold">Je tente ma chance!</button>
                         </div>
                     </form>
 
