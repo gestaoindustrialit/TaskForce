@@ -941,14 +941,14 @@ if ($selectedScheduleId > 0) {
 }
 
 if ($selectedAccessProfile !== '' && in_array($selectedAccessProfile, $accessProfileOptions, true)) {
-    $filterSqlParts[] = 'access_profile = :access_profile';
+    $filterSqlParts[] = 'LOWER(TRIM(access_profile)) = LOWER(TRIM(:access_profile))';
     $filterParams[':access_profile'] = $selectedAccessProfile;
 } else {
     $selectedAccessProfile = '';
 }
 
 if ($selectedUserType !== '' && in_array($selectedUserType, $userTypeOptions, true)) {
-    $filterSqlParts[] = 'user_type = :user_type';
+    $filterSqlParts[] = 'LOWER(TRIM(user_type)) = LOWER(TRIM(:user_type))';
     $filterParams[':user_type'] = $selectedUserType;
 } else {
     $selectedUserType = '';
