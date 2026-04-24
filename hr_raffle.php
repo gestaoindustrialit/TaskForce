@@ -427,12 +427,38 @@ require __DIR__ . '/partials/header.php';
                 <p class="text-muted mb-0">Executa sorteios com probabilidades por grupo e gere imagens de prémios.</p>
             </div>
             <div class="d-flex flex-wrap gap-2">
-                <a class="btn btn-outline-secondary" href="app_logs.php">Ver histórico global</a>
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#rafflePrizeModal">
+                    Adicionar e gerir prémios
+                </button>
             </div>
         </div>
 
         <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
         <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
+
+        <div class="row g-2 mb-3">
+            <div class="col-md-4">
+                <div class="border rounded-3 p-2 bg-white">
+                    <div class="small text-muted">Grupo 1</div>
+                    <div class="h5 mb-0"><?= $groupPrizeCounts[1] ?> prémios</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="border rounded-3 p-2 bg-white">
+                    <div class="small text-muted">Grupo 2</div>
+                    <div class="h5 mb-0"><?= $groupPrizeCounts[2] ?> prémios</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="border rounded-3 p-2 bg-white">
+                    <div class="small text-muted">Grupo 3</div>
+                    <div class="h5 mb-0"><?= $groupPrizeCounts[3] ?> prémios</div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="small text-muted">Total de prémios ativos: <strong><?= $totalActivePrizes ?></strong></div>
+            </div>
+        </div>
 
         <div class="row g-3">
             <div class="col-xl-5">
@@ -467,8 +493,13 @@ require __DIR__ . '/partials/header.php';
                             <button type="submit" class="btn btn-warning fw-semibold">Sinto-me com sorte!</button>
                         </div>
                     </form>
+                </article>
+            </div>
 
-                    <div class="mt-3 border rounded-3 p-3 bg-light-subtle" id="raffleResult">
+            <div class="col-xl-7">
+                <article class="border rounded-3 p-3 h-100 bg-white">
+                    <h2 class="h5">Prémio da sessão atual</h2>
+                    <div class="border rounded-3 p-3 bg-light-subtle" id="raffleResult">
                         <?php if ($resultPayload): ?>
                             <div id="raffleAnimatedResult"
                                 data-final-image="<?= h((string) ($resultPayload['image_path'] ?? '')) ?>"
@@ -479,46 +510,11 @@ require __DIR__ . '/partials/header.php';
                                 <div class="fw-semibold mb-2">Resultado para <?= h((string) ($resultPayload['user_label'] ?? '')) ?></div>
                                 <div class="small text-muted mb-2">Grupo escolhido: <?= (int) ($resultPayload['selected_group'] ?? 0) ?> · Grupo vencedor: <?= (int) ($resultPayload['winning_group'] ?? 0) ?></div>
                                 <div id="raffleResultBadge" class="badge text-bg-dark mb-2"><?= h((string) ($resultPayload['prize_title'] ?? '')) ?></div>
-                                <div><img id="raffleRollingImage" src="<?= h((string) ($resultPayload['image_path'] ?? '')) ?>" alt="Prémio sorteado" class="img-fluid rounded" style="max-height: 240px;"></div>
+                                <div><img id="raffleRollingImage" src="<?= h((string) ($resultPayload['image_path'] ?? '')) ?>" alt="Prémio sorteado" class="img-fluid rounded" style="max-height: 320px;"></div>
                             </div>
                         <?php else: ?>
                             <div class="text-muted">Sem sorteio executado nesta sessão.</div>
                         <?php endif; ?>
-                    </div>
-                </article>
-            </div>
-
-            <div class="col-xl-7">
-                <article class="border rounded-3 p-3 h-100 bg-white d-flex flex-column justify-content-between">
-                    <div>
-                        <h2 class="h5 mb-1">Prémios</h2>
-                        <p class="text-muted mb-3">A gestão de prémios foi movida para um pop-up maior para simplificar esta vista.</p>
-                        <div class="row g-2 mb-3">
-                            <div class="col-sm-4">
-                                <div class="border rounded-3 p-2 bg-light-subtle">
-                                    <div class="small text-muted">Grupo 1</div>
-                                    <div class="h5 mb-0"><?= $groupPrizeCounts[1] ?> prémios</div>
-                                </div>
-                            </div>
-                            <div class="col-sm-4">
-                                <div class="border rounded-3 p-2 bg-light-subtle">
-                                    <div class="small text-muted">Grupo 2</div>
-                                    <div class="h5 mb-0"><?= $groupPrizeCounts[2] ?> prémios</div>
-                                </div>
-                            </div>
-                            <div class="col-sm-4">
-                                <div class="border rounded-3 p-2 bg-light-subtle">
-                                    <div class="small text-muted">Grupo 3</div>
-                                    <div class="h5 mb-0"><?= $groupPrizeCounts[3] ?> prémios</div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="small text-muted">Total de prémios ativos: <strong><?= $totalActivePrizes ?></strong></div>
-                    </div>
-                    <div class="d-grid d-md-flex justify-content-md-end mt-3">
-                        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#rafflePrizeModal">
-                            Adicionar e gerir prémios
-                        </button>
                     </div>
                 </article>
             </div>
