@@ -330,6 +330,12 @@ foreach ($activePrizes as $prize) {
     }
 }
 $allPrizeImages = array_values(array_unique($allPrizeImages));
+$groupPrizeCounts = [
+    1 => count($prizesByGroup[1]),
+    2 => count($prizesByGroup[2]),
+    3 => count($prizesByGroup[3]),
+];
+$totalActivePrizes = $groupPrizeCounts[1] + $groupPrizeCounts[2] + $groupPrizeCounts[3];
 
 $pageTitle = 'RH · Sorteio de Prémios';
 $bodyClass = 'bg-light';
@@ -384,6 +390,13 @@ require __DIR__ . '/partials/header.php';
         animation: raffle-pulse 1.2s ease-in-out infinite;
     }
     .raffle-roll-winner.is-visible { display: block; }
+    .raffle-prize-modal .modal-dialog {
+        max-width: min(1280px, 95vw);
+    }
+    .raffle-prize-modal .modal-body {
+        max-height: calc(100vh - 170px);
+        overflow-y: auto;
+    }
     .raffle-fallback-confetti {
         position: fixed;
         width: 10px;
@@ -414,12 +427,38 @@ require __DIR__ . '/partials/header.php';
                 <p class="text-muted mb-0">Executa sorteios com probabilidades por grupo e gere imagens de prémios.</p>
             </div>
             <div class="d-flex flex-wrap gap-2">
-                <a class="btn btn-outline-secondary" href="app_logs.php">Ver histórico global</a>
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#rafflePrizeModal">
+                    Adicionar e gerir prémios
+                </button>
             </div>
         </div>
 
         <?php if ($flashSuccess): ?><div class="alert alert-success"><?= h($flashSuccess) ?></div><?php endif; ?>
         <?php if ($flashError): ?><div class="alert alert-danger"><?= h($flashError) ?></div><?php endif; ?>
+
+        <div class="row g-2 mb-3">
+            <div class="col-md-4">
+                <div class="border rounded-3 p-2 bg-white">
+                    <div class="small text-muted">Grupo 1</div>
+                    <div class="h5 mb-0"><?= $groupPrizeCounts[1] ?> prémios</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="border rounded-3 p-2 bg-white">
+                    <div class="small text-muted">Grupo 2</div>
+                    <div class="h5 mb-0"><?= $groupPrizeCounts[2] ?> prémios</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="border rounded-3 p-2 bg-white">
+                    <div class="small text-muted">Grupo 3</div>
+                    <div class="h5 mb-0"><?= $groupPrizeCounts[3] ?> prémios</div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="small text-muted">Total de prémios ativos: <strong><?= $totalActivePrizes ?></strong></div>
+            </div>
+        </div>
 
         <div class="row g-3">
             <div class="col-xl-5">
@@ -454,8 +493,13 @@ require __DIR__ . '/partials/header.php';
                             <button type="submit" class="btn btn-warning fw-semibold">Sinto-me com sorte!</button>
                         </div>
                     </form>
+                </article>
+            </div>
 
-                    <div class="mt-3 border rounded-3 p-3 bg-light-subtle" id="raffleResult">
+            <div class="col-xl-7">
+                <article class="border rounded-3 p-3 h-100 bg-white">
+                    <h2 class="h5">Prémio da sessão atual</h2>
+                    <div class="border rounded-3 p-3 bg-light-subtle" id="raffleResult">
                         <?php if ($resultPayload): ?>
                             <div id="raffleAnimatedResult"
                                 data-final-image="<?= h((string) ($resultPayload['image_path'] ?? '')) ?>"
@@ -466,78 +510,11 @@ require __DIR__ . '/partials/header.php';
                                 <div class="fw-semibold mb-2">Resultado para <?= h((string) ($resultPayload['user_label'] ?? '')) ?></div>
                                 <div class="small text-muted mb-2">Grupo escolhido: <?= (int) ($resultPayload['selected_group'] ?? 0) ?> · Grupo vencedor: <?= (int) ($resultPayload['winning_group'] ?? 0) ?></div>
                                 <div id="raffleResultBadge" class="badge text-bg-dark mb-2"><?= h((string) ($resultPayload['prize_title'] ?? '')) ?></div>
-                                <div><img id="raffleRollingImage" src="<?= h((string) ($resultPayload['image_path'] ?? '')) ?>" alt="Prémio sorteado" class="img-fluid rounded" style="max-height: 240px;"></div>
+                                <div><img id="raffleRollingImage" src="<?= h((string) ($resultPayload['image_path'] ?? '')) ?>" alt="Prémio sorteado" class="img-fluid rounded" style="max-height: 320px;"></div>
                             </div>
                         <?php else: ?>
                             <div class="text-muted">Sem sorteio executado nesta sessão.</div>
                         <?php endif; ?>
-                    </div>
-                </article>
-            </div>
-
-            <div class="col-xl-7">
-                <article class="border rounded-3 p-3 h-100 bg-white">
-                    <h2 class="h5">Adicionar prémio (imagem)</h2>
-                    <form method="post" enctype="multipart/form-data" class="row g-2">
-                        <?= csrf_input() ?>
-                        <input type="hidden" name="action" value="add_prize">
-                        <div class="col-md-4">
-                            <label class="form-label">Grupo</label>
-                            <select name="group_number" class="form-select" required>
-                                <option value="1">Grupo 1</option>
-                                <option value="2">Grupo 2</option>
-                                <option value="3">Grupo 3</option>
-                            </select>
-                        </div>
-                        <div class="col-md-8">
-                            <label class="form-label">Nome do prémio</label>
-                            <input type="text" name="title" class="form-control" maxlength="150" required>
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">Imagem do prémio</label>
-                            <input type="file" name="prize_image" class="form-control" accept="image/jpeg,image/png,image/webp" required>
-                        </div>
-                        <div class="col-12 d-grid d-md-flex justify-content-md-end mt-2">
-                            <button type="submit" class="btn btn-primary">Adicionar prémio</button>
-                        </div>
-                    </form>
-
-                    <hr>
-
-                    <div class="row g-2">
-                        <?php foreach ([1, 2, 3] as $group): ?>
-                            <?php $groupCount = count($prizesByGroup[$group]); ?>
-                            <div class="col-md-4">
-                                <div class="border rounded-3 p-2 h-100 raffle-group-carousel" data-group="<?= $group ?>">
-                                    <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <h3 class="h6 mb-0">Grupo <?= $group ?></h3>
-                                        <div class="d-flex align-items-center gap-1">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 raffle-prev" <?= $groupCount <= 1 ? 'disabled' : '' ?>>&larr;</button>
-                                            <span class="small text-muted raffle-counter">0 / 0</span>
-                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 raffle-next" <?= $groupCount <= 1 ? 'disabled' : '' ?>>&rarr;</button>
-                                        </div>
-                                    </div>
-                                    <?php if (!$prizesByGroup[$group]): ?>
-                                        <p class="text-muted small mb-0">Sem prémios ativos.</p>
-                                    <?php else: ?>
-                                        <div class="d-flex flex-column gap-2 raffle-items">
-                                            <?php foreach ($prizesByGroup[$group] as $index => $prize): ?>
-                                                <div class="border rounded-2 p-2 raffle-prize-item<?= $index === 0 ? '' : ' is-hidden' ?>" data-index="<?= $index ?>">
-                                                    <img src="<?= h((string) ($prize['image_path'] ?? '')) ?>" alt="<?= h((string) ($prize['title'] ?? '')) ?>" class="img-fluid rounded mb-2 raffle-prize-image">
-                                                    <div class="small fw-semibold mb-2"><?= h((string) ($prize['title'] ?? '')) ?></div>
-                                                    <form method="post" class="d-grid">
-                                                        <?= csrf_input() ?>
-                                                        <input type="hidden" name="action" value="remove_prize">
-                                                        <input type="hidden" name="prize_id" value="<?= (int) ($prize['id'] ?? 0) ?>">
-                                                        <button type="submit" class="btn btn-outline-danger btn-sm">Remover</button>
-                                                    </form>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        </div>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
                     </div>
                 </article>
             </div>
@@ -586,6 +563,80 @@ require __DIR__ . '/partials/header.php';
         </div>
     </div>
 </section>
+
+<div class="modal fade raffle-prize-modal" id="rafflePrizeModal" tabindex="-1" aria-labelledby="rafflePrizeModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5 mb-0" id="rafflePrizeModalLabel">Adicionar e gerir prémios</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <form method="post" enctype="multipart/form-data" class="row g-2">
+                    <?= csrf_input() ?>
+                    <input type="hidden" name="action" value="add_prize">
+                    <div class="col-md-3">
+                        <label class="form-label">Grupo</label>
+                        <select name="group_number" class="form-select" required>
+                            <option value="1">Grupo 1</option>
+                            <option value="2">Grupo 2</option>
+                            <option value="3">Grupo 3</option>
+                        </select>
+                    </div>
+                    <div class="col-md-9">
+                        <label class="form-label">Nome do prémio</label>
+                        <input type="text" name="title" class="form-control" maxlength="150" required>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Imagem do prémio</label>
+                        <input type="file" name="prize_image" class="form-control" accept="image/jpeg,image/png,image/webp" required>
+                    </div>
+                    <div class="col-12 d-grid d-md-flex justify-content-md-end mt-2">
+                        <button type="submit" class="btn btn-primary">Adicionar prémio</button>
+                    </div>
+                </form>
+
+                <hr>
+
+                <div class="row g-3">
+                    <?php foreach ([1, 2, 3] as $group): ?>
+                        <?php $groupCount = count($prizesByGroup[$group]); ?>
+                        <div class="col-lg-4">
+                            <div class="border rounded-3 p-2 h-100 raffle-group-carousel" data-group="<?= $group ?>">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h3 class="h6 mb-0">Grupo <?= $group ?></h3>
+                                    <div class="d-flex align-items-center gap-1">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 raffle-prev" <?= $groupCount <= 1 ? 'disabled' : '' ?>>&larr;</button>
+                                        <span class="small text-muted raffle-counter">0 / 0</span>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 raffle-next" <?= $groupCount <= 1 ? 'disabled' : '' ?>>&rarr;</button>
+                                    </div>
+                                </div>
+                                <?php if (!$prizesByGroup[$group]): ?>
+                                    <p class="text-muted small mb-0">Sem prémios ativos.</p>
+                                <?php else: ?>
+                                    <div class="d-flex flex-column gap-2 raffle-items">
+                                        <?php foreach ($prizesByGroup[$group] as $index => $prize): ?>
+                                            <div class="border rounded-2 p-2 raffle-prize-item<?= $index === 0 ? '' : ' is-hidden' ?>" data-index="<?= $index ?>">
+                                                <img src="<?= h((string) ($prize['image_path'] ?? '')) ?>" alt="<?= h((string) ($prize['title'] ?? '')) ?>" class="img-fluid rounded mb-2 raffle-prize-image">
+                                                <div class="small fw-semibold mb-2"><?= h((string) ($prize['title'] ?? '')) ?></div>
+                                                <form method="post" class="d-grid">
+                                                    <?= csrf_input() ?>
+                                                    <input type="hidden" name="action" value="remove_prize">
+                                                    <input type="hidden" name="prize_id" value="<?= (int) ($prize['id'] ?? 0) ?>">
+                                                    <button type="submit" class="btn btn-outline-danger btn-sm">Remover</button>
+                                                </form>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <div id="raffleRollOverlay" class="raffle-roll-overlay" aria-hidden="true">
     <div class="raffle-roll-card">
