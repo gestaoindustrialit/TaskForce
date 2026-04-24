@@ -10,7 +10,7 @@ $showHrMenu = $user && ((int) ($user['is_admin'] ?? 0) === 1 || (string) ($user[
 $isPinOnlyUser = $user && (int) ($user['pin_only_login'] ?? 0) === 1;
 
 if ($user && !isset($navbarClockControl)) {
-    $todayEntriesStmt = $pdo->prepare('SELECT entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC');
+    $todayEntriesStmt = $pdo->prepare('SELECT entry_type, datetime(occurred_at, "localtime") AS occurred_at_local FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at, "localtime") = date("now", "localtime") ORDER BY occurred_at DESC');
     $todayEntriesStmt->execute([(int) $user['id']]);
     $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -20,8 +20,8 @@ if ($user && !isset($navbarClockControl)) {
     $clockButtonClass = $nextEntryType === 'entrada' ? 'btn-primary' : 'btn-outline-light';
     $latestEntryTimeLabel = null;
 
-    if ($latestTodayEntry && !empty($latestTodayEntry['occurred_at'])) {
-        $latestTimestamp = strtotime((string) $latestTodayEntry['occurred_at']);
+    if ($latestTodayEntry && !empty($latestTodayEntry['occurred_at_local'])) {
+        $latestTimestamp = strtotime((string) $latestTodayEntry['occurred_at_local']);
         if ($latestTimestamp !== false) {
             $latestEntryTimeLabel = sprintf(
                 '%s às %s',
