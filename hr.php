@@ -248,7 +248,7 @@ if ($canComputeAttendance) {
      INNER JOIN hr_schedules s ON s.id = u.schedule_id
      LEFT JOIN hr_departments d ON d.id = u.department_id
      LEFT JOIN (
-        SELECT user_id, MIN(occurred_at) AS first_entry_at
+        SELECT user_id, MIN(datetime(occurred_at, "localtime")) AS first_entry_at
         FROM shopfloor_time_entries
         WHERE entry_type = "entrada"
           AND date(occurred_at, "localtime") = date(?)

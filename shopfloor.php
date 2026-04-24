@@ -17,7 +17,7 @@ if (!$isAdmin && !in_array($profile, ['Utilizador', 'Chefias', 'RH'], true)) {
 $flashSuccess = null;
 $flashError = null;
 $sessionLoginAt = trim((string) ($_SESSION['login_at'] ?? ''));
-$latestClockEntryTodayStmt = $pdo->prepare('SELECT entry_type FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC LIMIT 1');
+$latestClockEntryTodayStmt = $pdo->prepare('SELECT entry_type FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at, "localtime") = date("now", "localtime") ORDER BY occurred_at DESC LIMIT 1');
 $latestClockEntryTodayStmt->execute([$userId]);
 $latestClockEntryToday = (string) ($latestClockEntryTodayStmt->fetchColumn() ?: '');
 $hasOpenClockEntryToday = $latestClockEntryToday === 'entrada';
@@ -500,7 +500,7 @@ if (!$hourBank) {
     $hourBank = ['balance_hours' => 0, 'updated_at' => date('Y-m-d H:i:s')];
 }
 
-$todayEntriesStmt = $pdo->prepare('SELECT entry_type, note, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = date("now", "localtime") ORDER BY occurred_at DESC');
+$todayEntriesStmt = $pdo->prepare('SELECT entry_type, note, datetime(occurred_at, "localtime") AS occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at, "localtime") = date("now", "localtime") ORDER BY occurred_at DESC');
 $todayEntriesStmt->execute([$userId]);
 $todayEntries = $todayEntriesStmt->fetchAll(PDO::FETCH_ASSOC);
 
