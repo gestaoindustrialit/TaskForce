@@ -330,6 +330,16 @@ foreach ($activePrizes as $prize) {
     }
 }
 $allPrizeImages = array_values(array_unique($allPrizeImages));
+$usersLookup = [];
+foreach ($users as $employee) {
+    $employeeLabel = trim(((string) ($employee['user_number'] ?? '')) . ' · ' . ((string) ($employee['name'] ?? '')), ' ·');
+    if ($employeeLabel !== '') {
+        $usersLookup[] = [
+            'id' => (int) ($employee['id'] ?? 0),
+            'label' => $employeeLabel,
+        ];
+    }
+}
 $groupPrizeCounts = [
     1 => count($prizesByGroup[1]),
     2 => count($prizesByGroup[2]),
@@ -468,18 +478,16 @@ require __DIR__ . '/partials/header.php';
                         <?= csrf_input() ?>
                         <input type="hidden" name="action" value="run_draw">
                         <div class="col-12">
-                            <label class="form-label">Pesquisar colaborador</label>
-                            <input type="search" id="employeeSearchInput" class="form-control" placeholder="Escreve nome ou número...">
-                        </div>
-                        <div class="col-12">
                             <label class="form-label">Colaborador</label>
-                            <select id="targetUserSelect" name="target_user_id" class="form-select" required>
-                                <option value="">Selecionar...</option>
+                            <input type="text" id="targetUserInput" class="form-control" list="targetUserList" placeholder="Escreve nome ou número..." autocomplete="off" required>
+                            <datalist id="targetUserList">
                                 <?php foreach ($users as $employee): ?>
                                     <?php $employeeLabel = trim(((string) ($employee['user_number'] ?? '')) . ' · ' . ((string) ($employee['name'] ?? '')), ' ·'); ?>
-                                    <option value="<?= (int) ($employee['id'] ?? 0) ?>"><?= h($employeeLabel) ?></option>
+                                    <option value="<?= h($employeeLabel) ?>"></option>
                                 <?php endforeach; ?>
-                            </select>
+                            </datalist>
+                            <input type="hidden" id="targetUserId" name="target_user_id" value="" required>
+                            <div class="form-text">Escreve para pesquisar e seleciona diretamente no dropdown.</div>
                         </div>
                         <div class="col-12">
                             <label class="form-label">Grupo a privilegiar</label>
@@ -688,21 +696,37 @@ document.querySelectorAll('.raffle-group-carousel').forEach(function (carousel) 
     render();
 });
 
-const employeeSearchInput = document.getElementById('employeeSearchInput');
-const targetUserSelect = document.getElementById('targetUserSelect');
-if (employeeSearchInput && targetUserSelect) {
-    employeeSearchInput.addEventListener('input', function () {
-        const query = employeeSearchInput.value.trim().toLowerCase();
-        Array.from(targetUserSelect.options).forEach(function (option, index) {
-            if (index === 0) {
-                option.hidden = false;
-                return;
-            }
+const targetUserInput = document.getElementById('targetUserInput');
+const targetUserIdInput = document.getElementById('targetUserId');
+const usersLookup = <?= json_encode($usersLookup, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
 
-            const matches = query === '' || option.text.toLowerCase().includes(query);
-            option.hidden = !matches;
-        });
+function normalizeText(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+if (targetUserInput && targetUserIdInput) {
+    const usersByLabel = new Map();
+    usersLookup.forEach(function (user) {
+        const label = normalizeText(user.label);
+        if (label !== '' && !usersByLabel.has(label)) {
+            usersByLabel.set(label, String(user.id || ''));
+        }
     });
+
+    const syncTargetUserId = function () {
+        const selectedLabel = normalizeText(targetUserInput.value);
+        const selectedId = usersByLabel.get(selectedLabel) || '';
+        targetUserIdInput.value = selectedId;
+        if (selectedId === '') {
+            targetUserInput.setCustomValidity('Seleciona um colaborador da lista.');
+            return;
+        }
+        targetUserInput.setCustomValidity('');
+    };
+
+    targetUserInput.addEventListener('input', syncTargetUserId);
+    targetUserInput.addEventListener('change', syncTargetUserId);
+    syncTargetUserId();
 }
 
 const animatedResult = document.getElementById('raffleAnimatedResult');
