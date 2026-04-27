@@ -364,7 +364,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim((string) ($_POST['name'] ?? ''));
         $username = trim((string) ($_POST['username'] ?? ''));
         $email = trim((string) ($_POST['email'] ?? ''));
-        $password = (string) ($_POST['password'] ?? '');
+        $password = trim((string) ($_POST['password'] ?? ''));
         $isAdmin = (int) ($_POST['is_admin'] ?? 0);
         $accessProfile = trim((string) ($_POST['access_profile'] ?? 'Utilizador'));
         $isActive = (int) ($_POST['is_active'] ?? 0);
@@ -476,7 +476,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim((string) ($_POST['name'] ?? ''));
         $username = trim((string) ($_POST['username'] ?? ''));
         $email = trim((string) ($_POST['email'] ?? ''));
-        $password = (string) ($_POST['password'] ?? '');
+        $password = trim((string) ($_POST['password'] ?? ''));
         $isTargetAdmin = (int) ($_POST['is_admin'] ?? 0);
         $accessProfile = trim((string) ($_POST['access_profile'] ?? 'Utilizador'));
         $isActive = (int) ($_POST['is_active'] ?? 0);
@@ -1317,6 +1317,7 @@ require __DIR__ . '/partials/header.php';
     <div class="modal-dialog modal-lg">
         <form class="modal-content user-form-compact" method="post">
             <input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
+            <input type="hidden" name="action" value="update_user">
             <div class="modal-header"><h5 class="modal-title">Editar utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <div class="row g-2">
@@ -1401,7 +1402,7 @@ require __DIR__ . '/partials/header.php';
                     formnovalidate
                     onclick="return confirm('Tem a certeza que deseja eliminar este utilizador? Esta ação não pode ser anulada.');"
                 >Eliminar utilizador</button>
-                <button class="btn btn-primary" name="action" value="update_user">Guardar utilizador</button>
+                <button type="submit" class="btn btn-primary">Guardar utilizador</button>
             </div>
         </form>
     </div>
