@@ -1583,12 +1583,13 @@ require __DIR__ . '/partials/header.php';
             for (const input of entryInputs) {
                 const value = (input.value || '').trim();
                 const normalizedValue = value === '--:--' ? '' : value;
-                if (normalizedValue === '' && !input.dataset.entryId) {
+                const entryId = Number(input.dataset.entryId || '0');
+                if (normalizedValue === '' && entryId <= 0) {
                     continue;
                 }
                 const body = new URLSearchParams();
                 body.set('action', 'update_entry_time');
-                body.set('entry_id', input.dataset.entryId || '0');
+                body.set('entry_id', String(entryId > 0 ? entryId : 0));
                 body.set('slot_index', input.dataset.slotIndex || '0');
                 body.set('entry_date', input.dataset.entryDate || '');
                 body.set('target_user_id', input.dataset.targetUserId || '0');
