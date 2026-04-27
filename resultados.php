@@ -431,20 +431,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
         $allocatedValue = trim((string) ($_POST['allocated_duration'] ?? ''));
         $allocatedMinutes = parse_hhmm_to_minutes($allocatedValue);
 
-        if ($targetUserId <= 0 || !DateTimeImmutable::createFromFormat('Y-m-d', $workDate) || $absenceRequestId <= 0 || $absenceCode === '' || $allocatedMinutes === null) {
+        if ($targetUserId <= 0 || !DateTimeImmutable::createFromFormat('Y-m-d', $workDate) || $absenceCode === '' || $allocatedMinutes === null) {
             echo json_encode(['ok' => false, 'message' => 'Dados inválidos para guardar relação de ausência.']);
             exit;
         }
 
-        $checkStmt = $pdo->prepare('SELECT id, reason FROM shopfloor_absence_requests WHERE id = ? AND user_id = ? AND status <> "Rejeitado" AND start_date <= ? AND end_date >= ? LIMIT 1');
-        $checkStmt->execute([$absenceRequestId, $targetUserId, $workDate, $workDate]);
-        $requestRow = $checkStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$requestRow) {
-            echo json_encode(['ok' => false, 'message' => 'Ausência não encontrada ou indisponível para este dia.']);
+        $catalogStmt = $pdo->prepare('SELECT reason_code, sage_code, label FROM shopfloor_absence_reasons WHERE is_active = 1 AND (sage_code = ? OR reason_code = ?) LIMIT 1');
+        $catalogStmt->execute([$absenceCode, $absenceCode]);
+        $catalogRow = $catalogStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$catalogRow) {
+            echo json_encode(['ok' => false, 'message' => 'Motivo de ausência inválido.']);
             exit;
         }
+
+        if ($absenceRequestId > 0) {
+            $checkStmt = $pdo->prepare('SELECT id, reason FROM shopfloor_absence_requests WHERE id = ? AND user_id = ? AND status <> "Rejeitado" AND start_date <= ? AND end_date >= ? LIMIT 1');
+            $checkStmt->execute([$absenceRequestId, $targetUserId, $workDate, $workDate]);
+            $requestRow = $checkStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$requestRow) {
+                echo json_encode(['ok' => false, 'message' => 'Ausência não encontrada ou indisponível para este dia.']);
+                exit;
+            }
+            if ($absenceReason === '') {
+                $absenceReason = trim((string) ($requestRow['reason'] ?? ''));
+            }
+        }
+
         if ($absenceReason === '') {
-            $absenceReason = trim((string) ($requestRow['reason'] ?? ''));
+            $absenceReason = trim((string) ($catalogRow['label'] ?? ''));
         }
         if ($absenceReason === '') {
             echo json_encode(['ok' => false, 'message' => 'Motivo de ausência inválido para este dia.']);
@@ -454,13 +468,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
         $existingStmt = $pdo->prepare('SELECT id FROM shopfloor_absence_time_allocations WHERE user_id = ? AND work_date = ? LIMIT 1');
         $existingStmt->execute([$targetUserId, $workDate]);
         $existingId = $existingStmt->fetchColumn();
+        $storedRequestId = $absenceRequestId > 0 ? $absenceRequestId : null;
 
         if ($existingId) {
             $updateStmt = $pdo->prepare('UPDATE shopfloor_absence_time_allocations SET absence_request_id = ?, absence_code = ?, absence_reason = ?, allocated_minutes = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
-            $updateStmt->execute([$absenceRequestId, $absenceCode, $absenceReason, $allocatedMinutes, $userId, (int) $existingId]);
+            $updateStmt->execute([$storedRequestId, $absenceCode, $absenceReason, $allocatedMinutes, $userId, (int) $existingId]);
         } else {
             $insertStmt = $pdo->prepare('INSERT INTO shopfloor_absence_time_allocations(user_id, work_date, absence_request_id, absence_code, absence_reason, allocated_minutes, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)');
-            $insertStmt->execute([$targetUserId, $workDate, $absenceRequestId, $absenceCode, $absenceReason, $allocatedMinutes, $userId]);
+            $insertStmt->execute([$targetUserId, $workDate, $storedRequestId, $absenceCode, $absenceReason, $allocatedMinutes, $userId]);
         }
 
         log_app_event($pdo, $userId, 'shopfloor.absence_time_allocation.save', 'Tempo de ausência relacionado ao dia de picagens.', [
@@ -473,6 +488,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
         ]);
 
         echo json_encode(['ok' => true, 'allocated_minutes' => $allocatedMinutes]);
+        exit;
+    }
+
+    if ($action === 'save_bh_override') {
+        header('Content-Type: application/json; charset=UTF-8');
+
+        $targetUserId = (int) ($_POST['target_user_id'] ?? 0);
+        $workDate = trim((string) ($_POST['work_date'] ?? ''));
+        $overrideBhValue = trim((string) ($_POST['override_bh_value'] ?? ''));
+        $computedBhValue = trim((string) ($_POST['computed_bh_value'] ?? ''));
+        $overrideReason = trim((string) ($_POST['override_reason'] ?? ''));
+
+        if ($targetUserId <= 0 || !DateTimeImmutable::createFromFormat('Y-m-d', $workDate) || $overrideBhValue === '' || $computedBhValue === '') {
+            echo json_encode(['ok' => false, 'message' => 'Dados inválidos para guardar o Tempo BH.']);
+            exit;
+        }
+
+        $overrideMinutes = parse_signed_hhmm_to_minutes($overrideBhValue);
+        $computedMinutes = parse_signed_hhmm_to_minutes($computedBhValue);
+        if ($overrideMinutes === null || $computedMinutes === null) {
+            echo json_encode(['ok' => false, 'message' => 'Tempo BH inválido. Use formato ±HH:MM.']);
+            exit;
+        }
+
+        if ($overrideMinutes !== $computedMinutes || $overrideReason !== '') {
+            persist_bh_override($pdo, $targetUserId, $workDate, $overrideMinutes, $overrideReason, $userId);
+            echo json_encode(['ok' => true, 'is_override' => true, 'bh_value' => $overrideBhValue]);
+            exit;
+        }
+
+        clear_bh_override($pdo, $targetUserId, $workDate, $userId);
+        echo json_encode(['ok' => true, 'is_override' => false, 'bh_value' => $computedBhValue]);
         exit;
     }
 
@@ -1308,7 +1355,7 @@ require __DIR__ . '/partials/header.php';
                             <?php $bhClass = $row['bh_seconds'] < 0 ? 'text-danger' : ($row['bh_seconds'] > 0 ? 'text-success' : 'text-muted'); ?>
                             <?php if ($canValidateResults): ?>
                                 <div class="d-flex mt-1 align-items-center gap-1">
-                                    <span class="badge text-bg-light border">BH <?= h($row['bh']) ?></span>
+                                    <span class="badge text-bg-light border js-row-bh-badge">BH <?= h($row['bh']) ?></span>
                                     <input type="hidden" class="form-control form-control-sm results-bh-input js-results-bh-input <?= $bhClass ?>" name="override_bh_value" value="<?= h($row['bh']) ?>" placeholder="±HH:MM" data-default-value="<?= h($row['bh']) ?>" data-auto-bh="<?= h($row['bh']) ?>" data-is-override="<?= $row['bh_is_override'] ? '1' : '0' ?>" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
                                     <input type="hidden" class="form-control form-control-sm results-bh-reason" name="override_reason" value="<?= h((string) $row['bh_reason']) ?>" placeholder="Motivo" <?= $isPendingRow ? 'form="' . h($rowFormId) . '"' : '' ?>>
                                 </div>
@@ -1385,7 +1432,7 @@ require __DIR__ . '/partials/header.php';
                 <div class="row g-2">
                     <div class="col-md-4">
                         <label class="form-label">Tempo BH (±HH:MM)</label>
-                        <div class="form-control-plaintext results-bh-readonly js-row-validation-bh">+00:00</div>
+                        <input type="text" class="form-control js-row-validation-bh" placeholder="+00:00">
                     </div>
                 </div>
                 <div class="row g-2 mt-1 js-row-validation-absence-fields d-none">
@@ -1455,8 +1502,8 @@ require __DIR__ . '/partials/header.php';
                     if (typeof window.resultsRecalculateRow === 'function') {
                         window.resultsRecalculateRow(row);
                         const rowBhValue = (row.querySelector('.js-results-bh-input')?.dataset.autoBh || '').trim();
-                        if (bhInput) {
-                            bhInput.textContent = rowBhValue;
+                        if (bhInput && bhInput.dataset.touched !== '1') {
+                            bhInput.value = rowBhValue;
                         }
                     }
                 });
@@ -1474,7 +1521,7 @@ require __DIR__ . '/partials/header.php';
                 dayOptions = [];
             }
             absenceCodeSelect.innerHTML = '';
-            if (!Array.isArray(dayOptions) || dayOptions.length === 0 || !Array.isArray(absenceReasonCatalog) || absenceReasonCatalog.length === 0) {
+            if (!Array.isArray(absenceReasonCatalog) || absenceReasonCatalog.length === 0) {
                 absenceFieldsRow?.classList.add('d-none');
                 absenceHelp?.classList.add('d-none');
                 return;
@@ -1524,6 +1571,11 @@ require __DIR__ . '/partials/header.php';
 
             absenceFieldsRow?.classList.remove('d-none');
             absenceHelp?.classList.remove('d-none');
+            if (!Array.isArray(dayOptions) || dayOptions.length === 0) {
+                absenceHelp.textContent = 'Sem ausência criada para este dia. Pode associar manualmente um motivo e tempo (HH:MM).';
+            } else {
+                absenceHelp.textContent = 'O tempo associado é somado ao efectivo para reduzir o Tempo BH negativo.';
+            }
         };
 
         const applyAbsenceAllocation = async (row) => {
@@ -1576,6 +1628,50 @@ require __DIR__ . '/partials/header.php';
             return true;
         };
 
+        const applyBhOverride = async (row) => {
+            if (!bhInput) return true;
+            const rowBhInput = row.querySelector('.js-results-bh-input');
+            if (!rowBhInput) return true;
+            const overrideValue = (bhInput.value || '').trim();
+            const computedValue = (rowBhInput.dataset.autoBh || '').trim();
+            if (overrideValue === '' || computedValue === '') {
+                alert('Tempo BH inválido. Use formato ±HH:MM.');
+                return false;
+            }
+
+            const payload = new URLSearchParams();
+            payload.set('action', 'save_bh_override');
+            payload.set('target_user_id', row.dataset.userId || '0');
+            payload.set('work_date', row.dataset.workDate || '');
+            payload.set('override_bh_value', overrideValue);
+            payload.set('computed_bh_value', computedValue);
+            const overrideReason = overrideValue === computedValue ? '' : 'Ajuste manual na validação do dia';
+            payload.set('override_reason', overrideReason);
+
+            const response = await fetch('resultados.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+                body: payload.toString(),
+            });
+            const result = await response.json();
+            if (!result.ok) {
+                alert(result.message || 'Não foi possível guardar o Tempo BH.');
+                return false;
+            }
+
+            rowBhInput.value = result.bh_value || overrideValue;
+            rowBhInput.dataset.isOverride = result.is_override ? '1' : '0';
+            const rowReasonInput = row.querySelector('.results-bh-reason');
+            if (rowReasonInput) {
+                rowReasonInput.value = result.is_override ? 'Ajuste manual na validação do dia' : '';
+            }
+            const rowBadge = row.querySelector('.js-row-bh-badge');
+            if (rowBadge) {
+                rowBadge.textContent = `BH ${rowBhInput.value}`;
+            }
+            return true;
+        };
+
         const runSave = async (shouldValidateAfterSave = false) => {
             if (!state.row) return;
             const row = state.row;
@@ -1613,15 +1709,22 @@ require __DIR__ . '/partials/header.php';
 
             const absenceSaved = await applyAbsenceAllocation(row);
             if (!absenceSaved) return;
+            const bhSaved = await applyBhOverride(row);
+            if (!bhSaved) return;
 
             const rowBhInput = row.querySelector('.js-results-bh-input');
             if (rowBhInput && typeof window.resultsRecalculateRow === 'function') {
                 window.resultsRecalculateRow(row);
-                rowBhInput.value = (rowBhInput.dataset.autoBh || '').trim();
-                rowBhInput.dataset.isOverride = '0';
-                const rowReasonInput = row.querySelector('.results-bh-reason');
-                if (rowReasonInput) {
-                    rowReasonInput.value = '';
+                if (rowBhInput.dataset.isOverride !== '1') {
+                    rowBhInput.value = (rowBhInput.dataset.autoBh || '').trim();
+                    const rowReasonInput = row.querySelector('.results-bh-reason');
+                    if (rowReasonInput) {
+                        rowReasonInput.value = '';
+                    }
+                    const rowBadge = row.querySelector('.js-row-bh-badge');
+                    if (rowBadge) {
+                        rowBadge.textContent = `BH ${rowBhInput.value}`;
+                    }
                 }
             }
             validationModal.hide();
@@ -1641,8 +1744,9 @@ require __DIR__ . '/partials/header.php';
                 if (!row) return;
                 state.row = row;
                 contextEl.textContent = `${button.dataset.userName || ''} (${button.dataset.userNumber || ''}) · ${button.dataset.workDate || ''}`;
-                const modalBhValue = (row.querySelector('.js-results-bh-input')?.dataset.autoBh || row.querySelector('.js-results-bh-input')?.value || '').trim();
-                bhInput.textContent = modalBhValue;
+                const modalBhValue = (row.querySelector('.js-results-bh-input')?.value || row.querySelector('.js-results-bh-input')?.dataset.autoBh || '').trim();
+                bhInput.value = modalBhValue;
+                bhInput.dataset.touched = '0';
                 const isValidatedRow = (row.dataset.rowStatus || '') === 'Validado';
                 if (saveValidateButton) {
                     saveValidateButton.classList.toggle('d-none', isValidatedRow);
@@ -1663,6 +1767,10 @@ require __DIR__ . '/partials/header.php';
                 renderAbsenceFields(row);
                 validationModal.show();
             });
+        });
+
+        bhInput?.addEventListener('input', () => {
+            bhInput.dataset.touched = '1';
         });
 
         saveButton?.addEventListener('click', () => runSave(false));
