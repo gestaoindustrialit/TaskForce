@@ -537,38 +537,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
         exit;
     }
 
-    if ($action === 'save_bh_override') {
-        header('Content-Type: application/json; charset=UTF-8');
-
-        $targetUserId = (int) ($_POST['target_user_id'] ?? 0);
-        $workDate = trim((string) ($_POST['work_date'] ?? ''));
-        $overrideBhValue = trim((string) ($_POST['override_bh_value'] ?? ''));
-        $computedBhValue = trim((string) ($_POST['computed_bh_value'] ?? ''));
-        $overrideReason = trim((string) ($_POST['override_reason'] ?? ''));
-
-        if ($targetUserId <= 0 || !DateTimeImmutable::createFromFormat('Y-m-d', $workDate) || $overrideBhValue === '' || $computedBhValue === '') {
-            echo json_encode(['ok' => false, 'message' => 'Dados inválidos para guardar o Tempo BH.']);
-            exit;
-        }
-
-        $overrideMinutes = parse_signed_hhmm_to_minutes($overrideBhValue);
-        $computedMinutes = parse_signed_hhmm_to_minutes($computedBhValue);
-        if ($overrideMinutes === null || $computedMinutes === null) {
-            echo json_encode(['ok' => false, 'message' => 'Tempo BH inválido. Use formato ±HH:MM.']);
-            exit;
-        }
-
-        if ($overrideMinutes !== $computedMinutes || $overrideReason !== '') {
-            persist_bh_override($pdo, $targetUserId, $workDate, $overrideMinutes, $overrideReason, $userId);
-            echo json_encode(['ok' => true, 'is_override' => true, 'bh_value' => $overrideBhValue]);
-            exit;
-        }
-
-        clear_bh_override($pdo, $targetUserId, $workDate, $userId);
-        echo json_encode(['ok' => true, 'is_override' => false, 'bh_value' => $computedBhValue]);
-        exit;
-    }
-
     if ($action === 'reopen_row' && $validateUserId > 0 && DateTimeImmutable::createFromFormat('Y-m-d', $validateDate)) {
         $entriesStmt = $pdo->prepare('SELECT id, entry_type, occurred_at FROM shopfloor_time_entries WHERE user_id = ? AND date(occurred_at) = ? ORDER BY occurred_at ASC');
         $entriesStmt->execute([$validateUserId, $validateDate]);
@@ -868,16 +836,6 @@ foreach ($daily as &$row) {
 }
 unset($row);
 
-usort(
-    $daily,
-    static function (array $a, array $b): int {
-        if ($a['date'] === $b['date']) {
-            return strcmp($a['user_name'], $b['user_name']);
-        }
-        return strcmp($b['date'], $a['date']);
-    }
-);
-
 $absenceParams = [$endDate, $startDate];
 $absenceWhere = ['a.start_date <= ?', 'a.end_date >= ?', 'a.status <> "Rejeitado"'];
 if (!$canViewAllResults) {
@@ -1046,6 +1004,16 @@ foreach ($daily as &$row) {
     $row['bh_reason'] = $override['reason'] ?? '';
 }
 unset($row);
+
+usort(
+    $daily,
+    static function (array $a, array $b): int {
+        if ($a['date'] === $b['date']) {
+            return strcmp((string) ($a['user_name'] ?? ''), (string) ($b['user_name'] ?? ''));
+        }
+        return strcmp((string) ($b['date'] ?? ''), (string) ($a['date'] ?? ''));
+    }
+);
 
 $exportRecords = [];
 $exportRecordKeys = [];
