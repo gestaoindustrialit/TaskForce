@@ -436,12 +436,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
             exit;
         }
 
-        $catalogStmt = $pdo->prepare('SELECT reason_code, sage_code, label FROM shopfloor_absence_reasons WHERE is_active = 1 AND (sage_code = ? OR reason_code = ?) LIMIT 1');
-        $catalogStmt->execute([$absenceCode, $absenceCode]);
-        $catalogRow = $catalogStmt->fetch(PDO::FETCH_ASSOC);
+        $normalizedAbsenceCode = strtoupper(preg_replace('/[^A-Z0-9]/', '', $absenceCode) ?? '');
+        $catalogStmt = $pdo->query('SELECT reason_code, sage_code, label FROM shopfloor_absence_reasons WHERE is_active = 1');
+        $catalogRow = null;
+        foreach ($catalogStmt->fetchAll(PDO::FETCH_ASSOC) as $candidateRow) {
+            $candidateReasonCode = strtoupper(preg_replace('/[^A-Z0-9]/', '', (string) ($candidateRow['reason_code'] ?? '')) ?? '');
+            $candidateSageCode = strtoupper(preg_replace('/[^A-Z0-9]/', '', (string) ($candidateRow['sage_code'] ?? '')) ?? '');
+            if ($normalizedAbsenceCode !== '' && ($normalizedAbsenceCode === $candidateSageCode || $normalizedAbsenceCode === $candidateReasonCode)) {
+                $catalogRow = $candidateRow;
+                break;
+            }
+        }
         if (!$catalogRow) {
             echo json_encode(['ok' => false, 'message' => 'Motivo de ausência inválido.']);
             exit;
+        }
+        $catalogSageCode = trim((string) ($catalogRow['sage_code'] ?? ''));
+        $catalogReasonCode = trim((string) ($catalogRow['reason_code'] ?? ''));
+        $resolvedAbsenceCode = $catalogSageCode !== '' ? $catalogSageCode : $catalogReasonCode;
+        if ($resolvedAbsenceCode === '') {
+            $resolvedAbsenceCode = $absenceCode;
         }
 
         if ($absenceRequestId > 0) {
@@ -472,22 +486,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
 
         if ($existingId) {
             $updateStmt = $pdo->prepare('UPDATE shopfloor_absence_time_allocations SET absence_request_id = ?, absence_code = ?, absence_reason = ?, allocated_minutes = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
-            $updateStmt->execute([$storedRequestId, $absenceCode, $absenceReason, $allocatedMinutes, $userId, (int) $existingId]);
+            $updateStmt->execute([$storedRequestId, $resolvedAbsenceCode, $absenceReason, $allocatedMinutes, $userId, (int) $existingId]);
         } else {
             $insertStmt = $pdo->prepare('INSERT INTO shopfloor_absence_time_allocations(user_id, work_date, absence_request_id, absence_code, absence_reason, allocated_minutes, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)');
-            $insertStmt->execute([$targetUserId, $workDate, $storedRequestId, $absenceCode, $absenceReason, $allocatedMinutes, $userId]);
+            $insertStmt->execute([$targetUserId, $workDate, $storedRequestId, $resolvedAbsenceCode, $absenceReason, $allocatedMinutes, $userId]);
         }
 
         log_app_event($pdo, $userId, 'shopfloor.absence_time_allocation.save', 'Tempo de ausência relacionado ao dia de picagens.', [
             'target_user_id' => $targetUserId,
             'work_date' => $workDate,
             'absence_request_id' => $absenceRequestId,
-            'absence_code' => $absenceCode,
+            'absence_code' => $resolvedAbsenceCode,
             'absence_reason' => $absenceReason,
             'allocated_minutes' => $allocatedMinutes,
         ]);
 
-        echo json_encode(['ok' => true, 'allocated_minutes' => $allocatedMinutes]);
+        echo json_encode(['ok' => true, 'allocated_minutes' => $allocatedMinutes, 'absence_code' => $resolvedAbsenceCode]);
+        exit;
+    }
+
+    if ($action === 'save_bh_override') {
+        header('Content-Type: application/json; charset=UTF-8');
+
+        $targetUserId = (int) ($_POST['target_user_id'] ?? 0);
+        $workDate = trim((string) ($_POST['work_date'] ?? ''));
+        $overrideBhValue = trim((string) ($_POST['override_bh_value'] ?? ''));
+        $computedBhValue = trim((string) ($_POST['computed_bh_value'] ?? ''));
+        $overrideReason = trim((string) ($_POST['override_reason'] ?? ''));
+
+        if ($targetUserId <= 0 || !DateTimeImmutable::createFromFormat('Y-m-d', $workDate) || $overrideBhValue === '' || $computedBhValue === '') {
+            echo json_encode(['ok' => false, 'message' => 'Dados inválidos para guardar o Tempo BH.']);
+            exit;
+        }
+
+        $overrideMinutes = parse_signed_hhmm_to_minutes($overrideBhValue);
+        $computedMinutes = parse_signed_hhmm_to_minutes($computedBhValue);
+        if ($overrideMinutes === null || $computedMinutes === null) {
+            echo json_encode(['ok' => false, 'message' => 'Tempo BH inválido. Use formato ±HH:MM.']);
+            exit;
+        }
+
+        if ($overrideMinutes !== $computedMinutes || $overrideReason !== '') {
+            persist_bh_override($pdo, $targetUserId, $workDate, $overrideMinutes, $overrideReason, $userId);
+            echo json_encode(['ok' => true, 'is_override' => true, 'bh_value' => $overrideBhValue]);
+            exit;
+        }
+
+        clear_bh_override($pdo, $targetUserId, $workDate, $userId);
+        echo json_encode(['ok' => true, 'is_override' => false, 'bh_value' => $computedBhValue]);
         exit;
     }
 
@@ -1606,14 +1652,14 @@ require __DIR__ . '/partials/header.php';
 
             const allocatedMinutes = Number(result.allocated_minutes || 0);
             row.dataset.currentRequestId = row.dataset.currentRequestId || '0';
-            row.dataset.currentCode = selected.dataset.absenceCode || '';
+            row.dataset.currentCode = (result.absence_code || selected.dataset.absenceCode || '').trim();
             row.dataset.currentReason = (selected.dataset.absenceReason || '').trim();
             row.dataset.currentMinutes = String(allocatedMinutes);
             row.dataset.absenceAllocatedSeconds = String(allocatedMinutes * 60);
             const summary = row.querySelector('.js-row-absence-summary');
             const hh = String(Math.floor(allocatedMinutes / 60)).padStart(2, '0');
             const mm = String(allocatedMinutes % 60).padStart(2, '0');
-            const summaryText = `Ausência ${(selected.dataset.absenceCode || '').trim()} · ${hh}:${mm}`;
+            const summaryText = `Ausência ${(row.dataset.currentCode || '').trim()} · ${hh}:${mm}`;
             if (summary) {
                 summary.textContent = summaryText;
             } else {
@@ -1638,6 +1684,9 @@ require __DIR__ . '/partials/header.php';
                 alert('Tempo BH inválido. Use formato ±HH:MM.');
                 return false;
             }
+            if (overrideValue === computedValue && rowBhInput.dataset.isOverride !== '1') {
+                return true;
+            }
 
             const payload = new URLSearchParams();
             payload.set('action', 'save_bh_override');
@@ -1656,7 +1705,7 @@ require __DIR__ . '/partials/header.php';
             const result = await response.json();
             if (!result.ok) {
                 alert(result.message || 'Não foi possível guardar o Tempo BH.');
-                return false;
+                return true;
             }
 
             rowBhInput.value = result.bh_value || overrideValue;
