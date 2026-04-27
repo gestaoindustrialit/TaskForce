@@ -1317,6 +1317,7 @@ require __DIR__ . '/partials/header.php';
     <div class="modal-dialog modal-lg">
         <form class="modal-content user-form-compact" method="post">
             <input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
+            <input type="hidden" name="action" value="update_user">
             <div class="modal-header"><h5 class="modal-title">Editar utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <div class="row g-2">
@@ -1401,7 +1402,7 @@ require __DIR__ . '/partials/header.php';
                     formnovalidate
                     onclick="return confirm('Tem a certeza que deseja eliminar este utilizador? Esta ação não pode ser anulada.');"
                 >Eliminar utilizador</button>
-                <button class="btn btn-primary" name="action" value="update_user">Guardar utilizador</button>
+                <button type="submit" class="btn btn-primary">Guardar utilizador</button>
             </div>
         </form>
     </div>
