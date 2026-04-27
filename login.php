@@ -48,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $loginMode = (int) ($pendingUser['pin_only_login'] ?? 0) === 1 ? 'pin' : 'password';
 
-            if ($action === 'login_password' && $loginMode === 'password') {
+            if ($action === 'login_password') {
                 $password = (string) ($_POST['password'] ?? '');
                 if (password_verify($password, (string) ($pendingUser['password'] ?? ''))) {
                     session_regenerate_id(true);
@@ -100,10 +100,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 RateLimiter::recordLoginAttempt($pdo, $identifier, $requestIp, false);
                 safe_log_app_event($pdo, (int) $pendingUser['id'], 'auth.login_failed', 'Tentativa de login com PIN falhada.', ['email' => $email]);
                 $error = 'PIN inválido.';
-            }
-
-            if ($action === 'login_password' && $loginMode !== 'password') {
-                $error = 'Este utilizador utiliza autenticação por PIN.';
             }
 
             if ($action === 'login_pin' && $loginMode !== 'pin') {
