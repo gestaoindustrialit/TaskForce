@@ -913,9 +913,17 @@ require __DIR__ . '/partials/header.php';
                 $actual = $task['actual_minutes'] !== null ? (int) $task['actual_minutes'] : null;
                 $delta = task_time_delta($estimated, $actual);
                 $canDeleteTask = (int) ($task['created_by'] ?? 0) === $userId;
+                $taskChecklist = $checklistByTask[$taskId] ?? [];
+                $checklistTotal = count($taskChecklist);
+                $checklistDone = 0;
+                foreach ($taskChecklist as $taskChecklistItem) {
+                    if (!empty($taskChecklistItem['is_done'])) {
+                        $checklistDone++;
+                    }
+                }
             ?>
-            <div class="card shadow-sm soft-card">
-                <div class="card-body">
+            <div class="card shadow-sm soft-card task-card-compact">
+                <div class="card-body py-3">
                     <div class="d-flex justify-content-between align-items-start mb-2 gap-2 flex-wrap">
                         <div>
                             <h2 class="h5 mb-1"><?= h($task['title']) ?></h2>
@@ -1087,6 +1095,46 @@ require __DIR__ . '/partials/header.php';
                                 </button>
                             </form>
                         </div>
+                    </div>
+
+                    <div class="task-checklist-panel mt-3">
+                        <div class="task-checklist-header">
+                            <h3 class="h6 mb-0">Checklist</h3>
+                            <span class="task-checklist-count"><?= $checklistDone ?>/<?= $checklistTotal ?> concluídos</span>
+                        </div>
+
+                        <form method="post" class="task-checklist-add-form ajax-form">
+                            <input type="hidden" name="action" value="add_checklist">
+                            <input type="hidden" name="task_id" value="<?= $taskId ?>">
+                            <input type="hidden" name="view" value="<?= h($view) ?>">
+                            <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
+                            <input class="form-control form-control-sm" name="content" placeholder="Adicionar item da checklist" required>
+                            <button class="btn btn-sm btn-outline-primary icon-btn" aria-label="Adicionar item da checklist">
+                                <i class="bi bi-plus-lg"></i>
+                            </button>
+                        </form>
+
+                        <?php if ($checklistTotal > 0): ?>
+                            <div class="task-checklist-list">
+                                <?php foreach ($taskChecklist as $checkItem): ?>
+                                    <form method="post" class="task-checklist-item ajax-form-inline js-ajax-autosubmit">
+                                        <input type="hidden" name="action" value="toggle_checklist">
+                                        <input type="hidden" name="item_id" value="<?= (int) $checkItem['id'] ?>">
+                                        <input type="hidden" name="is_done" value="<?= !empty($checkItem['is_done']) ? '0' : '1' ?>">
+                                        <input type="hidden" name="view" value="<?= h($view) ?>">
+                                        <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
+                                        <label class="form-check d-flex align-items-center gap-2 w-100 mb-0">
+                                            <input class="form-check-input js-auto-submit-trigger" type="checkbox" <?= !empty($checkItem['is_done']) ? 'checked' : '' ?> aria-label="Concluir item da checklist">
+                                            <span class="task-checklist-item-text <?= !empty($checkItem['is_done']) ? 'is-done' : '' ?>">
+                                                <?= h($checkItem['content']) ?>
+                                            </span>
+                                        </label>
+                                    </form>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else: ?>
+                            <p class="small text-muted mb-0 mt-2">Sem itens na checklist.</p>
+                        <?php endif; ?>
                     </div>
 
                     <?php if (!empty($subtasksByParent[$taskId])): ?>
