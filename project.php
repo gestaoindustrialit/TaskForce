@@ -335,6 +335,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $redirectBack();
     }
 
+    if ($action === 'update_checklist_item') {
+        $itemId = (int) ($_POST['item_id'] ?? 0);
+        $content = trim((string) ($_POST['content'] ?? ''));
+
+        if ($itemId > 0 && $content !== '') {
+            $stmt = $pdo->prepare('UPDATE checklist_items SET content = ? WHERE id = ? AND task_id IN (SELECT id FROM tasks WHERE project_id = ?)');
+            $stmt->execute([$content, $itemId, $projectId]);
+
+            $pdo->prepare('UPDATE tasks SET updated_at = CURRENT_TIMESTAMP, updated_by = ? WHERE id = (SELECT task_id FROM checklist_items WHERE id = ?)')->execute([$userId, $itemId]);
+        }
+
+        $ajaxResponse(true, 'Texto da checklist atualizado.');
+        $redirectBack();
+    }
+
     if ($action === 'add_task_note') {
         $taskId = (int) ($_POST['task_id'] ?? 0);
         $note = trim((string) ($_POST['note'] ?? ''));
@@ -1109,7 +1124,7 @@ require __DIR__ . '/partials/header.php';
                             <input type="hidden" name="view" value="<?= h($view) ?>">
                             <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
                             <input class="form-control form-control-sm" name="content" placeholder="Adicionar item da checklist" required>
-                            <button class="btn btn-sm btn-outline-primary icon-btn" aria-label="Adicionar item da checklist">
+                            <button class="btn btn-sm btn-outline-success icon-btn" aria-label="Adicionar item da checklist">
                                 <i class="bi bi-plus-lg"></i>
                             </button>
                         </form>
@@ -1117,19 +1132,33 @@ require __DIR__ . '/partials/header.php';
                         <?php if ($checklistTotal > 0): ?>
                             <div class="task-checklist-list">
                                 <?php foreach ($taskChecklist as $checkItem): ?>
-                                    <form method="post" class="task-checklist-item ajax-form-inline js-ajax-autosubmit">
-                                        <input type="hidden" name="action" value="toggle_checklist">
-                                        <input type="hidden" name="item_id" value="<?= (int) $checkItem['id'] ?>">
-                                        <input type="hidden" name="is_done" value="<?= !empty($checkItem['is_done']) ? '0' : '1' ?>">
-                                        <input type="hidden" name="view" value="<?= h($view) ?>">
-                                        <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
-                                        <label class="form-check d-flex align-items-center gap-2 w-100 mb-0">
-                                            <input class="form-check-input js-auto-submit-trigger" type="checkbox" <?= !empty($checkItem['is_done']) ? 'checked' : '' ?> aria-label="Concluir item da checklist">
-                                            <span class="task-checklist-item-text <?= !empty($checkItem['is_done']) ? 'is-done' : '' ?>">
-                                                <?= h($checkItem['content']) ?>
-                                            </span>
-                                        </label>
-                                    </form>
+                                    <div class="task-checklist-item">
+                                        <div class="task-checklist-item-row">
+                                            <form method="post" class="ajax-form-inline js-ajax-autosubmit task-checklist-toggle-form">
+                                                <input type="hidden" name="action" value="toggle_checklist">
+                                                <input type="hidden" name="item_id" value="<?= (int) $checkItem['id'] ?>">
+                                                <input type="hidden" name="is_done" value="<?= !empty($checkItem['is_done']) ? '0' : '1' ?>">
+                                                <input type="hidden" name="view" value="<?= h($view) ?>">
+                                                <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
+                                                <input class="form-check-input js-auto-submit-trigger" type="checkbox" <?= !empty($checkItem['is_done']) ? 'checked' : '' ?> aria-label="Concluir item da checklist">
+                                            </form>
+
+                                            <form method="post" class="task-checklist-edit-form ajax-form-inline js-ajax-autosubmit">
+                                                <input type="hidden" name="action" value="update_checklist_item">
+                                                <input type="hidden" name="item_id" value="<?= (int) $checkItem['id'] ?>">
+                                                <input type="hidden" name="view" value="<?= h($view) ?>">
+                                                <input type="hidden" name="show_done" value="<?= $showDone ? '1' : '0' ?>">
+                                                <input
+                                                    class="form-control form-control-sm js-auto-submit-trigger task-checklist-item-input <?= !empty($checkItem['is_done']) ? 'is-done' : '' ?>"
+                                                    type="text"
+                                                    name="content"
+                                                    value="<?= h($checkItem['content']) ?>"
+                                                    aria-label="Texto do item da checklist"
+                                                    required
+                                                >
+                                            </form>
+                                        </div>
+                                    </div>
                                 <?php endforeach; ?>
                             </div>
                         <?php else: ?>
