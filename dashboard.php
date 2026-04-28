@@ -172,9 +172,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ? WHERE id = ?');
                     $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $targetUserId]);
                 }
+
+                if ($password !== '') {
+                    $passwordCheckStmt = $pdo->prepare('SELECT password FROM users WHERE id = ? LIMIT 1');
+                    $passwordCheckStmt->execute([$targetUserId]);
+                    $storedHash = (string) ($passwordCheckStmt->fetchColumn() ?: '');
+                    if ($storedHash === '' || !password_verify($password, $storedHash)) {
+                        throw new RuntimeException('Falha na validação da password após atualização.');
+                    }
+                }
+
                 log_app_event($pdo, $userId, 'user.update', 'Utilizador atualizado por administrador.', ['target_user_id' => $targetUserId, 'email' => $email, 'is_admin' => $isTargetAdmin]);
                 $flashSuccess = 'Utilizador atualizado com sucesso.';
-            } catch (PDOException $e) {
+            } catch (Throwable $e) {
                 $flashError = 'Não foi possível atualizar utilizador (email/utilizador duplicado).';
             }
         }
