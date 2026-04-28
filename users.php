@@ -364,7 +364,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim((string) ($_POST['name'] ?? ''));
         $username = trim((string) ($_POST['username'] ?? ''));
         $email = trim((string) ($_POST['email'] ?? ''));
-        $password = (string) ($_POST['password'] ?? '');
+        $password = trim((string) ($_POST['password'] ?? ''));
         $isAdmin = (int) ($_POST['is_admin'] ?? 0);
         $accessProfile = trim((string) ($_POST['access_profile'] ?? 'Utilizador'));
         $isActive = (int) ($_POST['is_active'] ?? 0);
@@ -476,7 +476,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim((string) ($_POST['name'] ?? ''));
         $username = trim((string) ($_POST['username'] ?? ''));
         $email = trim((string) ($_POST['email'] ?? ''));
-        $password = (string) ($_POST['password'] ?? '');
+        $password = trim((string) ($_POST['password'] ?? ''));
         $isTargetAdmin = (int) ($_POST['is_admin'] ?? 0);
         $accessProfile = trim((string) ($_POST['access_profile'] ?? 'Utilizador'));
         $isActive = (int) ($_POST['is_active'] ?? 0);
@@ -550,8 +550,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, pin_code_hash = COALESCE(?, pin_code_hash), pin_code = COALESCE(?, pin_code), pin_only_login = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
                     $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $pinCodeHash, $pinCodeHash, $pinOnlyLogin, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
                 }
+
+                if ($password !== '') {
+                    $passwordCheckStmt = $pdo->prepare('SELECT password FROM users WHERE id = ? LIMIT 1');
+                    $passwordCheckStmt->execute([$targetUserId]);
+                    $storedHash = (string) ($passwordCheckStmt->fetchColumn() ?: '');
+
+                    if ($storedHash === '' || !password_verify($password, $storedHash)) {
+                        throw new RuntimeException('Falha na validação da password após atualização.');
+                    }
+                }
+
                 $flashSuccess = 'Utilizador atualizado com sucesso.';
-            } catch (PDOException $e) {
+            } catch (Throwable $e) {
                 if (stripos($e->getMessage(), 'users.email') !== false) {
                     $flashError = build_user_conflict_message('email', $email, find_user_conflict($pdo, 'email', $email, $targetUserId));
                 } elseif (stripos($e->getMessage(), 'users.username') !== false) {
@@ -1317,6 +1328,7 @@ require __DIR__ . '/partials/header.php';
     <div class="modal-dialog modal-lg">
         <form class="modal-content user-form-compact" method="post">
             <input type="hidden" name="user_id" value="<?= (int) $user['id'] ?>">
+            <input type="hidden" name="action" value="update_user">
             <div class="modal-header"><h5 class="modal-title">Editar utilizador</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <div class="row g-2">
@@ -1401,7 +1413,7 @@ require __DIR__ . '/partials/header.php';
                     formnovalidate
                     onclick="return confirm('Tem a certeza que deseja eliminar este utilizador? Esta ação não pode ser anulada.');"
                 >Eliminar utilizador</button>
-                <button class="btn btn-primary" name="action" value="update_user">Guardar utilizador</button>
+                <button type="submit" class="btn btn-primary">Guardar utilizador</button>
             </div>
         </form>
     </div>

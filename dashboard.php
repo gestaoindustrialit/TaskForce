@@ -121,7 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim($_POST['name'] ?? '');
         $username = trim((string) ($_POST['username'] ?? ''));
         $email = trim($_POST['email'] ?? '');
-        $password = $_POST['password'] ?? '';
+        $password = trim((string) ($_POST['password'] ?? ''));
         $accessProfile = trim((string) ($_POST['access_profile'] ?? 'Utilizador'));
         $isActive = (int) ($_POST['is_active'] ?? 0);
         $mustChangePassword = (int) ($_POST['must_change_password'] ?? 0);
@@ -151,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim($_POST['name'] ?? '');
         $username = trim((string) ($_POST['username'] ?? ''));
         $email = trim($_POST['email'] ?? '');
-        $password = $_POST['password'] ?? '';
+        $password = trim((string) ($_POST['password'] ?? ''));
         $isTargetAdmin = (int) ($_POST['is_admin'] ?? 0);
         $accessProfile = trim((string) ($_POST['access_profile'] ?? 'Utilizador'));
         $isActive = (int) ($_POST['is_active'] ?? 0);
@@ -172,9 +172,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ? WHERE id = ?');
                     $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $targetUserId]);
                 }
+
+                if ($password !== '') {
+                    $passwordCheckStmt = $pdo->prepare('SELECT password FROM users WHERE id = ? LIMIT 1');
+                    $passwordCheckStmt->execute([$targetUserId]);
+                    $storedHash = (string) ($passwordCheckStmt->fetchColumn() ?: '');
+                    if ($storedHash === '' || !password_verify($password, $storedHash)) {
+                        throw new RuntimeException('Falha na validação da password após atualização.');
+                    }
+                }
+
                 log_app_event($pdo, $userId, 'user.update', 'Utilizador atualizado por administrador.', ['target_user_id' => $targetUserId, 'email' => $email, 'is_admin' => $isTargetAdmin]);
                 $flashSuccess = 'Utilizador atualizado com sucesso.';
-            } catch (PDOException $e) {
+            } catch (Throwable $e) {
                 $flashError = 'Não foi possível atualizar utilizador (email/utilizador duplicado).';
             }
         }
