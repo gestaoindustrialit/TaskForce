@@ -85,6 +85,15 @@ body {
     background: rgba(255, 255, 255, 0.96);
 }
 
+.task-card-compact {
+    border-radius: 14px;
+}
+
+.task-card-compact .card-body {
+    padding-left: .95rem;
+    padding-right: .95rem;
+}
+
 .team-card {
     border: 1px solid rgba(37, 99, 235, 0.15);
     border-radius: 12px;
@@ -210,7 +219,7 @@ body {
 .task-compact-controls {
     display: flex;
     flex-direction: column;
-    gap: .65rem;
+    gap: .5rem;
     width: 100%;
 }
 
@@ -330,6 +339,64 @@ body {
 .task-compact-controls .form-select:focus {
     border-color: rgba(79, 70, 229, 0.45);
     box-shadow: 0 0 0 .18rem rgba(79, 70, 229, 0.12);
+}
+
+.task-checklist-panel {
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 10px;
+    background: rgba(248, 250, 252, 0.75);
+    padding: .65rem .7rem;
+}
+
+.task-checklist-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    margin-bottom: .45rem;
+}
+
+.task-checklist-count {
+    font-size: .72rem;
+    color: #475569;
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 999px;
+    padding: .12rem .55rem;
+}
+
+.task-checklist-add-form {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+}
+
+.task-checklist-add-form .form-control {
+    min-width: 0;
+}
+
+.task-checklist-list {
+    margin-top: .55rem;
+    display: grid;
+    gap: .28rem;
+}
+
+.task-checklist-item {
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 8px;
+    padding: .32rem .5rem;
+}
+
+.task-checklist-item-text {
+    font-size: .86rem;
+    line-height: 1.3;
+    color: #1f2937;
+}
+
+.task-checklist-item-text.is-done {
+    text-decoration: line-through;
+    color: #64748b;
 }
 
 .ajax-pending {
@@ -497,6 +564,10 @@ body {
 
     .time-inline-group {
         flex: 1 1 calc(50% - .25rem);
+    }
+
+    .task-checklist-header {
+        flex-wrap: wrap;
     }
 }
 
