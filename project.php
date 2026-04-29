@@ -948,9 +948,22 @@ require __DIR__ . '/partials/header.php';
                                 Atribuído a <?= h($task['assignee_name'] ?? 'Sem responsável') ?>
                             </small>
                         </div>
-                        <span class="badge bg-<?= task_badge_class($task['status']) ?>"><?= h(status_label($task['status'])) ?></span>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge bg-<?= task_badge_class($task['status']) ?>"><?= h(status_label($task['status'])) ?></span>
+                            <button
+                                class="btn btn-sm btn-outline-secondary icon-btn"
+                                type="button"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#taskDetails<?= $taskId ?>"
+                                aria-expanded="false"
+                                aria-label="Abrir tarefa"
+                            >
+                                <i class="bi bi-chevron-down"></i>
+                            </button>
+                        </div>
                     </div>
 
+                    <div class="collapse" id="taskDetails<?= $taskId ?>">
                     <div class="d-flex gap-2 mb-3 flex-wrap">
                         <span class="time-chip">Tempo previsto: <?= h(format_minutes($estimated)) ?></span>
                         <span class="time-chip">Tempo real: <?= h(format_minutes($actual)) ?></span>
