@@ -550,15 +550,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             try {
+                $passwordWasUpdated = false;
                 if ($password !== '') {
                     $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, password = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, pin_code_hash = COALESCE(?, pin_code_hash), pin_code = COALESCE(?, pin_code), pin_only_login = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
                     $stmt->execute([$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $pinCodeHash, $pinCodeHash, $pinOnlyLogin, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
+                    $passwordWasUpdated = true;
                 } else {
                     $stmt = $pdo->prepare('UPDATE users SET name = ?, username = ?, email = ?, is_admin = ?, access_profile = ?, is_active = ?, must_change_password = ?, pin_code_hash = COALESCE(?, pin_code_hash), pin_code = COALESCE(?, pin_code), pin_only_login = ?, user_type = ?, user_number = ?, title = ?, short_name = ?, initials = ?, email_notifications_active = ?, sms_notifications_active = ?, profession = ?, category = ?, manager_name = ?, department = ?, department_id = ?, schedule_id = ?, hire_date = ?, termination_date = ?, timezone = ?, phone = ?, mobile = ?, notes = ?, send_access_email = ? WHERE id = ?');
                     $stmt->execute([$name, $username, $email, $isTargetAdmin, $accessProfile, $isActive, $mustChangePassword, $pinCodeHash, $pinCodeHash, $pinOnlyLogin, $userType, $userNumber, $title, $shortName, $initials, $emailNotificationsActive, $smsNotificationsActive, $profession, $category, $managerName, $department, $departmentId > 0 ? $departmentId : null, $scheduleId > 0 ? $scheduleId : null, $hireDate, $terminationDate, $timezone, $phone, $mobile, $notes, $sendAccessEmail, $targetUserId]);
                 }
 
-                if ($password !== '') {
+                if ($passwordWasUpdated) {
                     $passwordCheckStmt = $pdo->prepare('SELECT password FROM users WHERE id = ? LIMIT 1');
                     $passwordCheckStmt->execute([$targetUserId]);
                     $storedHash = (string) ($passwordCheckStmt->fetchColumn() ?: '');
@@ -568,7 +570,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
-                $flashSuccess = 'Utilizador atualizado com sucesso.';
+                $flashSuccess = $passwordWasUpdated
+                    ? 'Utilizador atualizado com sucesso (password alterada).'
+                    : 'Utilizador atualizado com sucesso (password inalterada).';
             } catch (Throwable $e) {
                 if (stripos($e->getMessage(), 'users.email') !== false) {
                     $flashError = build_user_conflict_message('email', $email, find_user_conflict($pdo, 'email', $email, $targetUserId));
