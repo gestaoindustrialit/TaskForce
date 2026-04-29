@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($error === null && $email === '') {
         $error = 'Indique um email válido.';
     } elseif ($error === null) {
-        $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ? AND is_active = 1 LIMIT 1');
+        $stmt = $pdo->prepare('SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM(?)) AND is_active = 1 LIMIT 1');
         $stmt->execute([$email]);
         $pendingUser = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -48,8 +48,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $loginMode = (int) ($pendingUser['pin_only_login'] ?? 0) === 1 ? 'pin' : 'password';
 
-            if ($action === 'login_password' && $loginMode === 'password') {
-                $password = (string) ($_POST['password'] ?? '');
+            if ($action === 'login_password') {
+                $password = trim((string) ($_POST['password'] ?? ''));
                 if (password_verify($password, (string) ($pendingUser['password'] ?? ''))) {
                     session_regenerate_id(true);
                     $_SESSION['user_id'] = (int) $pendingUser['id'];
@@ -100,10 +100,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 RateLimiter::recordLoginAttempt($pdo, $identifier, $requestIp, false);
                 safe_log_app_event($pdo, (int) $pendingUser['id'], 'auth.login_failed', 'Tentativa de login com PIN falhada.', ['email' => $email]);
                 $error = 'PIN inválido.';
-            }
-
-            if ($action === 'login_password' && $loginMode !== 'password') {
-                $error = 'Este utilizador utiliza autenticação por PIN.';
             }
 
             if ($action === 'login_pin' && $loginMode !== 'pin') {
