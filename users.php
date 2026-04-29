@@ -510,15 +510,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $sendAccessEmail = (int) ($_POST['send_access_email'] ?? 0);
 
         $existingPinCodeHash = null;
+        $existingUserData = null;
         if ($targetUserId > 0) {
-            $existingUserStmt = $pdo->prepare('SELECT pin_code_hash FROM users WHERE id = ? LIMIT 1');
+            $existingUserStmt = $pdo->prepare('SELECT pin_code_hash, is_admin, is_active, pin_only_login FROM users WHERE id = ? LIMIT 1');
             $existingUserStmt->execute([$targetUserId]);
-            $existingUserRow = $existingUserStmt->fetch(PDO::FETCH_ASSOC) ?: null;
-            $existingPinCodeHash = $existingUserRow ? (string) ($existingUserRow['pin_code_hash'] ?? '') : null;
+            $existingUserData = $existingUserStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            $existingPinCodeHash = $existingUserData ? (string) ($existingUserData['pin_code_hash'] ?? '') : null;
         }
 
         if ($targetUserId <= 0 || $name === '' || $username === '' || $email === '') {
             $flashError = 'Dados inválidos para atualizar utilizador.';
+        } elseif (!$existingUserData) {
+            $flashError = 'Utilizador não encontrado para atualização.';
         } elseif ($pinCode !== '' && !preg_match('/^\d{6}$/', $pinCode)) {
             $flashError = 'O PIN deve ter exatamente 6 dígitos.';
         } elseif ($pinOnlyLogin === 1 && $pinCode === '' && trim((string) $existingPinCodeHash) === '') {
@@ -540,6 +543,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($departmentId > 0 && isset($departmentNameById[$departmentId])) {
                 $department = $departmentNameById[$departmentId];
+            }
+            if ($targetUserId === 1) {
+                $isTargetAdmin = 1;
+                $isActive = 1;
             }
 
             try {
