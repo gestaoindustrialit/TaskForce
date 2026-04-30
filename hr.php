@@ -243,7 +243,10 @@ if ($canComputeAttendance) {
         d.name AS department_name,
         s.name AS schedule_name,
         s.start_time,
-        first_entry.first_entry_at
+        s.end_time,
+        s.second_start_time,
+        first_entry.first_entry_at,
+        second_entry.second_entry_at
      FROM users u
      INNER JOIN hr_schedules s ON s.id = u.schedule_id
      LEFT JOIN hr_departments d ON d.id = u.department_id
@@ -254,6 +257,18 @@ if ($canComputeAttendance) {
           AND date(occurred_at, "localtime") = date(?)
         GROUP BY user_id
      ) AS first_entry ON first_entry.user_id = u.id
+     LEFT JOIN (
+        SELECT te.user_id, MIN(datetime(te.occurred_at, "localtime")) AS second_entry_at
+        FROM shopfloor_time_entries te
+        INNER JOIN users su ON su.id = te.user_id
+        INNER JOIN hr_schedules ss ON ss.id = su.schedule_id
+        WHERE te.entry_type = "entrada"
+          AND date(te.occurred_at, "localtime") = date(?)
+          AND ss.second_start_time IS NOT NULL
+          AND trim(ss.second_start_time) <> ""
+          AND datetime(te.occurred_at, "localtime") >= datetime(date(?) || " " || substr(ss.end_time, 1, 5) || ":00")
+        GROUP BY te.user_id
+     ) AS second_entry ON second_entry.user_id = u.id
      WHERE ' . $activeUsersConditionSql . '
        AND ' . $pinOnlyConditionSql . '
        AND instr("," || replace(COALESCE(s.weekdays_mask, ""), " ", "") || ",", "," || ? || ",") > 0
@@ -273,7 +288,7 @@ if ($canComputeAttendance) {
        )
      ORDER BY s.start_time ASC, u.name COLLATE NOCASE ASC'
     );
-    $attendanceStmt->execute([$todayDate, (string) $todayWeekday, $todayDate, $todayDate]);
+    $attendanceStmt->execute([$todayDate, $todayDate, $todayDate, (string) $todayWeekday, $todayDate, $todayDate]);
     $todayAttendanceRows = $attendanceStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -305,7 +320,21 @@ foreach ($todayAttendanceRows as $row) {
 
     $delaySeconds = $firstEntryTimestamp - $scheduleTimestamp;
     $row['delay_seconds'] = max(0, $delaySeconds);
+    $row['delay_period'] = 'Manhã';
     $lateToday[] = $row;
+
+    $secondScheduleStart = trim((string) ($row['second_start_time'] ?? ''));
+    $secondEntry = (string) ($row['second_entry_at'] ?? '');
+    if ($secondScheduleStart !== '' && preg_match('/^\d{2}:\d{2}/', $secondScheduleStart) && $secondEntry !== '') {
+        $secondEntryTimestamp = strtotime($secondEntry);
+        $secondScheduleTimestamp = strtotime($todayDate . ' ' . substr($secondScheduleStart, 0, 5) . ':00');
+        if ($secondEntryTimestamp !== false && $secondScheduleTimestamp !== false && $secondEntryTimestamp > $secondScheduleTimestamp) {
+            $secondRow = $row;
+            $secondRow['delay_seconds'] = max(0, $secondEntryTimestamp - $secondScheduleTimestamp);
+            $secondRow['delay_period'] = 'Tarde';
+            $lateToday[] = $secondRow;
+        }
+    }
 }
 
 $hasBreakDashboardTables = table_exists($pdo, 'shopfloor_break_entries')
@@ -484,14 +513,15 @@ foreach ($approvedLeavesToday as $leave) {
                 </div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
-                        <thead><tr><th>Colaborador</th><th>Entrada</th><th>Atraso</th></tr></thead>
+                        <thead><tr><th>Colaborador</th><th>Entrada</th><th>Período</th><th>Atraso</th></tr></thead>
                         <tbody>
                         <?php if (!$lateToday): ?>
-                            <tr><td colspan="3" class="text-muted">Sem atrasos detetados hoje.</td></tr>
+                            <tr><td colspan="4" class="text-muted">Sem atrasos detetados hoje.</td></tr>
                         <?php else: foreach ($lateToday as $person): ?>
                             <tr>
                                 <td><?= h(trim(((string) ($person['user_number'] ?? '')) . ' · ' . ((string) ($person['name'] ?? '')), ' ·')) ?></td>
                                 <td><?= h((string) ($person['first_entry_at'] ?? '')) ?> (<?= h((string) ($person['start_time'] ?? '-')) ?>)</td>
+                                <td><?= h((string) ($person['delay_period'] ?? 'Manhã')) ?></td>
                                 <td><span class="hr-time-pill"><?= h(format_seconds_hhmmss((int) ($person['delay_seconds'] ?? 0))) ?></span></td>
                             </tr>
                         <?php endforeach; endif; ?>
