@@ -337,6 +337,62 @@ foreach ($todayAttendanceRows as $row) {
     }
 }
 
+$hasLateHistoryTable = false;
+if (table_exists($pdo, 'users')) {
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS hr_late_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            delay_date TEXT NOT NULL,
+            delay_period TEXT NOT NULL,
+            scheduled_at TEXT NOT NULL,
+            entered_at TEXT NOT NULL,
+            delay_seconds INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT "hr.dashboard",
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, delay_date, delay_period, scheduled_at, entered_at)
+        )'
+    );
+    $hasLateHistoryTable = table_exists($pdo, 'hr_late_history');
+}
+
+if ($hasLateHistoryTable && $lateToday) {
+    $insertLateHistoryStmt = $pdo->prepare(
+        'INSERT OR IGNORE INTO hr_late_history (user_id, delay_date, delay_period, scheduled_at, entered_at, delay_seconds, source, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, "hr.dashboard", CURRENT_TIMESTAMP)'
+    );
+    $updateLateHistoryStmt = $pdo->prepare(
+        'UPDATE hr_late_history
+            SET delay_seconds = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = ?
+            AND delay_date = ?
+            AND delay_period = ?
+            AND scheduled_at = ?
+            AND entered_at = ?'
+    );
+    foreach ($lateToday as $lateRow) {
+        $period = (string) ($lateRow['delay_period'] ?? 'Manhã');
+        $scheduleStart = $period === 'Tarde'
+            ? trim((string) ($lateRow['second_start_time'] ?? ''))
+            : trim((string) ($lateRow['start_time'] ?? ''));
+        $entryAt = $period === 'Tarde'
+            ? (string) ($lateRow['second_entry_at'] ?? '')
+            : (string) ($lateRow['first_entry_at'] ?? '');
+        if ((int) ($lateRow['id'] ?? 0) <= 0 || $scheduleStart === '' || $entryAt === '') {
+            continue;
+        }
+
+        $normalizedSchedule = substr($scheduleStart, 0, 5);
+        $normalizedEntry = date('Y-m-d H:i:s', strtotime($entryAt)) ?: $entryAt;
+        $delaySeconds = max(0, (int) ($lateRow['delay_seconds'] ?? 0));
+        $targetUserId = (int) $lateRow['id'];
+
+        $insertLateHistoryStmt->execute([$targetUserId, $todayDate, $period, $normalizedSchedule, $normalizedEntry, $delaySeconds]);
+        $updateLateHistoryStmt->execute([$delaySeconds, $targetUserId, $todayDate, $period, $normalizedSchedule, $normalizedEntry]);
+    }
+}
+
 $hasBreakDashboardTables = table_exists($pdo, 'shopfloor_break_entries')
     && table_exists($pdo, 'shopfloor_break_reasons')
     && table_exists($pdo, 'team_members')
@@ -357,6 +413,42 @@ $filters = [
     'date_from' => trim((string) ($_GET['date_from'] ?? date('Y-m-01'))),
     'date_to' => trim((string) ($_GET['date_to'] ?? date('Y-m-d'))),
 ];
+
+$lateHistoryFilters = [
+    'user_id' => (int) ($_GET['late_user_id'] ?? 0),
+    'date_from' => trim((string) ($_GET['late_date_from'] ?? date('Y-m-01'))),
+    'date_to' => trim((string) ($_GET['late_date_to'] ?? date('Y-m-d'))),
+];
+
+$lateHistoryRows = [];
+if ($hasLateHistoryTable) {
+    $lateHistoryUserNumberExpr = column_exists($pdo, 'users', 'user_number') ? 'u.user_number' : 'NULL';
+    $lateHistoryWhere = [];
+    $lateHistoryParams = [];
+    if ($lateHistoryFilters['user_id'] > 0) {
+        $lateHistoryWhere[] = 'h.user_id = ?';
+        $lateHistoryParams[] = $lateHistoryFilters['user_id'];
+    }
+    if ($lateHistoryFilters['date_from'] !== '') {
+        $lateHistoryWhere[] = 'date(h.delay_date) >= date(?)';
+        $lateHistoryParams[] = $lateHistoryFilters['date_from'];
+    }
+    if ($lateHistoryFilters['date_to'] !== '') {
+        $lateHistoryWhere[] = 'date(h.delay_date) <= date(?)';
+        $lateHistoryParams[] = $lateHistoryFilters['date_to'];
+    }
+    $lateHistoryWhereSql = $lateHistoryWhere ? (' WHERE ' . implode(' AND ', $lateHistoryWhere)) : '';
+    $lateHistoryStmt = $pdo->prepare(
+        'SELECT h.*, u.name AS employee_name, ' . $lateHistoryUserNumberExpr . ' AS user_number
+         FROM hr_late_history h
+         INNER JOIN users u ON u.id = h.user_id'
+        . $lateHistoryWhereSql .
+        ' ORDER BY h.delay_date DESC, h.entered_at DESC
+          LIMIT 300'
+    );
+    $lateHistoryStmt->execute($lateHistoryParams);
+    $lateHistoryRows = $lateHistoryStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 $where = [];
 $params = [];
@@ -555,6 +647,38 @@ foreach ($approvedLeavesToday as $leave) {
                     </table>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div class="soft-card p-3 p-lg-4">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <h2 class="h4 mb-0">Histórico de atrasos por colaborador</h2>
+            <span class="badge hr-count-badge hr-count-badge-warning"><?= count($lateHistoryRows) ?> registos</span>
+        </div>
+        <form method="get" class="row g-2 align-items-end mb-3">
+            <div class="col-md-5"><label class="form-label">Colaborador</label><select name="late_user_id" class="form-select"><option value="0">Todos</option><?php foreach ($users as $listUser): ?><option value="<?= (int) $listUser['id'] ?>" <?= $lateHistoryFilters['user_id'] === (int) $listUser['id'] ? 'selected' : '' ?>><?= h((string) $listUser['name']) ?></option><?php endforeach; ?></select></div>
+            <div class="col-md-2"><label class="form-label">Data início</label><input type="date" name="late_date_from" class="form-control" value="<?= h($lateHistoryFilters['date_from']) ?>"></div>
+            <div class="col-md-2"><label class="form-label">Data fim</label><input type="date" name="late_date_to" class="form-control" value="<?= h($lateHistoryFilters['date_to']) ?>"></div>
+            <div class="col-md-3 d-flex gap-2"><button type="submit" class="btn btn-primary w-100">Aplicar</button><a href="hr.php" class="btn btn-outline-secondary w-100">Limpar</a></div>
+        </form>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead><tr><th>Data</th><th>Colaborador</th><th>Período</th><th>Hora prevista</th><th>Entrada</th><th>Atraso</th></tr></thead>
+                <tbody>
+                <?php if (!$lateHistoryRows): ?>
+                    <tr><td colspan="6" class="text-muted">Sem atrasos registados para os filtros selecionados.</td></tr>
+                <?php else: foreach ($lateHistoryRows as $lateHistory): ?>
+                    <tr>
+                        <td><?= h((string) ($lateHistory['delay_date'] ?? '')) ?></td>
+                        <td><?= h(trim(((string) ($lateHistory['user_number'] ?? '')) . ' · ' . ((string) ($lateHistory['employee_name'] ?? '')), ' ·')) ?></td>
+                        <td><?= h((string) ($lateHistory['delay_period'] ?? '')) ?></td>
+                        <td><?= h((string) ($lateHistory['scheduled_at'] ?? '')) ?></td>
+                        <td><?= h((string) ($lateHistory['entered_at'] ?? '')) ?></td>
+                        <td><span class="hr-time-pill"><?= h(format_seconds_hhmmss((int) ($lateHistory['delay_seconds'] ?? 0))) ?></span></td>
+                    </tr>
+                <?php endforeach; endif; ?>
+                </tbody>
+            </table>
         </div>
     </div>
 
