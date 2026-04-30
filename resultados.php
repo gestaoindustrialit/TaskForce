@@ -1472,6 +1472,21 @@ require __DIR__ . '/partials/header.php';
         const absenceAddButton = validationModalElement.querySelector('.js-row-validation-absence-add');
         const absenceHelp = validationModalElement.querySelector('.js-row-validation-absence-help');
         const state = { row: null };
+        const createAbsenceLine = (selectedCode = '', selectedDuration = '00:00') => {
+            const rowEl = document.createElement('div');
+            rowEl.className = 'row g-2 align-items-end mb-2';
+            const optionsHtml = absenceReasonCatalog.map((option) => {
+                const code = String(option.absence_code || '');
+                const reason = String(option.reason || 'Motivo');
+                const selectedAttr = code === selectedCode ? 'selected' : '';
+                return `<option value="${code}" ${selectedAttr}>${code} - ${reason}</option>`;
+            }).join('');
+            rowEl.innerHTML = `<div class="col-md-7"><select class="form-select js-absence-line-code">${optionsHtml}</select></div>
+                <div class="col-md-3"><input type="text" class="form-control js-absence-line-duration" value="${selectedDuration}" placeholder="02:00"></div>
+                <div class="col-md-2"><button type="button" class="btn btn-outline-danger w-100 js-absence-line-remove">Remover</button></div>`;
+            rowEl.querySelector('.js-absence-line-remove')?.addEventListener('click', () => rowEl.remove());
+            absenceList?.appendChild(rowEl);
+        };
 
         const renderEntries = (row) => {
             entriesRoot.innerHTML = '';
