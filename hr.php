@@ -359,12 +359,17 @@ if (table_exists($pdo, 'users')) {
 
 if ($hasLateHistoryTable && $lateToday) {
     $insertLateHistoryStmt = $pdo->prepare(
-        'INSERT INTO hr_late_history (user_id, delay_date, delay_period, scheduled_at, entered_at, delay_seconds, source, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, "hr.dashboard", CURRENT_TIMESTAMP)
-         ON CONFLICT(user_id, delay_date, delay_period, scheduled_at, entered_at)
-         DO UPDATE SET
-            delay_seconds = excluded.delay_seconds,
-            updated_at = CURRENT_TIMESTAMP'
+        'INSERT OR IGNORE INTO hr_late_history (user_id, delay_date, delay_period, scheduled_at, entered_at, delay_seconds, source, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, "hr.dashboard", CURRENT_TIMESTAMP)'
+    );
+    $updateLateHistoryStmt = $pdo->prepare(
+        'UPDATE hr_late_history
+            SET delay_seconds = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = ?
+            AND delay_date = ?
+            AND delay_period = ?
+            AND scheduled_at = ?
+            AND entered_at = ?'
     );
     foreach ($lateToday as $lateRow) {
         $period = (string) ($lateRow['delay_period'] ?? 'Manhã');
@@ -378,14 +383,13 @@ if ($hasLateHistoryTable && $lateToday) {
             continue;
         }
 
-        $insertLateHistoryStmt->execute([
-            (int) $lateRow['id'],
-            $todayDate,
-            $period,
-            substr($scheduleStart, 0, 5),
-            date('Y-m-d H:i:s', strtotime($entryAt)) ?: $entryAt,
-            max(0, (int) ($lateRow['delay_seconds'] ?? 0)),
-        ]);
+        $normalizedSchedule = substr($scheduleStart, 0, 5);
+        $normalizedEntry = date('Y-m-d H:i:s', strtotime($entryAt)) ?: $entryAt;
+        $delaySeconds = max(0, (int) ($lateRow['delay_seconds'] ?? 0));
+        $targetUserId = (int) $lateRow['id'];
+
+        $insertLateHistoryStmt->execute([$targetUserId, $todayDate, $period, $normalizedSchedule, $normalizedEntry, $delaySeconds]);
+        $updateLateHistoryStmt->execute([$delaySeconds, $targetUserId, $todayDate, $period, $normalizedSchedule, $normalizedEntry]);
     }
 }
 
@@ -418,6 +422,7 @@ $lateHistoryFilters = [
 
 $lateHistoryRows = [];
 if ($hasLateHistoryTable) {
+    $lateHistoryUserNumberExpr = column_exists($pdo, 'users', 'user_number') ? 'u.user_number' : 'NULL';
     $lateHistoryWhere = [];
     $lateHistoryParams = [];
     if ($lateHistoryFilters['user_id'] > 0) {
@@ -434,7 +439,7 @@ if ($hasLateHistoryTable) {
     }
     $lateHistoryWhereSql = $lateHistoryWhere ? (' WHERE ' . implode(' AND ', $lateHistoryWhere)) : '';
     $lateHistoryStmt = $pdo->prepare(
-        'SELECT h.*, u.name AS employee_name, u.user_number
+        'SELECT h.*, u.name AS employee_name, ' . $lateHistoryUserNumberExpr . ' AS user_number
          FROM hr_late_history h
          INNER JOIN users u ON u.id = h.user_id'
         . $lateHistoryWhereSql .
