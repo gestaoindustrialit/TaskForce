@@ -1457,7 +1457,7 @@ require __DIR__ . '/partials/header.php';
 
 <script>
 (() => {
-    const absenceReasonCatalog = <?= json_encode($absenceReasonCatalog, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    const absenceReasonCatalog = <?= json_encode($absenceReasonCatalog, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     const validationModalElement = document.getElementById('rowValidationModal');
     if (validationModalElement && window.bootstrap) {
         const validationModal = new bootstrap.Modal(validationModalElement);
