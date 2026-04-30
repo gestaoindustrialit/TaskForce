@@ -495,6 +495,21 @@ require __DIR__ . '/partials/header.php';
         if (node) node.textContent = fmt.format(Number(value || 0)) + ' €';
     }
 
+    function applySuggestedCounts(suggested) {
+        if (!suggested || typeof suggested !== 'object') return;
+        const punctualityInput = document.getElementById('punctuality_count');
+        const absenceInput = document.getElementById('absence_count');
+        const pairs = [
+            [punctualityInput, Number(suggested.punctuality_count || 0)],
+            [absenceInput, Number(suggested.absence_count || 0)],
+        ];
+
+        pairs.forEach(([input, value]) => {
+            if (!input || input.dataset.manual === '1') return;
+            input.value = String(Math.max(0, Math.trunc(value)));
+        });
+    }
+
     async function calculatePreview() {
         const payload = {
             user_id: Number(document.getElementById('user_id').value || 0),
@@ -521,6 +536,7 @@ require __DIR__ . '/partials/header.php';
             });
             const data = await response.json();
             if (!response.ok || !data.ok) throw new Error('preview_error');
+            applySuggestedCounts(data.suggested_counts || null);
             const values = data.values || {};
             ['performance_value','behavior_value','punctuality_value','absence_value','period_total','max_period_total','period_gap','year_periods_total','final_bonus_value','year_total_with_bonus','max_year_total','year_gap'].forEach((key) => setMoney(key, values[key]));
             const ruleNode = document.querySelector('[data-field="rule_name"]');
@@ -541,6 +557,23 @@ require __DIR__ . '/partials/header.php';
     document.querySelectorAll('.js-calc-field').forEach((field) => {
         field.addEventListener('input', debounceCalc);
         field.addEventListener('change', debounceCalc);
+    });
+
+    ['punctuality_count', 'absence_count'].forEach((id) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener('input', () => { input.dataset.manual = '1'; });
+    });
+
+    ['user_id', 'award_year', 'award_period'].forEach((id) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener('change', () => {
+            const punctualityInput = document.getElementById('punctuality_count');
+            const absenceInput = document.getElementById('absence_count');
+            if (punctualityInput) delete punctualityInput.dataset.manual;
+            if (absenceInput) delete absenceInput.dataset.manual;
+        });
     });
 
     const profile = document.getElementById('award_profile');
