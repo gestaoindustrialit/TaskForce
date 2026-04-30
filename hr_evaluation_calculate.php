@@ -81,6 +81,8 @@ $rule = taskforce_resolve_evaluation_rule(
     isset($employee['department_id']) ? (int) $employee['department_id'] : null
 );
 
+$suggestedCounts = taskforce_suggest_evaluation_counts($pdo, $targetUserId, $awardYear, $awardPeriod);
+
 $periodValues = taskforce_calculate_period_values($rule['config'], [
     'performance_score' => $performanceScore,
     'behavior_score' => $behaviorScore,
@@ -106,4 +108,5 @@ echo json_encode([
         'profile_key' => (string) ($rule['profile_key'] ?? $profileKey),
     ],
     'values' => array_merge($periodValues, $yearSummary),
+    'suggested_counts' => $suggestedCounts,
 ], JSON_UNESCAPED_UNICODE);
