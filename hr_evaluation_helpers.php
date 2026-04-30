@@ -30,6 +30,67 @@ function taskforce_evaluation_period_sort(string $period): int
     };
 }
 
+
+function taskforce_evaluation_period_bounds(int $year, string $period): ?array
+{
+    $map = [
+        'jan_abr' => ['01-01', '04-30'],
+        'mai_ago' => ['05-01', '08-31'],
+        'set_dez' => ['09-01', '12-31'],
+    ];
+
+    if (!isset($map[$period])) {
+        return null;
+    }
+
+    [$startSuffix, $endSuffix] = $map[$period];
+    return [
+        'start_date' => sprintf('%04d-%s', $year, $startSuffix),
+        'end_date' => sprintf('%04d-%s', $year, $endSuffix),
+    ];
+}
+
+function taskforce_suggest_evaluation_counts(PDO $pdo, int $userId, int $awardYear, string $awardPeriod): array
+{
+    $bounds = taskforce_evaluation_period_bounds($awardYear, $awardPeriod);
+    if ($userId <= 0 || $bounds === null) {
+        return ['punctuality_count' => 0, 'absence_count' => 0];
+    }
+
+    $absenceStmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM shopfloor_absence_requests
+         WHERE user_id = ?
+           AND status LIKE "Aprovado%"
+           AND date(start_date) <= date(?)
+           AND date(end_date) >= date(?)'
+    );
+    $absenceStmt->execute([$userId, $bounds['end_date'], $bounds['start_date']]);
+    $absenceCount = max(0, (int) $absenceStmt->fetchColumn());
+
+    $punctualityStmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM (
+            SELECT date(te.occurred_at, "localtime") AS work_date,
+                   MIN(datetime(te.occurred_at, "localtime")) AS first_entry_at,
+                   s.start_time
+            FROM shopfloor_time_entries te
+            INNER JOIN users u ON u.id = te.user_id
+            INNER JOIN hr_schedules s ON s.id = u.schedule_id
+            WHERE te.user_id = ?
+              AND te.entry_type = "entrada"
+              AND date(te.occurred_at, "localtime") BETWEEN date(?) AND date(?)
+            GROUP BY date(te.occurred_at, "localtime")
+         ) days
+         WHERE trim(COALESCE(start_time, "")) <> ""
+           AND datetime(first_entry_at) > datetime(work_date || " " || substr(start_time, 1, 5) || ":00")'
+    );
+    $punctualityStmt->execute([$userId, $bounds['start_date'], $bounds['end_date']]);
+    $punctualityCount = max(0, (int) $punctualityStmt->fetchColumn());
+
+    return ['punctuality_count' => $punctualityCount, 'absence_count' => $absenceCount];
+}
+
 function taskforce_evaluation_profiles(): array
 {
     return [
