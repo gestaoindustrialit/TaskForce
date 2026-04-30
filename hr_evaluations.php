@@ -391,8 +391,9 @@ require __DIR__ . '/partials/header.php';
 <input type="hidden" name="evaluation_id" id="evaluation_id" value="<?= (int) $formData['evaluation_id'] ?>">
 <div class="col-md-4">
     <label class="form-label">Colaborador</label>
-    <input type="search" class="form-control form-control-sm mb-1" id="user_id_search" placeholder="Pesquisar nº ou nome">
-    <select class="form-select form-select-sm js-calc-field" name="user_id" id="user_id" required>
+    <input type="search" class="form-control form-control-sm js-user-picker" id="user_id_search" list="user_id_options" placeholder="Pesquisar nº ou nome" autocomplete="off" required>
+    <datalist id="user_id_options"></datalist>
+    <select class="form-select form-select-sm js-calc-field d-none" name="user_id" id="user_id" required>
         <option value="0">Selecione</option>
         <?php foreach ($employees as $emp): ?>
             <option value="<?= (int) $emp['id'] ?>" <?= (int) $formData['user_id'] === (int) $emp['id'] ? 'selected' : '' ?> data-number="<?= h((string) ($emp['user_number'] ?? '')) ?>" data-name="<?= h((string) ($emp['name'] ?? '')) ?>" data-department="<?= h((string) ($emp['department_name'] ?? '')) ?>" data-profile="<?= h((string) ($emp['award_profile'] ?? 'operador')) ?>"><?= h(format_user_picker_label($emp)) ?></option>
@@ -456,8 +457,9 @@ require __DIR__ . '/partials/header.php';
 <input type="hidden" name="action" value="save_year_closure">
 <div class="col-12">
     <label class="form-label">Colaborador</label>
-    <input type="search" class="form-control form-control-sm mb-1" id="closure_user_id_search" placeholder="Pesquisar nº ou nome">
-    <select class="form-select form-select-sm js-calc-field" name="closure_user_id" id="closure_user_id"><?php foreach ($employees as $emp): ?><option value="<?= (int) $emp['id'] ?>" <?= (int) $formData['user_id'] === (int) $emp['id'] ? 'selected' : '' ?>><?= h(format_user_picker_label($emp)) ?></option><?php endforeach; ?></select>
+    <input type="search" class="form-control form-control-sm js-user-picker" id="closure_user_id_search" list="closure_user_id_options" placeholder="Pesquisar nº ou nome" autocomplete="off">
+    <datalist id="closure_user_id_options"></datalist>
+    <select class="form-select form-select-sm js-calc-field d-none" name="closure_user_id" id="closure_user_id"><?php foreach ($employees as $emp): ?><option value="<?= (int) $emp['id'] ?>" <?= (int) $formData['user_id'] === (int) $emp['id'] ? 'selected' : '' ?>><?= h(format_user_picker_label($emp)) ?></option><?php endforeach; ?></select>
 </div>
 <div class="col-6"><label class="form-label">Ano</label><input class="form-control form-control-sm js-calc-field" type="number" name="closure_award_year" id="closure_award_year" min="2024" max="2100" value="<?= (int) $formData['award_year'] ?>"></div>
 <div class="col-6"><label class="form-label">Absentismo final</label><input class="form-control form-control-sm js-calc-field" type="number" min="0" name="final_absence_count" id="final_absence_count" value="<?= (int) $closureFormData['final_absence_count'] ?>"></div>
@@ -581,55 +583,45 @@ require __DIR__ . '/partials/header.php';
         profile.addEventListener('change', () => profile.dataset.touched = '1');
     }
 
-    function attachSelectSearch(inputId, selectId) {
+    function attachUserPicker(inputId, selectId, datalistId) {
         const input = document.getElementById(inputId);
         const select = document.getElementById(selectId);
-        if (!input || !select) return;
+        const datalist = document.getElementById(datalistId);
+        if (!input || !select || !datalist) return;
 
-        const allOptions = Array.from(select.options).map((option) => ({
-            value: option.value,
-            label: option.textContent || '',
-            selected: option.selected,
-            dataset: { ...option.dataset },
-        }));
+        const options = Array.from(select.options)
+            .filter((option) => option.value !== '0')
+            .map((option) => ({ value: option.value, label: option.textContent || '' }));
 
-        function renderFilteredOptions(term) {
-            const normalizedTerm = (term || '').trim().toLowerCase();
-            const currentValue = select.value;
-            select.innerHTML = '';
+        datalist.innerHTML = '';
+        options.forEach((item) => {
+            const option = document.createElement('option');
+            option.value = item.label;
+            datalist.appendChild(option);
+        });
 
-            allOptions.forEach((item, index) => {
-                const isDefault = index === 0 && item.value === '0';
-                const matches = normalizedTerm === '' || item.label.toLowerCase().includes(normalizedTerm);
-                if (!isDefault && !matches) return;
-
-                const option = document.createElement('option');
-                option.value = item.value;
-                option.textContent = item.label;
-                Object.entries(item.dataset || {}).forEach(([key, value]) => {
-                    option.dataset[key] = value;
-                });
-                option.selected = item.value === currentValue;
-                select.appendChild(option);
-            });
-
-            if (select.options.length === 0) {
-                const emptyOption = document.createElement('option');
-                emptyOption.value = '0';
-                emptyOption.textContent = 'Sem resultados';
-                select.appendChild(emptyOption);
-            } else if (![...select.options].some((option) => option.value === currentValue)) {
-                select.selectedIndex = 0;
-            }
-
-            select.dispatchEvent(new Event('change', { bubbles: true }));
+        function syncInputFromSelect() {
+            const selected = select.options[select.selectedIndex];
+            input.value = selected && selected.value !== '0' ? (selected.textContent || '') : '';
         }
 
-        input.addEventListener('input', () => renderFilteredOptions(input.value));
+        function syncSelectFromInput() {
+            const term = (input.value || '').trim().toLowerCase();
+            const found = options.find((item) => item.label.toLowerCase() === term);
+            if (found) {
+                select.value = found.value;
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }
+
+        input.addEventListener('change', syncSelectFromInput);
+        input.addEventListener('blur', syncSelectFromInput);
+        select.addEventListener('change', syncInputFromSelect);
+        syncInputFromSelect();
     }
 
-    attachSelectSearch('user_id_search', 'user_id');
-    attachSelectSearch('closure_user_id_search', 'closure_user_id');
+    attachUserPicker('user_id_search', 'user_id', 'user_id_options');
+    attachUserPicker('closure_user_id_search', 'closure_user_id', 'closure_user_id_options');
 
     fillReadonly();
     document.getElementById('user_id').addEventListener('change', fillReadonly);
