@@ -1478,12 +1478,21 @@ require __DIR__ . '/partials/header.php';
             const optionsHtml = absenceReasonCatalog.map((option) => {
                 const code = String(option.absence_code || '');
                 const reason = String(option.reason || 'Motivo');
+                const color = String(option.color || '#6c757d');
                 const selectedAttr = code === selectedCode ? 'selected' : '';
-                return `<option value="${code}" ${selectedAttr}>${code} - ${reason}</option>`;
+                return `<option value="${code}" data-absence-color="${color}" ${selectedAttr}>${code} - ${reason}</option>`;
             }).join('');
             rowEl.innerHTML = `<div class="col-md-7"><select class="form-select js-absence-line-code">${optionsHtml}</select></div>
                 <div class="col-md-3"><input type="text" class="form-control js-absence-line-duration" value="${selectedDuration}" placeholder="02:00"></div>
                 <div class="col-md-2"><button type="button" class="btn btn-outline-danger w-100 js-absence-line-remove">Remover</button></div>`;
+            const selectEl = rowEl.querySelector('.js-absence-line-code');
+            const applySelectColor = () => {
+                const selectedOption = selectEl?.options?.[selectEl.selectedIndex ?? -1];
+                const selectedColor = (selectedOption?.dataset.absenceColor || '#6c757d').trim();
+                if (selectEl) selectEl.style.borderLeft = `0.35rem solid ${selectedColor}`;
+            };
+            selectEl?.addEventListener('change', applySelectColor);
+            applySelectColor();
             rowEl.querySelector('.js-absence-line-remove')?.addEventListener('click', () => rowEl.remove());
             absenceList?.appendChild(rowEl);
         };
