@@ -475,7 +475,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
             $savedCodes[] = $resolvedAbsenceCode;
         }
         if ($allocatedMinutesTotal <= 0) {
-            echo json_encode(['ok' => false, 'message' => 'Motivo de ausência inválido para este dia.']);
+            log_app_event($pdo, $userId, 'shopfloor.absence_time_allocation.clear', 'Relação de ausência removida do dia de picagens.', [
+                'target_user_id' => $targetUserId,
+                'work_date' => $workDate,
+            ]);
+            echo json_encode(['ok' => true, 'allocated_minutes' => 0, 'absence_code' => '', 'allocations_count' => 0]);
             exit;
         }
 
@@ -1599,7 +1603,12 @@ require __DIR__ . '/partials/header.php';
             const hh = String(Math.floor(allocatedMinutes / 60)).padStart(2, '0');
             const mm = String(allocatedMinutes % 60).padStart(2, '0');
             const summaryText = `Ausências ${(row.dataset.currentCode || '').trim()} · ${hh}:${mm}`;
-            if (summary) {
+            if (allocatedMinutes <= 0) {
+                row.dataset.currentCode = '';
+                row.dataset.currentMinutes = '0';
+                row.dataset.absenceAllocatedSeconds = '0';
+                summary?.remove();
+            } else if (summary) {
                 summary.textContent = summaryText;
             } else {
                 const container = row.querySelector('.js-results-bh-input')?.closest('td');
