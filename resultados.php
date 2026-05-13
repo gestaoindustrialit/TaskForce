@@ -469,7 +469,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canValidateResults) {
             if (!$catalogRow) { continue; }
             $resolvedAbsenceCode = trim((string) ($catalogRow['sage_code'] ?? '')) ?: trim((string) ($catalogRow['reason_code'] ?? '')) ?: $absenceCode;
             if ($absenceReason === '') { $absenceReason = trim((string) ($catalogRow['label'] ?? '')); }
-            $storedRequestId = $absenceRequestId > 0 ? $absenceRequestId : null;
+            $storedRequestId = $absenceRequestId > 0 ? $absenceRequestId : 0;
             $insertStmt->execute([$targetUserId, $workDate, $storedRequestId, $resolvedAbsenceCode, $absenceReason, $allocatedMinutes, $userId]);
             $allocatedMinutesTotal += $allocatedMinutes;
             $savedCodes[] = $resolvedAbsenceCode;
@@ -1671,45 +1671,46 @@ require __DIR__ . '/partials/header.php';
         };
 
         const runSave = async (shouldValidateAfterSave = false) => {
-            if (!state.row) return;
-            const row = state.row;
-            const entryInputs = Array.from(row.querySelectorAll('.js-entry-time'));
-            for (const input of entryInputs) {
-                const value = (input.value || '').trim();
-                const normalizedValue = value === '--:--' ? '' : value;
-                const entryId = Number(input.dataset.entryId || '0');
-                if (normalizedValue === '' && entryId <= 0) {
-                    continue;
+            try {
+                if (!state.row) return;
+                const row = state.row;
+                const entryInputs = Array.from(row.querySelectorAll('.js-entry-time'));
+                for (const input of entryInputs) {
+                    const value = (input.value || '').trim();
+                    const normalizedValue = value === '--:--' ? '' : value;
+                    const entryId = Number(input.dataset.entryId || '0');
+                    if (normalizedValue === '' && entryId <= 0) {
+                        continue;
+                    }
+                    const body = new URLSearchParams();
+                    body.set('action', 'update_entry_time');
+                    body.set('entry_id', String(entryId > 0 ? entryId : 0));
+                    body.set('slot_index', input.dataset.slotIndex || '0');
+                    body.set('entry_date', input.dataset.entryDate || '');
+                    body.set('target_user_id', input.dataset.targetUserId || '0');
+                    body.set('entry_time', normalizedValue);
+                    body.set('validate_date', input.dataset.entryDate || '');
+                    const response = await fetch('resultados.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+                        body: body.toString(),
+                    });
+                    const result = await response.json();
+                    if (!result.ok) {
+                        alert(result.message || 'Não foi possível guardar uma das picagens.');
+                        return;
+                    }
+                    if (result.deleted) {
+                        delete input.dataset.entryId;
+                    } else if (result.entry_id) {
+                        input.dataset.entryId = String(result.entry_id);
+                    }
                 }
-                const body = new URLSearchParams();
-                body.set('action', 'update_entry_time');
-                body.set('entry_id', String(entryId > 0 ? entryId : 0));
-                body.set('slot_index', input.dataset.slotIndex || '0');
-                body.set('entry_date', input.dataset.entryDate || '');
-                body.set('target_user_id', input.dataset.targetUserId || '0');
-                body.set('entry_time', normalizedValue);
-                body.set('validate_date', input.dataset.entryDate || '');
-                const response = await fetch('resultados.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
-                    body: body.toString(),
-                });
-                const result = await response.json();
-                if (!result.ok) {
-                    alert(result.message || 'Não foi possível guardar uma das picagens.');
-                    return;
-                }
-                if (result.deleted) {
-                    delete input.dataset.entryId;
-                } else if (result.entry_id) {
-                    input.dataset.entryId = String(result.entry_id);
-                }
-            }
 
-            const absenceSaved = await applyAbsenceAllocation(row);
-            if (!absenceSaved) return;
-            const bhSaved = await applyBhOverride(row);
-            if (!bhSaved) return;
+                const absenceSaved = await applyAbsenceAllocation(row);
+                if (!absenceSaved) return;
+                const bhSaved = await applyBhOverride(row);
+                if (!bhSaved) return;
 
             const rowBhInput = row.querySelector('.js-results-bh-input');
             if (rowBhInput && typeof window.resultsRecalculateRow === 'function') {
@@ -1726,14 +1727,18 @@ require __DIR__ . '/partials/header.php';
                     }
                 }
             }
-            validationModal.hide();
+                validationModal.hide();
 
-            if (shouldValidateAfterSave) {
-                const rowFormId = row.querySelector('.js-open-validation-modal')?.dataset.rowFormId || '';
-                const form = rowFormId ? document.getElementById(rowFormId) : null;
-                if (form) {
-                    form.submit();
+                if (shouldValidateAfterSave) {
+                    const rowFormId = row.querySelector('.js-open-validation-modal')?.dataset.rowFormId || '';
+                    const form = rowFormId ? document.getElementById(rowFormId) : null;
+                    if (form) {
+                        form.submit();
+                    }
                 }
+            } catch (error) {
+                console.error(error);
+                alert('Ocorreu um erro inesperado ao guardar. Tente novamente.');
             }
         };
 
