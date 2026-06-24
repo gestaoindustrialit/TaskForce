@@ -426,10 +426,10 @@ require __DIR__ . '/partials/header.php';
 <div class="col-md-3"><label class="form-label">Comportamento</label><select class="form-select form-select-sm js-calc-field" name="behavior_score" id="behavior_score"><?php for ($i = 0; $i <= 3; $i++): ?><option value="<?= $i ?>" <?= (int) $formData['behavior_score'] === $i ? 'selected' : '' ?>><?= $i ?></option><?php endfor; ?></select></div>
 <div class="col-md-9"><label class="form-label">Notas comportamento</label><input class="form-control form-control-sm" name="behavior_notes" value="<?= h($formData['behavior_notes']) ?>"></div>
 
-<div class="col-md-3"><label class="form-label">Pontualidade (ocorr.)</label><input type="number" min="0" class="form-control form-control-sm js-calc-field" name="punctuality_count" id="punctuality_count" value="<?= (int) $formData['punctuality_count'] ?>"></div>
+<div class="col-md-3"><label class="form-label">Pontualidade (ocorr.)</label><input type="number" min="0" class="form-control form-control-sm js-calc-field" name="punctuality_count" id="punctuality_count" value="<?= (int) $formData['punctuality_count'] ?>" <?= (int) $formData['evaluation_id'] > 0 ? 'data-manual="1"' : '' ?>></div>
 <div class="col-md-9"><label class="form-label">Notas pontualidade</label><input class="form-control form-control-sm" name="punctuality_notes" value="<?= h($formData['punctuality_notes']) ?>"></div>
 
-<div class="col-md-3"><label class="form-label">Absentismo (ocorr.)</label><input type="number" min="0" class="form-control form-control-sm js-calc-field" name="absence_count" id="absence_count" value="<?= (int) $formData['absence_count'] ?>"></div>
+<div class="col-md-3"><label class="form-label">Absentismo (ocorr.)</label><input type="number" min="0" class="form-control form-control-sm js-calc-field" name="absence_count" id="absence_count" value="<?= (int) $formData['absence_count'] ?>" <?= (int) $formData['evaluation_id'] > 0 ? 'data-manual="1"' : '' ?>></div>
 <div class="col-md-9"><label class="form-label">Notas absentismo</label><input class="form-control form-control-sm" name="absence_notes" value="<?= h($formData['absence_notes']) ?>"></div>
 
 <div class="col-12"><label class="form-label">Notas gerais</label><textarea class="form-control form-control-sm" name="general_notes" rows="2"><?= h($formData['general_notes']) ?></textarea></div>
