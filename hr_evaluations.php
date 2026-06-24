@@ -20,6 +20,8 @@ $currentYear = (int) date('Y');
 
 $employees = $pdo->query('SELECT u.id, u.user_number, u.name, u.department_id, u.award_profile, d.name AS department_name FROM users u LEFT JOIN hr_departments d ON d.id = u.department_id WHERE u.is_active = 1 AND u.pin_only_login = 0 ORDER BY u.name COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
 $departments = $pdo->query('SELECT id, name FROM hr_departments ORDER BY name COLLATE NOCASE ASC')->fetchAll(PDO::FETCH_ASSOC);
+$departmentMap = [];
+foreach ($departments as $dep) { $departmentMap[(int) $dep['id']] = (string) $dep['name']; }
 $employeeMap = [];
 foreach ($employees as $emp) { $employeeMap[(int) $emp['id']] = $emp; }
 
@@ -30,6 +32,7 @@ $formData = [
     'award_period' => 'jan_abr',
     'interview_date' => '',
     'award_profile' => 'operador',
+    'department_id' => 0,
     'performance_score' => 0,
     'performance_notes' => '',
     'behavior_score' => 0,
@@ -53,6 +56,7 @@ if (isset($_GET['edit_id'])) {
             $formData = array_merge($formData, [
                 'evaluation_id' => (int) $edit['id'], 'user_id' => (int) $edit['user_id'], 'award_year' => (int) $edit['award_year'],
                 'award_period' => (string) $edit['award_period'], 'interview_date' => (string) ($edit['interview_date'] ?? ''), 'award_profile' => (string) $edit['award_profile'],
+                'department_id' => (int) ($edit['department_id'] ?? 0),
                 'performance_score' => (int) $edit['performance_score'], 'performance_notes' => (string) ($edit['performance_notes'] ?? ''),
                 'behavior_score' => (int) $edit['behavior_score'], 'behavior_notes' => (string) ($edit['behavior_notes'] ?? ''),
                 'punctuality_count' => (int) $edit['punctuality_count'], 'punctuality_notes' => (string) ($edit['punctuality_notes'] ?? ''),
@@ -72,6 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $formData = array_merge($formData, [
             'evaluation_id' => (int) ($_POST['evaluation_id'] ?? 0), 'user_id' => (int) ($_POST['user_id'] ?? 0), 'award_year' => (int) ($_POST['award_year'] ?? $currentYear),
             'award_period' => (string) ($_POST['award_period'] ?? ''), 'interview_date' => trim((string) ($_POST['interview_date'] ?? '')), 'award_profile' => trim((string) ($_POST['award_profile'] ?? '')),
+            'department_id' => (int) ($_POST['department_id'] ?? 0),
             'performance_score' => (int) ($_POST['performance_score'] ?? 0), 'performance_notes' => trim((string) ($_POST['performance_notes'] ?? '')),
             'behavior_score' => (int) ($_POST['behavior_score'] ?? 0), 'behavior_notes' => trim((string) ($_POST['behavior_notes'] ?? '')),
             'punctuality_count' => (int) ($_POST['punctuality_count'] ?? 0), 'punctuality_notes' => trim((string) ($_POST['punctuality_notes'] ?? '')),
@@ -83,6 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!isset($employeeMap[$formData['user_id']])) { $errors[] = 'Colaborador inválido.'; }
         if ($formData['award_year'] < 2024 || $formData['award_year'] > 2100) { $errors[] = 'Ano inválido.'; }
         if (!array_key_exists($formData['award_period'], $periods)) { $errors[] = 'Período inválido.'; }
+        if ((int) $formData['department_id'] > 0 && !isset($departmentMap[(int) $formData['department_id']])) { $errors[] = 'Departamento inválido.'; }
         if ($formData['interview_date'] === '') {
             $errors[] = 'Data da avaliação é obrigatória.';
         } elseif (strtotime($formData['interview_date']) === false) {
@@ -103,7 +109,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!array_key_exists($profileKey, $profiles)) {
                     $profileKey = 'operador';
                 }
-                $rule = taskforce_resolve_evaluation_rule($pdo, (int) $formData['award_year'], $profileKey, isset($employee['department_id']) ? (int) $employee['department_id'] : null);
+                $selectedDepartmentId = (int) ($formData['department_id'] ?: ($employee['department_id'] ?? 0));
+                if ($selectedDepartmentId > 0 && isset($departmentMap[$selectedDepartmentId])) {
+                    $employee['department_id'] = $selectedDepartmentId;
+                    $employee['department_name'] = $departmentMap[$selectedDepartmentId];
+                }
+                $rule = taskforce_resolve_evaluation_rule($pdo, (int) $formData['award_year'], $profileKey, $selectedDepartmentId > 0 ? $selectedDepartmentId : null);
                 $periodValues = taskforce_calculate_period_values($rule['config'], $formData);
 
                 try {
@@ -396,7 +407,7 @@ require __DIR__ . '/partials/header.php';
     <select class="form-select form-select-sm js-calc-field d-none" name="user_id" id="user_id" required>
         <option value="0">Selecione</option>
         <?php foreach ($employees as $emp): ?>
-            <option value="<?= (int) $emp['id'] ?>" <?= (int) $formData['user_id'] === (int) $emp['id'] ? 'selected' : '' ?> data-number="<?= h((string) ($emp['user_number'] ?? '')) ?>" data-name="<?= h((string) ($emp['name'] ?? '')) ?>" data-department="<?= h((string) ($emp['department_name'] ?? '')) ?>" data-profile="<?= h((string) ($emp['award_profile'] ?? 'operador')) ?>"><?= h(format_user_picker_label($emp)) ?></option>
+            <option value="<?= (int) $emp['id'] ?>" <?= (int) $formData['user_id'] === (int) $emp['id'] ? 'selected' : '' ?> data-number="<?= h((string) ($emp['user_number'] ?? '')) ?>" data-name="<?= h((string) ($emp['name'] ?? '')) ?>" data-department="<?= h((string) ($emp['department_name'] ?? '')) ?>" data-department-id="<?= (int) ($emp['department_id'] ?? 0) ?>" data-profile="<?= h((string) ($emp['award_profile'] ?? 'operador')) ?>"><?= h(format_user_picker_label($emp)) ?></option>
         <?php endforeach; ?>
     </select>
 </div>
@@ -406,7 +417,7 @@ require __DIR__ . '/partials/header.php';
 
 <div class="col-md-3"><label class="form-label">Nº colaborador</label><input class="form-control form-control-sm" id="user_number_readonly" readonly></div>
 <div class="col-md-4"><label class="form-label">Nome</label><input class="form-control form-control-sm" id="user_name_readonly" readonly></div>
-<div class="col-md-3"><label class="form-label">Departamento</label><input class="form-control form-control-sm" id="department_readonly" readonly></div>
+<div class="col-md-3"><label class="form-label">Departamento</label><select class="form-select form-select-sm js-calc-field" name="department_id" id="department_id"><option value="0">Do colaborador</option><?php foreach ($departments as $dep): ?><option value="<?= (int) $dep['id'] ?>" <?= (int) $formData['department_id'] === (int) $dep['id'] ? 'selected' : '' ?>><?= h($dep['name']) ?></option><?php endforeach; ?></select><div class="form-text small" id="employee_department_hint"></div></div>
 <div class="col-md-2"><label class="form-label">Perfil</label><select class="form-select form-select-sm js-calc-field" name="award_profile" id="award_profile"><?php foreach ($profiles as $k => $l): ?><option value="<?= h($k) ?>" <?= $formData['award_profile'] === $k ? 'selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?></select></div>
 
 <div class="col-md-3"><label class="form-label">Performance</label><select class="form-select form-select-sm js-calc-field" name="performance_score" id="performance_score"><?php for ($i = 0; $i <= 3; $i++): ?><option value="<?= $i ?>" <?= (int) $formData['performance_score'] === $i ? 'selected' : '' ?>><?= $i ?></option><?php endfor; ?></select></div>
@@ -484,7 +495,13 @@ require __DIR__ . '/partials/header.php';
         const selected = document.querySelector('#user_id option:checked');
         document.getElementById('user_number_readonly').value = selected ? (selected.dataset.number || '') : '';
         document.getElementById('user_name_readonly').value = selected ? (selected.dataset.name || '') : '';
-        document.getElementById('department_readonly').value = selected ? (selected.dataset.department || '') : '';
+        const departmentSelect = document.getElementById('department_id');
+        const departmentHint = document.getElementById('employee_department_hint');
+        if (departmentHint) departmentHint.textContent = selected && selected.dataset.department ? 'Colaborador: ' + selected.dataset.department : '';
+        if (departmentSelect && !departmentSelect.dataset.touched && selected && selected.dataset.departmentId) {
+            departmentSelect.value = selected.dataset.departmentId;
+            departmentSelect.dataset.autoValue = selected.dataset.departmentId;
+        }
         const profile = document.getElementById('award_profile');
         const isEditing = Number(document.getElementById('evaluation_id').value || 0) > 0;
         if (selected && selected.dataset.profile && profile && !profile.dataset.touched && !isEditing) {
@@ -518,6 +535,7 @@ require __DIR__ . '/partials/header.php';
             award_year: Number(document.getElementById('award_year').value || 0),
             award_period: document.getElementById('award_period').value,
             award_profile: document.getElementById('award_profile').value,
+            department_id: Number(document.getElementById('department_id').value || 0),
             performance_score: Number(document.getElementById('performance_score').value || 0),
             behavior_score: Number(document.getElementById('behavior_score').value || 0),
             punctuality_count: Number(document.getElementById('punctuality_count').value || 0),
@@ -577,6 +595,15 @@ require __DIR__ . '/partials/header.php';
             if (absenceInput) delete absenceInput.dataset.manual;
         });
     });
+
+    const departmentSelect = document.getElementById('department_id');
+    if (departmentSelect) {
+        departmentSelect.addEventListener('change', () => {
+            if (departmentSelect.dataset.autoValue !== departmentSelect.value) {
+                departmentSelect.dataset.touched = '1';
+            }
+        });
+    }
 
     const profile = document.getElementById('award_profile');
     if (profile) {
