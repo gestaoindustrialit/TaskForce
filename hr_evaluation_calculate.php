@@ -34,6 +34,7 @@ $punctualityCount = (int) ($payload['punctuality_count'] ?? 0);
 $absenceCount = (int) ($payload['absence_count'] ?? 0);
 $finalAbsenceCount = (int) ($payload['final_absence_count'] ?? 0);
 $evaluationId = isset($payload['evaluation_id']) ? (int) $payload['evaluation_id'] : null;
+$departmentId = (int) ($payload['department_id'] ?? 0);
 
 $validPeriods = array_keys(taskforce_evaluation_periods());
 $errors = [];
@@ -55,6 +56,13 @@ if ($behaviorScore < 0 || $behaviorScore > 3) {
 if ($punctualityCount < 0 || $absenceCount < 0 || $finalAbsenceCount < 0) {
     $errors[] = 'Contagens não podem ser negativas.';
 }
+if ($departmentId > 0) {
+    $departmentStmt = $pdo->prepare('SELECT id FROM hr_departments WHERE id = ? LIMIT 1');
+    $departmentStmt->execute([$departmentId]);
+    if (!$departmentStmt->fetchColumn()) {
+        $errors[] = 'Departamento inválido.';
+    }
+}
 
 if ($errors) {
     http_response_code(422);
@@ -74,11 +82,12 @@ if (!array_key_exists($profileKey, taskforce_evaluation_profiles())) {
     $profileKey = 'operador';
 }
 
+$ruleDepartmentId = $departmentId > 0 ? $departmentId : (isset($employee['department_id']) ? (int) $employee['department_id'] : null);
 $rule = taskforce_resolve_evaluation_rule(
     $pdo,
     $awardYear,
     $profileKey,
-    isset($employee['department_id']) ? (int) $employee['department_id'] : null
+    $ruleDepartmentId
 );
 
 $suggestedCounts = taskforce_suggest_evaluation_counts($pdo, $targetUserId, $awardYear, $awardPeriod);
